@@ -13,5 +13,6 @@ cmds = [
 
 [phases.release]
 cmds = [
+    "php artisan app:create-schemas",
     "php artisan migrate --force"
 ]

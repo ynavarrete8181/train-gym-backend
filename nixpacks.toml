@@ -1,0 +1,14 @@
+[phases.setup]
+nixPkgs = ["php84", "php84Packages.composer", "nodejs_20", "postgresql"]
+
+[phases.build]
+cmds = [
+  "composer install --no-dev --optimize-autoloader --no-interaction",
+  "php artisan config:clear",
+  "php artisan cache:clear",
+  "php artisan config:cache",
+  "php artisan route:cache"
+]
+
+[start]
+cmd = "php artisan serve --host=0.0.0.0 --port=$PORT"

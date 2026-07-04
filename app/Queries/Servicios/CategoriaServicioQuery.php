@@ -9,8 +9,8 @@ class CategoriaServicioQuery
     public function all(): array
     {
         return DB::table('train_gimnasio.categoria_servicios as c')
-            ->leftJoin('train_gimnasio.auth_usuarios as au', 'au.id', '=', 'c.user_id')
-            ->leftJoin('train_gimnasio.personas as p', 'p.id', '=', 'au.persona_id')
+            ->leftJoin('seguridad.usuarios as au', 'au.id', '=', 'c.user_id')
+            ->leftJoin('core.personas as p', 'p.id', '=', 'au.persona_id')
             ->selectRaw("
                 c.id,
                 c.nombre,
@@ -34,8 +34,8 @@ class CategoriaServicioQuery
     public function find(int $id): ?array
     {
         $row = DB::table('train_gimnasio.categoria_servicios as c')
-            ->leftJoin('train_gimnasio.auth_usuarios as au', 'au.id', '=', 'c.user_id')
-            ->leftJoin('train_gimnasio.personas as p', 'p.id', '=', 'au.persona_id')
+            ->leftJoin('seguridad.usuarios as au', 'au.id', '=', 'c.user_id')
+            ->leftJoin('core.personas as p', 'p.id', '=', 'au.persona_id')
             ->selectRaw("
                 c.id,
                 c.nombre,
@@ -94,4 +94,3 @@ class CategoriaServicioQuery
         ];
     }
 }
-

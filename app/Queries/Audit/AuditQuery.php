@@ -44,10 +44,10 @@ class AuditQuery
 
     private function baseQuery(array $filters): Builder
     {
-        $query = DB::table('train_gimnasio.aud_cambios as a')
-            ->leftJoin('train_gimnasio.auth_usuarios as au', 'au.id', '=', 'a.actor_usuario_id')
-            ->leftJoin('train_gimnasio.personas as p', 'p.id', '=', 'au.persona_id')
-            ->leftJoin('train_gimnasio.auth_roles as ar', 'ar.id', '=', 'a.actor_rol_id')
+        $query = DB::table('auditoria.aud_cambios as a')
+            ->leftJoin('seguridad.usuarios as au', 'au.id', '=', 'a.actor_usuario_id')
+            ->leftJoin('core.personas as p', 'p.id', '=', 'au.persona_id')
+            ->leftJoin('seguridad.roles as ar', 'ar.id', '=', 'a.actor_rol_id')
             ->selectRaw("
                 a.id,
                 a.gimnasio_id,
@@ -153,4 +153,3 @@ class AuditQuery
         ];
     }
 }
-

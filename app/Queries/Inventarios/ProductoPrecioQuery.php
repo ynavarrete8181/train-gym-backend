@@ -15,8 +15,8 @@ class ProductoPrecioQuery
 
     public function byProducto(int $productoId): array
     {
-        return DB::table('train_gimnasio.producto_precios as pp')
-            ->leftJoin('train_gimnasio.sedes as s', 's.id', '=', 'pp.sede_id')
+        return DB::table('inventario.producto_precios as pp')
+            ->leftJoin('core.sedes as s', 's.id', '=', 'pp.sede_id')
             ->selectRaw("
                 pp.id,
                 pp.producto_id,
@@ -62,8 +62,8 @@ class ProductoPrecioQuery
 
     public function find(int $id): ?array
     {
-        $row = DB::table('train_gimnasio.producto_precios as pp')
-            ->leftJoin('train_gimnasio.sedes as s', 's.id', '=', 'pp.sede_id')
+        $row = DB::table('inventario.producto_precios as pp')
+            ->leftJoin('core.sedes as s', 's.id', '=', 'pp.sede_id')
             ->selectRaw("
                 pp.id,
                 pp.producto_id,

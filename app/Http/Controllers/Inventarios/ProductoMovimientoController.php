@@ -92,6 +92,32 @@ class ProductoMovimientoController extends Controller
         }
     }
 
+    public function transferencia(Request $request)
+    {
+        $data = $request->validate([
+            'producto_id' => ['required', 'integer'],
+            'sede_origen_id' => ['required', 'integer', 'different:sede_destino_id'],
+            'sede_destino_id' => ['required', 'integer'],
+            'lote_id' => ['nullable', 'integer'],
+            'motivo' => ['required', 'string', 'max:100'],
+            'cantidad' => ['required', 'numeric', 'gt:0'],
+            'costo_unitario' => ['nullable', 'numeric', 'gte:0'],
+            'precio_unitario' => ['nullable', 'numeric', 'gte:0'],
+            'observacion' => ['nullable', 'string'],
+        ]);
+
+        try {
+            $transferencia = $this->productoMovimientoService->registrarTransferencia($data, $request);
+
+            return response()->json([
+                'message' => 'Transferencia registrada correctamente',
+                'data' => $transferencia,
+            ], 201);
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
+
     public function inventarioInicial(Request $request, int $id)
     {
         $data = $request->validate([

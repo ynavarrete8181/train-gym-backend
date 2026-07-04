@@ -4,8 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\AuthUsuario;
 use App\Services\Audit\AuditService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use RuntimeException;
 
 class AuthController extends Controller
 {
@@ -16,19 +19,70 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         $data = $request->validate([
-            'email' => ['required', 'string'],
-            'password' => ['required', 'string'],
-            //'gimnasio_id' => ['required', 'integer'],
+            'cedula' => ['required', 'string', 'max:30'],
+            'password' => ['required', 'string', 'max:255'],
         ]);
 
+        $cedula = trim((string) $data['cedula']);
+        $password = (string) $data['password'];
+
         $u = AuthUsuario::query()
-            // ->where('gimnasio_id', $data['gimnasio_id'])
-            ->where('email', $data['email'])
-            ->where('estado', 'ACTIVO')
+            ->select('seguridad.usuarios.*')
+            ->leftJoin('core.personas', 'core.personas.id', '=', 'seguridad.usuarios.persona_id')
+            ->where(function ($query) use ($cedula) {
+                $query->where('seguridad.usuarios.cedula', $cedula)
+                    ->orWhere('core.personas.numero_identificacion', $cedula);
+            })
             ->first();
 
-        if (!$u || !$u->password_hash || !Hash::check($data['password'], $u->password_hash)) {
-            return response()->json(['message' => 'Credenciales inválidas'], 401);
+        if (!$u) {
+            return response()->json([
+                'status' => 'warning',
+                'message' => 'La cédula ingresada no está registrada.',
+            ], 404);
+        }
+
+        if (strtoupper((string) $u->estado) !== 'ACTIVO') {
+            return response()->json([
+                'status' => 'warning',
+                'message' => 'Tu usuario no se encuentra activo. Contacta al administrador.',
+            ], 403);
+        }
+
+        if (!$u->password_hash) {
+            return response()->json([
+                'status' => 'warning',
+                'message' => 'Tu usuario no tiene una contraseña configurada.',
+            ], 422);
+        }
+
+        try {
+            $passwordIsValid = Hash::check($password, $u->password_hash);
+        } catch (RuntimeException $exception) {
+            if ($u->password_hash === $password || $u->password_hash === md5($password)) {
+                $passwordIsValid = true;
+                
+                DB::table('seguridad.usuarios')
+                    ->where('id', $u->id)
+                    ->update([
+                        'password_hash' => Hash::make($password),
+                        'updated_at' => now(),
+                    ]);
+            } else {
+                report($exception);
+
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'La contraseña del usuario no tiene un formato válido. Actualízala desde administración.',
+                ], 500);
+            }
+        }
+
+        if (!$passwordIsValid) {
+            return response()->json([
+                'status' => 'warning',
+                'message' => 'La contraseña ingresada es incorrecta.',
+            ], 401);
         }
 
         $token = $u->createToken('train-gym-web')->plainTextToken;
@@ -42,16 +96,15 @@ class AuthController extends Controller
             'datos_despues' => [
                 'usuario_id' => $u->id,
                 'email' => $u->email,
+                'cedula' => $cedula,
             ],
         ]);
 
         return response()->json([
+            'status' => 'success',
+            'message' => 'Inicio de sesión correcto.',
             'token' => $token,
-            'user' => [
-                'id' => $u->id,
-                'email' => $u->email,
-                'gimnasio_id' => $u->gimnasio_id,
-            ],
+            'user' => $this->mapUserPayload($u),
         ]);
     }
 
@@ -79,6 +132,54 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        return response()->json($request->user());
+        return response()->json($this->mapUserPayload($request->user()));
+    }
+
+    private function mapUserPayload(?AuthUsuario $u): ?array
+    {
+        if (!$u) {
+            return null;
+        }
+
+        $persona = null;
+        if ($u->persona_id) {
+            $persona = DB::table('core.personas')
+                ->select('id', 'nombres', 'apellidos', 'numero_identificacion')
+                ->where('id', $u->persona_id)
+                ->first();
+        }
+
+        return [
+            'id' => $u->id,
+            'email' => $u->email,
+            'gimnasio_id' => $u->gimnasio_id,
+            'persona_id' => $u->persona_id,
+            'username' => trim(($persona->nombres ?? '') . ' ' . ($persona->apellidos ?? '')) ?: $u->email,
+            'name' => trim(($persona->nombres ?? '') . ' ' . ($persona->apellidos ?? '')) ?: $u->email,
+            'cedula' => $u->cedula ?: ($persona->numero_identificacion ?? null),
+            'roles' => DB::table('seguridad.usuario_roles as ur')
+                ->join('seguridad.roles as r', 'r.id', '=', 'ur.rol_id')
+                ->where('ur.usuario_id', $u->id)
+                ->orderBy('r.nombre')
+                ->get(['r.id', 'r.codigo', 'r.nombre'])
+                ->map(fn ($rol) => [
+                    'id' => (int) $rol->id,
+                    'codigo' => $rol->codigo,
+                    'nombre' => $rol->nombre,
+                ])
+                ->all(),
+            'sedes' => DB::table('seguridad.usuario_sedes as us')
+                ->join('core.sedes as s', 's.id', '=', 'us.sede_id')
+                ->where('us.usuario_id', $u->id)
+                ->where('us.activo', true)
+                ->where('s.activa', true)
+                ->orderBy('s.nombre')
+                ->get(['s.id', 's.nombre'])
+                ->map(fn ($sede) => [
+                    'id' => (int) $sede->id,
+                    'nombre' => $sede->nombre,
+                ])
+                ->all(),
+        ];
     }
 }

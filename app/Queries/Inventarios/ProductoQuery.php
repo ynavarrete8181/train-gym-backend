@@ -21,7 +21,7 @@ class ProductoQuery
 
     public function categories(): array
     {
-        return DB::table('train_gimnasio.categorias_producto')
+        return DB::table('inventario.categorias_producto')
             ->selectRaw("
                 id,
                 nombre,
@@ -48,7 +48,7 @@ class ProductoQuery
 
     public function sedes(): array
     {
-        return DB::table('train_gimnasio.sedes')
+        return DB::table('core.sedes')
             ->select('id', 'nombre', 'direccion', 'telefono', 'activa')
             ->where('activa', true)
             ->orderBy('nombre')
@@ -152,8 +152,8 @@ class ProductoQuery
                 pv.monto AS precio_venta,
                 au.email AS usuario_email,
                 CONCAT(COALESCE(pe.nombres, ''), ' ', COALESCE(pe.apellidos, '')) AS usuario_nombre
-            FROM train_gimnasio.productos p
-            INNER JOIN train_gimnasio.categorias_producto cp
+            FROM inventario.productos p
+            INNER JOIN inventario.categorias_producto cp
                 ON cp.id = p.categoria_id
             LEFT JOIN LATERAL (
                 SELECT
@@ -161,7 +161,7 @@ class ProductoQuery
                     SUM(pss.stock_reservado) AS stock_reservado,
                     SUM(pss.stock_disponible) AS stock_disponible,
                     MIN(pss.stock_minimo) AS stock_minimo
-                FROM train_gimnasio.producto_stock_sede pss
+                FROM inventario.producto_stock_sede pss
                 WHERE pss.producto_id = p.id
                   AND pss.estado = 1
             ) st ON true
@@ -180,7 +180,7 @@ class ProductoQuery
                             'estado', pss.estado,
                             'stock_inicial', COALESCE((
                                 SELECT SUM(mi.cantidad)
-                                FROM train_gimnasio.movimientos_inventario mi
+                                FROM inventario.movimientos_inventario mi
                                 WHERE mi.producto_id = pss.producto_id
                                   AND mi.sede_id = pss.sede_id
                                   AND mi.tipo_movimiento = 'ENTRADA'
@@ -188,13 +188,13 @@ class ProductoQuery
                             ), 0),
                             'movimientos_total', COALESCE((
                                 SELECT COUNT(*)
-                                FROM train_gimnasio.movimientos_inventario mi
+                                FROM inventario.movimientos_inventario mi
                                 WHERE mi.producto_id = pss.producto_id
                                   AND mi.sede_id = pss.sede_id
                             ), 0),
                             'movimientos_no_inicial', COALESCE((
                                 SELECT COUNT(*)
-                                FROM train_gimnasio.movimientos_inventario mi
+                                FROM inventario.movimientos_inventario mi
                                 WHERE mi.producto_id = pss.producto_id
                                   AND mi.sede_id = pss.sede_id
                                   AND NOT (
@@ -205,7 +205,7 @@ class ProductoQuery
                             'inventario_inicial_editable', (
                                 COALESCE((
                                     SELECT COUNT(*)
-                                    FROM train_gimnasio.movimientos_inventario mi
+                                    FROM inventario.movimientos_inventario mi
                                     WHERE mi.producto_id = pss.producto_id
                                       AND mi.sede_id = pss.sede_id
                                       AND NOT (
@@ -217,8 +217,8 @@ class ProductoQuery
                         )
                         ORDER BY pss.id ASC
                     ) AS stocks
-                FROM train_gimnasio.producto_stock_sede pss
-                LEFT JOIN train_gimnasio.sedes s
+                FROM inventario.producto_stock_sede pss
+                LEFT JOIN core.sedes s
                     ON s.id = pss.sede_id
                 WHERE pss.producto_id = p.id
                   AND pss.estado = 1
@@ -228,8 +228,8 @@ class ProductoQuery
                     pss.sede_id,
                     s.nombre AS sede_nombre,
                     pss.ubicacion
-                FROM train_gimnasio.producto_stock_sede pss
-                LEFT JOIN train_gimnasio.sedes s
+                FROM inventario.producto_stock_sede pss
+                LEFT JOIN core.sedes s
                     ON s.id = pss.sede_id
                 WHERE pss.producto_id = p.id
                   AND pss.estado = 1
@@ -250,13 +250,13 @@ class ProductoQuery
                         )
                         ORDER BY pl.id DESC
                     ) AS lotes
-                FROM train_gimnasio.producto_lotes pl
+                FROM inventario.producto_lotes pl
                 WHERE pl.producto_id = p.id
                   AND pl.estado = 1
             ) lp ON true
             LEFT JOIN LATERAL (
                 SELECT pp.monto
-                FROM train_gimnasio.producto_precios pp
+                FROM inventario.producto_precios pp
                 WHERE pp.producto_id = p.id
                   AND pp.tipo_precio = 'COSTO'
                   AND pp.estado = 1
@@ -266,7 +266,7 @@ class ProductoQuery
             ) pc ON true
             LEFT JOIN LATERAL (
                 SELECT pp.monto
-                FROM train_gimnasio.producto_precios pp
+                FROM inventario.producto_precios pp
                 WHERE pp.producto_id = p.id
                   AND pp.tipo_precio = 'VENTA'
                   AND pp.estado = 1
@@ -274,9 +274,9 @@ class ProductoQuery
                 ORDER BY pp.vigencia_inicio DESC, pp.id DESC
                 LIMIT 1
             ) pv ON true
-            LEFT JOIN train_gimnasio.auth_usuarios au
+            LEFT JOIN seguridad.usuarios au
                 ON au.id = p.created_by
-            LEFT JOIN train_gimnasio.personas pe
+            LEFT JOIN core.personas pe
                 ON pe.id = au.persona_id
             {$where}
         ";

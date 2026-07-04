@@ -20,10 +20,10 @@ class ProductoMovimientoQuery
 
     private function baseQuery(array $filters): Builder
     {
-        $query = DB::table('train_gimnasio.movimientos_inventario as m')
-            ->join('train_gimnasio.productos as p', 'p.id', '=', 'm.producto_id')
-            ->join('train_gimnasio.sedes as s', 's.id', '=', 'm.sede_id')
-            ->leftJoin('train_gimnasio.producto_lotes as l', 'l.id', '=', 'm.lote_id')
+        $query = DB::table('inventario.movimientos_inventario as m')
+            ->join('inventario.productos as p', 'p.id', '=', 'm.producto_id')
+            ->join('core.sedes as s', 's.id', '=', 'm.sede_id')
+            ->leftJoin('inventario.producto_lotes as l', 'l.id', '=', 'm.lote_id')
             ->selectRaw("
                 m.id,
                 m.producto_id,

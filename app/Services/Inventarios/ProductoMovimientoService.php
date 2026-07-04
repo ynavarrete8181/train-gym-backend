@@ -11,10 +11,6 @@ use RuntimeException;
 
 class ProductoMovimientoService
 {
-    private const STOCK_LOCK = 6301;
-    private const LOTE_LOCK = 6302;
-    private const MOVIMIENTO_LOCK = 6303;
-
     public function __construct(
         private ProductoMovimientoQuery $productoMovimientoQuery,
         private ProductoQuery $productoQuery,
@@ -50,6 +46,100 @@ class ProductoMovimientoService
         return $this->registrarMovimiento($input, $request, 'SALIDA');
     }
 
+    public function registrarTransferencia(array $input, Request $request): array
+    {
+        $productoId = (int) ($input['producto_id'] ?? 0);
+        $sedeOrigenId = (int) ($input['sede_origen_id'] ?? 0);
+        $sedeDestinoId = (int) ($input['sede_destino_id'] ?? 0);
+        $loteOrigenId = !empty($input['lote_id']) ? (int) $input['lote_id'] : null;
+
+        if ($sedeOrigenId === $sedeDestinoId) {
+            throw new RuntimeException('La sede origen y la sede destino deben ser diferentes');
+        }
+
+        $producto = $this->productoQuery->find($productoId);
+        if (!$producto) {
+            throw new RuntimeException('Producto no encontrado');
+        }
+
+        $loteOrigen = null;
+        if ($loteOrigenId) {
+            $loteOrigen = DB::table('inventario.producto_lotes')
+                ->where('id', $loteOrigenId)
+                ->where('producto_id', $productoId)
+                ->where('sede_id', $sedeOrigenId)
+                ->first();
+
+            if (!$loteOrigen) {
+                throw new RuntimeException('El lote seleccionado no pertenece al producto y sede origen');
+            }
+        }
+
+        $referenciaTransferencia = (int) now()->format('YmdHisv');
+        $motivo = strtoupper(trim((string) ($input['motivo'] ?? 'TRANSFERENCIA_INTERNA')));
+        $observacionBase = trim((string) ($input['observacion'] ?? ''));
+        $observacion = trim($observacionBase . " | Transferencia {$sedeOrigenId} -> {$sedeDestinoId}");
+
+        return DB::transaction(function () use (
+            $input,
+            $request,
+            $producto,
+            $sedeOrigenId,
+            $sedeDestinoId,
+            $loteOrigen,
+            $referenciaTransferencia,
+            $motivo,
+            $observacion
+        ) {
+            $payloadSalida = [
+                'producto_id' => (int) $input['producto_id'],
+                'sede_id' => $sedeOrigenId,
+                'lote_id' => $loteOrigen?->id,
+                'tipo_movimiento' => 'TRANSFERENCIA_SALIDA',
+                'motivo' => $motivo,
+                'cantidad' => (float) $input['cantidad'],
+                'costo_unitario' => isset($input['costo_unitario']) ? (float) $input['costo_unitario'] : null,
+                'precio_unitario' => isset($input['precio_unitario']) ? (float) $input['precio_unitario'] : null,
+                'referencia_tipo' => 'TRANSFERENCIA',
+                'referencia_id' => $referenciaTransferencia,
+                'observacion' => $observacion,
+            ];
+
+            $payloadEntrada = [
+                'producto_id' => (int) $input['producto_id'],
+                'sede_id' => $sedeDestinoId,
+                'tipo_movimiento' => 'TRANSFERENCIA_ENTRADA',
+                'motivo' => $motivo,
+                'cantidad' => (float) $input['cantidad'],
+                'costo_unitario' => isset($input['costo_unitario']) ? (float) $input['costo_unitario'] : null,
+                'precio_unitario' => isset($input['precio_unitario']) ? (float) $input['precio_unitario'] : null,
+                'referencia_tipo' => 'TRANSFERENCIA',
+                'referencia_id' => $referenciaTransferencia,
+                'observacion' => $observacion,
+            ];
+
+            if ($loteOrigen) {
+                $payloadEntrada['codigo_lote'] = $loteOrigen->codigo_lote;
+                $payloadEntrada['fecha_elaboracion'] = $loteOrigen->fecha_elaboracion;
+                $payloadEntrada['fecha_vencimiento'] = $loteOrigen->fecha_vencimiento;
+            }
+
+            $salida = $this->registrarMovimiento($payloadSalida, $request, 'SALIDA');
+            $entrada = $this->registrarMovimiento($payloadEntrada, $request, 'ENTRADA');
+
+            return [
+                'referencia_transferencia' => $referenciaTransferencia,
+                'producto_id' => (int) $input['producto_id'],
+                'producto_nombre' => $producto['nombre'],
+                'sede_origen_id' => $sedeOrigenId,
+                'sede_destino_id' => $sedeDestinoId,
+                'cantidad' => (float) $input['cantidad'],
+                'salida' => $salida,
+                'entrada' => $entrada,
+            ];
+        });
+    }
+
     public function registrarInventarioInicial(array $input, Request $request): array
     {
         $productoId = (int) ($input['producto_id'] ?? 0);
@@ -66,7 +156,7 @@ class ProductoMovimientoService
         $payload = $this->normalizeInventarioInicialPayload($input, $producto);
 
         return DB::transaction(function () use ($payload, $producto, $request) {
-            $stock = DB::table('train_gimnasio.producto_stock_sede')
+            $stock = DB::table('inventario.producto_stock_sede')
                 ->where('producto_id', $payload['producto_id'])
                 ->where('sede_id', $payload['sede_id'])
                 ->first();
@@ -86,10 +176,7 @@ class ProductoMovimientoService
             }
 
             if (!$stock) {
-                $stockId = $this->nextId('train_gimnasio.producto_stock_sede', self::STOCK_LOCK);
-
-                DB::table('train_gimnasio.producto_stock_sede')->insert([
-                    'id' => $stockId,
+                $stockId = (int) DB::table('inventario.producto_stock_sede')->insertGetId([
                     'producto_id' => $payload['producto_id'],
                     'sede_id' => $payload['sede_id'],
                     'stock_actual' => 0,
@@ -109,7 +196,7 @@ class ProductoMovimientoService
                     $stockAnterior = 0;
                 }
 
-                DB::table('train_gimnasio.producto_stock_sede')
+                DB::table('inventario.producto_stock_sede')
                     ->where('id', $stockId)
                     ->update([
                         'stock_actual' => $stockAnterior,
@@ -128,7 +215,7 @@ class ProductoMovimientoService
             if ($payload['maneja_lotes']) {
                 foreach ($payload['lotes'] as $loteInput) {
                     $cantidad = (float) $loteInput['cantidad_inicial'];
-                    $lote = DB::table('train_gimnasio.producto_lotes')
+                    $lote = DB::table('inventario.producto_lotes')
                         ->where('producto_id', $payload['producto_id'])
                         ->where('sede_id', $payload['sede_id'])
                         ->where('codigo_lote', $loteInput['codigo_lote'])
@@ -154,7 +241,7 @@ class ProductoMovimientoService
                             throw new RuntimeException("El lote {$loteInput['codigo_lote']} ya existe con una fecha de vencimiento diferente");
                         }
 
-                        DB::table('train_gimnasio.producto_lotes')
+                        DB::table('inventario.producto_lotes')
                             ->where('id', $loteId)
                             ->update([
                                 'fecha_elaboracion' => $lote->fecha_elaboracion ?: $loteInput['fecha_elaboracion'],
@@ -164,10 +251,7 @@ class ProductoMovimientoService
                                 'updated_at' => now(),
                             ]);
                     } else {
-                        $loteId = $this->nextId('train_gimnasio.producto_lotes', self::LOTE_LOCK);
-
-                        DB::table('train_gimnasio.producto_lotes')->insert([
-                            'id' => $loteId,
+                        $loteId = (int) DB::table('inventario.producto_lotes')->insertGetId([
                             'producto_id' => $payload['producto_id'],
                             'sede_id' => $payload['sede_id'],
                             'codigo_lote' => $loteInput['codigo_lote'],
@@ -184,10 +268,7 @@ class ProductoMovimientoService
 
                     $stockPrevioMovimiento = $stockNuevo;
                     $stockNuevo += $cantidad;
-                    $movimientoId = $this->nextId('train_gimnasio.movimientos_inventario', self::MOVIMIENTO_LOCK);
-
-                    DB::table('train_gimnasio.movimientos_inventario')->insert([
-                        'id' => $movimientoId,
+                    $movimientoId = (int) DB::table('inventario.movimientos_inventario')->insertGetId([
                         'producto_id' => $payload['producto_id'],
                         'sede_id' => $payload['sede_id'],
                         'lote_id' => $loteId,
@@ -217,10 +298,7 @@ class ProductoMovimientoService
             } else {
                 $cantidad = $payload['cantidad'];
                 $stockNuevo += $cantidad;
-                $movimientoId = $this->nextId('train_gimnasio.movimientos_inventario', self::MOVIMIENTO_LOCK);
-
-                DB::table('train_gimnasio.movimientos_inventario')->insert([
-                    'id' => $movimientoId,
+                $movimientoId = (int) DB::table('inventario.movimientos_inventario')->insertGetId([
                     'producto_id' => $payload['producto_id'],
                     'sede_id' => $payload['sede_id'],
                     'lote_id' => null,
@@ -241,7 +319,7 @@ class ProductoMovimientoService
                 $movimientosIds[] = $movimientoId;
             }
 
-            DB::table('train_gimnasio.producto_stock_sede')
+            DB::table('inventario.producto_stock_sede')
                 ->where('id', $stockId)
                 ->update([
                     'stock_actual' => $stockNuevo,
@@ -306,6 +384,186 @@ class ProductoMovimientoService
         });
     }
 
+    public function stockPorProducto(int $productoId): array
+    {
+        $rows = DB::table('inventario.producto_stock_sede as ps')
+            ->join('core.sedes as s', 'ps.sede_id', '=', 's.id')
+            ->where('ps.producto_id', $productoId)
+            ->where('ps.estado', 1)
+            ->select(
+                'ps.id',
+                'ps.producto_id',
+                'ps.sede_id',
+                's.nombre as sede_nombre',
+                'ps.stock_actual as cantidad',
+                'ps.stock_actual',
+                'ps.stock_minimo',
+                'ps.ubicacion'
+            )
+            ->orderBy('s.nombre')
+            ->get()
+            ->map(fn ($row) => (array) $row)
+            ->values()
+            ->all();
+
+        if (empty($rows)) {
+            return [];
+        }
+
+        $sedeIds = array_values(array_unique(array_map(fn ($row) => (int) $row['sede_id'], $rows)));
+
+        $lotesPorSede = DB::table('inventario.producto_lotes')
+            ->where('producto_id', $productoId)
+            ->whereIn('sede_id', $sedeIds)
+            ->where('estado', 1)
+            ->orderByRaw('coalesce(fecha_vencimiento, ?)', ['9999-12-31'])
+            ->orderBy('codigo_lote')
+            ->get([
+                'id',
+                'sede_id',
+                'codigo_lote',
+                'fecha_elaboracion',
+                'fecha_vencimiento',
+                'stock_actual as cantidad',
+            ])
+            ->groupBy('sede_id');
+
+        $stockInicialPorSede = DB::table('inventario.movimientos_inventario')
+            ->where('producto_id', $productoId)
+            ->whereIn('sede_id', $sedeIds)
+            ->where('tipo_movimiento', 'ENTRADA')
+            ->where('motivo', 'INVENTARIO_INICIAL')
+            ->selectRaw('sede_id, coalesce(sum(cantidad), 0) as stock_inicial')
+            ->groupBy('sede_id')
+            ->pluck('stock_inicial', 'sede_id');
+
+        $movimientosInicialesPorSede = DB::table('inventario.movimientos_inventario')
+            ->where('producto_id', $productoId)
+            ->whereIn('sede_id', $sedeIds)
+            ->where('tipo_movimiento', 'ENTRADA')
+            ->where('motivo', 'INVENTARIO_INICIAL')
+            ->selectRaw('sede_id, count(*) as movimientos_iniciales')
+            ->groupBy('sede_id')
+            ->pluck('movimientos_iniciales', 'sede_id');
+
+        $movimientosPosterioresPorSede = DB::table('inventario.movimientos_inventario')
+            ->where('producto_id', $productoId)
+            ->whereIn('sede_id', $sedeIds)
+            ->selectRaw("
+                sede_id,
+                sum(
+                    case
+                        when tipo_movimiento = 'ENTRADA' and motivo = 'INVENTARIO_INICIAL' then 0
+                        else 1
+                    end
+                ) as movimientos_posteriores
+            ")
+            ->groupBy('sede_id')
+            ->pluck('movimientos_posteriores', 'sede_id');
+
+        return array_map(function (array $row) use ($lotesPorSede, $stockInicialPorSede, $movimientosInicialesPorSede, $movimientosPosterioresPorSede) {
+            $lotes = collect($lotesPorSede->get($row['sede_id'], []))
+                ->map(fn ($lote) => [
+                    'id' => (int) $lote->id,
+                    'codigo_lote' => $lote->codigo_lote,
+                    'fecha_elaboracion' => $lote->fecha_elaboracion,
+                    'fecha_vencimiento' => $lote->fecha_vencimiento,
+                    'cantidad' => (float) $lote->cantidad,
+                ])
+                ->values()
+                ->all();
+
+            $tieneInventarioInicial = ((int) ($movimientosInicialesPorSede[$row['sede_id']] ?? 0)) > 0;
+            $sinMovimientosPosteriores = ((int) ($movimientosPosterioresPorSede[$row['sede_id']] ?? 0)) === 0;
+            $inventarioInicialEditable = $tieneInventarioInicial && $sinMovimientosPosteriores;
+
+            return [
+                'id' => (int) $row['id'],
+                'producto_id' => (int) $row['producto_id'],
+                'sede_id' => (int) $row['sede_id'],
+                'sede_nombre' => $row['sede_nombre'],
+                'cantidad' => (float) $row['cantidad'],
+                'stock_actual' => (float) $row['stock_actual'],
+                'stock_inicial' => (float) ($stockInicialPorSede[$row['sede_id']] ?? 0),
+                'stock_minimo' => (float) $row['stock_minimo'],
+                'ubicacion' => $row['ubicacion'],
+                'tiene_inventario_inicial' => $tieneInventarioInicial,
+                'inventario_inicial_editable' => $inventarioInicialEditable,
+                'inventario_inicial_eliminable' => $inventarioInicialEditable,
+                'cantidad_lotes' => count($lotes),
+                'lotes' => $lotes,
+            ];
+        }, $rows);
+    }
+
+    public function eliminarInventarioInicial(int $productoId, int $stockId, Request $request): array
+    {
+        $stock = DB::table('inventario.producto_stock_sede')
+            ->where('id', $stockId)
+            ->where('producto_id', $productoId)
+            ->first();
+
+        if (!$stock) {
+            throw new RuntimeException('No se encontró el stock seleccionado para este producto');
+        }
+
+        $sedeId = (int) $stock->sede_id;
+        $before = collect($this->stockPorProducto($productoId))->firstWhere('id', $stockId);
+
+        if (!$before) {
+            throw new RuntimeException('No se pudo leer el detalle de la bodega seleccionada');
+        }
+
+        $this->ensureInventarioInicialEditable($productoId, $sedeId);
+
+        if (!$this->hasMovimientosIniciales($productoId, $sedeId)) {
+            throw new RuntimeException('La bodega seleccionada no tiene un inventario inicial que se pueda eliminar');
+        }
+
+        return DB::transaction(function () use ($productoId, $stockId, $stock, $sedeId, $before, $request) {
+            $userId = $request->user()?->id;
+
+            $this->resetInventarioInicialExistente($productoId, $sedeId, $stockId, $userId);
+
+            DB::table('inventario.producto_stock_sede')
+                ->where('id', $stockId)
+                ->update([
+                    'estado' => 0,
+                    'stock_minimo' => 0,
+                    'ubicacion' => null,
+                    'updated_by' => $userId,
+                    'updated_at' => now(),
+                ]);
+
+            $after = [
+                'id' => $stockId,
+                'producto_id' => $productoId,
+                'sede_id' => $sedeId,
+                'estado' => 0,
+                'stock_actual' => 0,
+            ];
+
+            $this->auditService->deleted(
+                $request,
+                'producto_stock_sede',
+                $stockId,
+                $before,
+                $after,
+                [
+                    'modulo' => 'inventarios',
+                    'accion' => 'eliminar_inventario_inicial_producto',
+                    'sede_id' => $sedeId,
+                ]
+            );
+
+            return [
+                'stock_id' => $stockId,
+                'producto_id' => $productoId,
+                'sede_id' => $sedeId,
+            ];
+        });
+    }
+
     private function registrarMovimiento(array $input, Request $request, string $tipoEsperado): array
     {
         $payload = $this->normalizePayload($input, $tipoEsperado);
@@ -315,13 +573,26 @@ class ProductoMovimientoService
             throw new RuntimeException('Producto no encontrado');
         }
 
-        $stock = DB::table('train_gimnasio.producto_stock_sede')
+        $stock = DB::table('inventario.producto_stock_sede')
             ->where('producto_id', $payload['producto_id'])
             ->where('sede_id', $payload['sede_id'])
             ->first();
 
         if (!$stock) {
-            throw new RuntimeException('No existe configuración de stock para la sede seleccionada');
+            $stockId = DB::table('inventario.producto_stock_sede')->insertGetId([
+                'producto_id' => $payload['producto_id'],
+                'sede_id' => $payload['sede_id'],
+                'stock_actual' => 0,
+                'stock_reservado' => 0,
+                'stock_disponible' => 0,
+                'stock_minimo' => 0,
+                'ubicacion' => 'ALMACEN PRINCIPAL',
+                'estado' => 1,
+                'created_by' => $request->user()?->id ?? 0,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $stock = DB::table('inventario.producto_stock_sede')->where('id', $stockId)->first();
         }
 
         if (!empty($producto['maneja_lotes'])) {
@@ -344,7 +615,7 @@ class ProductoMovimientoService
                 throw new RuntimeException('Stock insuficiente para realizar el movimiento');
             }
 
-            DB::table('train_gimnasio.producto_stock_sede')
+            DB::table('inventario.producto_stock_sede')
                 ->where('id', $stock->id)
                 ->update([
                     'stock_actual' => $stockNuevo,
@@ -363,7 +634,7 @@ class ProductoMovimientoService
                     throw new RuntimeException('Stock insuficiente en el lote seleccionado');
                 }
 
-                DB::table('train_gimnasio.producto_lotes')
+                DB::table('inventario.producto_lotes')
                     ->where('id', $loteId)
                     ->update([
                         'stock_actual' => $loteNuevo,
@@ -372,10 +643,7 @@ class ProductoMovimientoService
                     ]);
             }
 
-            $id = $this->nextId('train_gimnasio.movimientos_inventario', self::MOVIMIENTO_LOCK);
-
-            DB::table('train_gimnasio.movimientos_inventario')->insert([
-                'id' => $id,
+            $id = (int) DB::table('inventario.movimientos_inventario')->insertGetId([
                 'producto_id' => $payload['producto_id'],
                 'sede_id' => $payload['sede_id'],
                 'lote_id' => $loteId,
@@ -393,7 +661,7 @@ class ProductoMovimientoService
                 'created_at' => now(),
             ]);
 
-            $movimiento = DB::table('train_gimnasio.movimientos_inventario')
+            $movimiento = DB::table('inventario.movimientos_inventario')
                 ->where('id', $id)
                 ->first();
 
@@ -498,7 +766,7 @@ class ProductoMovimientoService
 
     private function ensureInventarioInicialEditable(int $productoId, int $sedeId): void
     {
-        $movimientosPosteriores = DB::table('train_gimnasio.movimientos_inventario')
+        $movimientosPosteriores = DB::table('inventario.movimientos_inventario')
             ->where('producto_id', $productoId)
             ->where('sede_id', $sedeId)
             ->where(function ($query) {
@@ -516,7 +784,7 @@ class ProductoMovimientoService
 
     private function hasMovimientosIniciales(int $productoId, int $sedeId): bool
     {
-        return DB::table('train_gimnasio.movimientos_inventario')
+        return DB::table('inventario.movimientos_inventario')
             ->where('producto_id', $productoId)
             ->where('sede_id', $sedeId)
             ->where('tipo_movimiento', 'ENTRADA')
@@ -526,19 +794,19 @@ class ProductoMovimientoService
 
     private function resetInventarioInicialExistente(int $productoId, int $sedeId, int $stockId, ?int $userId): void
     {
-        DB::table('train_gimnasio.movimientos_inventario')
+        DB::table('inventario.movimientos_inventario')
             ->where('producto_id', $productoId)
             ->where('sede_id', $sedeId)
             ->where('tipo_movimiento', 'ENTRADA')
             ->where('motivo', 'INVENTARIO_INICIAL')
             ->delete();
 
-        DB::table('train_gimnasio.producto_lotes')
+        DB::table('inventario.producto_lotes')
             ->where('producto_id', $productoId)
             ->where('sede_id', $sedeId)
             ->delete();
 
-        DB::table('train_gimnasio.producto_stock_sede')
+        DB::table('inventario.producto_stock_sede')
             ->where('id', $stockId)
             ->update([
                 'stock_actual' => 0,
@@ -587,7 +855,7 @@ class ProductoMovimientoService
         }
 
         if (!empty($payload['lote_id'])) {
-            $lote = DB::table('train_gimnasio.producto_lotes')
+            $lote = DB::table('inventario.producto_lotes')
                 ->where('id', $payload['lote_id'])
                 ->where('producto_id', $payload['producto_id'])
                 ->where('sede_id', $payload['sede_id'])
@@ -604,7 +872,7 @@ class ProductoMovimientoService
             return [null, null];
         }
 
-        $lote = DB::table('train_gimnasio.producto_lotes')
+        $lote = DB::table('inventario.producto_lotes')
             ->where('producto_id', $payload['producto_id'])
             ->where('sede_id', $payload['sede_id'])
             ->where('codigo_lote', $payload['codigo_lote'])
@@ -635,10 +903,7 @@ class ProductoMovimientoService
             throw new RuntimeException('El producto requiere fecha de vencimiento para el nuevo lote');
         }
 
-        $loteId = $this->nextId('train_gimnasio.producto_lotes', self::LOTE_LOCK);
-
-        DB::table('train_gimnasio.producto_lotes')->insert([
-            'id' => $loteId,
+        $loteId = (int) DB::table('inventario.producto_lotes')->insertGetId([
             'producto_id' => $payload['producto_id'],
             'sede_id' => $payload['sede_id'],
             'codigo_lote' => $payload['codigo_lote'],
@@ -652,15 +917,8 @@ class ProductoMovimientoService
             'updated_at' => now(),
         ]);
 
-        $nuevoLote = DB::table('train_gimnasio.producto_lotes')->where('id', $loteId)->first();
+        $nuevoLote = DB::table('inventario.producto_lotes')->where('id', $loteId)->first();
 
         return [$loteId, $nuevoLote];
-    }
-
-    private function nextId(string $table, int $lockKey): int
-    {
-        DB::select('SELECT pg_advisory_xact_lock(?)', [$lockKey]);
-
-        return ((int) DB::table($table)->max('id')) + 1;
     }
 }

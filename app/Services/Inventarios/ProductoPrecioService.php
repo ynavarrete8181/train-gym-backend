@@ -11,7 +11,6 @@ use RuntimeException;
 
 class ProductoPrecioService
 {
-    private const PRODUCTO_PRECIO_LOCK = 6202;
     private const ALLOWED_TYPES = ['COSTO', 'VENTA', 'SOCIO', 'PROMOCION'];
 
     public function __construct(
@@ -40,10 +39,7 @@ class ProductoPrecioService
         return DB::transaction(function () use ($productoId, $payload, $request, $userId) {
             $this->closeCurrentActivePrice($productoId, $payload['tipo_precio'], $payload['sede_id'], $payload['vigencia_inicio'], $userId);
 
-            $priceId = $this->nextId();
-
-            DB::table('train_gimnasio.producto_precios')->insert([
-                'id' => $priceId,
+            $priceId = (int) DB::table('inventario.producto_precios')->insertGetId([
                 'producto_id' => $productoId,
                 'sede_id' => $payload['sede_id'],
                 'tipo_precio' => $payload['tipo_precio'],
@@ -81,7 +77,7 @@ class ProductoPrecioService
         $userId = (int) ($request->user()?->id ?? 0);
 
         return DB::transaction(function () use ($id, $before, $payload, $request, $userId) {
-            DB::table('train_gimnasio.producto_precios')
+            DB::table('inventario.producto_precios')
                 ->where('id', $id)
                 ->update([
                     'vigencia_fin' => now(),
@@ -92,10 +88,7 @@ class ProductoPrecioService
 
             $this->closeCurrentActivePrice($before['producto_id'], $payload['tipo_precio'], $payload['sede_id'], $payload['vigencia_inicio'], $userId);
 
-            $newId = $this->nextId();
-
-            DB::table('train_gimnasio.producto_precios')->insert([
-                'id' => $newId,
+            $newId = (int) DB::table('inventario.producto_precios')->insertGetId([
                 'producto_id' => $before['producto_id'],
                 'sede_id' => $payload['sede_id'],
                 'tipo_precio' => $payload['tipo_precio'],
@@ -129,7 +122,7 @@ class ProductoPrecioService
             return null;
         }
 
-        DB::table('train_gimnasio.producto_precios')
+        DB::table('inventario.producto_precios')
             ->where('id', $id)
             ->update([
                 'estado' => 0,
@@ -180,7 +173,7 @@ class ProductoPrecioService
 
     private function closeCurrentActivePrice(int $productoId, string $tipo, ?int $sedeId, string $vigenciaInicio, int $userId): void
     {
-        $query = DB::table('train_gimnasio.producto_precios')
+        $query = DB::table('inventario.producto_precios')
             ->where('producto_id', $productoId)
             ->where('tipo_precio', $tipo)
             ->where('estado', 1);
@@ -200,7 +193,7 @@ class ProductoPrecioService
             return;
         }
 
-        DB::table('train_gimnasio.producto_precios')
+        DB::table('inventario.producto_precios')
             ->where('id', $current->id)
             ->update([
                 'vigencia_fin' => $vigenciaInicio,
@@ -210,10 +203,4 @@ class ProductoPrecioService
             ]);
     }
 
-    private function nextId(): int
-    {
-        DB::select('SELECT pg_advisory_xact_lock(?)', [self::PRODUCTO_PRECIO_LOCK]);
-
-        return ((int) DB::table('train_gimnasio.producto_precios')->max('id')) + 1;
-    }
 }

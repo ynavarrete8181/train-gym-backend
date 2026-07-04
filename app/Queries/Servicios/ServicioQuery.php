@@ -10,8 +10,8 @@ class ServicioQuery
     {
         return DB::table('train_gimnasio.tipos_servicios as t')
             ->join('train_gimnasio.categoria_servicios as c', 'c.id', '=', 't.categoria_id')
-            ->leftJoin('train_gimnasio.auth_usuarios as au', 'au.id', '=', 't.user_id')
-            ->leftJoin('train_gimnasio.personas as p', 'p.id', '=', 'au.persona_id')
+            ->leftJoin('seguridad.usuarios as au', 'au.id', '=', 't.user_id')
+            ->leftJoin('core.personas as p', 'p.id', '=', 'au.persona_id')
             ->selectRaw("
                 t.id,
                 t.nombre,
@@ -40,8 +40,8 @@ class ServicioQuery
     {
         $row = DB::table('train_gimnasio.tipos_servicios as t')
             ->join('train_gimnasio.categoria_servicios as c', 'c.id', '=', 't.categoria_id')
-            ->leftJoin('train_gimnasio.auth_usuarios as au', 'au.id', '=', 't.user_id')
-            ->leftJoin('train_gimnasio.personas as p', 'p.id', '=', 'au.persona_id')
+            ->leftJoin('seguridad.usuarios as au', 'au.id', '=', 't.user_id')
+            ->leftJoin('core.personas as p', 'p.id', '=', 'au.persona_id')
             ->selectRaw("
                 t.id,
                 t.nombre,
@@ -89,4 +89,3 @@ class ServicioQuery
         ];
     }
 }
-

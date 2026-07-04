@@ -3,27 +3,32 @@
 namespace App\Http\Controllers\Inventarios;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Support\Facades\DB;
+use App\Services\Inventarios\ProductoMovimientoService;
+use Illuminate\Http\Request;
+use RuntimeException;
 
 class InventarioStockController extends Controller
 {
+    public function __construct(private ProductoMovimientoService $productoMovimientoService)
+    {
+    }
+
     public function index(int $id)
     {
-        $stock = DB::table('train_gimnasio.producto_stock_sede as ps')
-            ->join('train_gimnasio.sedes as s', 'ps.sede_id', '=', 's.id')
-            ->where('ps.producto_id', $id)
-            ->where('ps.estado', 1)
-            ->select(
-                'ps.id',
-                'ps.sede_id',
-                's.nombre as sede_nombre',
-                'ps.stock_actual as cantidad',
-                'ps.stock_minimo',
-                'ps.ubicacion'
-            )
-            ->orderBy('s.nombre')
-            ->get();
+        return response()->json($this->productoMovimientoService->stockPorProducto($id));
+    }
 
-        return response()->json($stock);
+    public function destroy(Request $request, int $id, int $stockId)
+    {
+        try {
+            $deleted = $this->productoMovimientoService->eliminarInventarioInicial($id, $stockId, $request);
+
+            return response()->json([
+                'message' => 'Inventario inicial eliminado correctamente',
+                'data' => $deleted,
+            ]);
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
     }
 }

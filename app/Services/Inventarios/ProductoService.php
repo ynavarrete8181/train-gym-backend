@@ -12,9 +12,6 @@ use Illuminate\Validation\ValidationException;
 
 class ProductoService
 {
-    private const PRODUCTO_LOCK = 6201;
-    private const PRODUCTO_PRECIO_LOCK = 6202;
-    private const PRODUCTO_STOCK_LOCK = 6203;
 
     public function __construct(
         private AuditService $auditService,
@@ -38,16 +35,14 @@ class ProductoService
         return DB::transaction(function () use ($input, $request) {
             $payload = $this->normalizePayload($input);
             $userId = (int) ($request->user()?->id ?? 0);
-
-            $productoId = $this->nextId('train_gimnasio.productos', self::PRODUCTO_LOCK);
-            $codigo = $payload['codigo'] !== '' ? $payload['codigo'] : $this->generateCodigo($productoId);
             $imageUrl = $this->resolveImageUrl($payload, $request);
 
-            $this->ensureCodigoIsUnique($codigo);
+            if ($payload['codigo'] !== '') {
+                $this->ensureCodigoIsUnique($payload['codigo']);
+            }
 
-            DB::table('train_gimnasio.productos')->insert([
-                'id' => $productoId,
-                'codigo' => $codigo,
+            $productoId = (int) DB::table('inventario.productos')->insertGetId([
+                'codigo' => $payload['codigo'] !== '' ? $payload['codigo'] : null,
                 'nombre' => $payload['nombre'],
                 'descripcion' => $payload['descripcion'],
                 'categoria_id' => $payload['categoria_id'],
@@ -69,6 +64,19 @@ class ProductoService
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+
+            if ($payload['codigo'] === '') {
+                $codigoGenerado = $this->generateCodigo($productoId);
+                $this->ensureCodigoIsUnique($codigoGenerado, $productoId);
+
+                DB::table('inventario.productos')
+                    ->where('id', $productoId)
+                    ->update([
+                        'codigo' => $codigoGenerado,
+                        'updated_by' => $userId ?: null,
+                        'updated_at' => now(),
+                    ]);
+            }
 
             $this->syncActivePrice($productoId, 'COSTO', $payload['precio_costo'], $userId);
             $this->syncActivePrice($productoId, 'VENTA', $payload['precio_venta'], $userId);
@@ -98,7 +106,7 @@ class ProductoService
 
             $userId = (int) ($request->user()?->id ?? 0);
 
-            DB::table('train_gimnasio.productos')
+            DB::table('inventario.productos')
                 ->where('id', $id)
                 ->update([
                     'codigo' => $codigo,
@@ -141,7 +149,7 @@ class ProductoService
             return null;
         }
 
-        DB::table('train_gimnasio.productos')
+        DB::table('inventario.productos')
             ->where('id', $id)
             ->update([
                 'estado' => 0,
@@ -187,8 +195,8 @@ class ProductoService
             'estado' => $this->toBool($input['estado'] ?? ($before['estado'] ?? 1)) ? 1 : 0,
             'imagen_url' => $this->nullableString($input['imagen_url'] ?? null),
             'remove_imagen' => $this->toBool($input['remove_imagen'] ?? false),
-            'precio_costo' => $this->toDecimal($input['precio_costo'] ?? 0),
-            'precio_venta' => $this->toDecimal($input['precio_venta'] ?? 0),
+            'precio_costo' => $this->nullableDecimal($input['precio_costo'] ?? null),
+            'precio_venta' => $this->nullableDecimal($input['precio_venta'] ?? null),
             'sede_id' => isset($input['sede_id']) && $input['sede_id'] !== '' ? (int) $input['sede_id'] : null,
             'stock_inicial' => $this->toDecimal($input['stock_inicial'] ?? 0),
             'stock_minimo_sede' => $this->toDecimal($input['stock_minimo_sede'] ?? ($input['stock_minimo'] ?? 0)),
@@ -202,14 +210,14 @@ class ProductoService
             return;
         }
 
-        $existing = DB::table('train_gimnasio.producto_stock_sede')
+        $existing = DB::table('inventario.producto_stock_sede')
             ->where('producto_id', $productoId)
             ->where('sede_id', $payload['sede_id'])
             ->where('estado', 1)
             ->first();
 
         if ($existing) {
-            DB::table('train_gimnasio.producto_stock_sede')
+            DB::table('inventario.producto_stock_sede')
                 ->where('id', $existing->id)
                 ->update([
                     'stock_minimo' => $payload['stock_minimo_sede'],
@@ -221,10 +229,7 @@ class ProductoService
             return;
         }
 
-        $stockId = $this->nextId('train_gimnasio.producto_stock_sede', self::PRODUCTO_STOCK_LOCK);
-
-        DB::table('train_gimnasio.producto_stock_sede')->insert([
-            'id' => $stockId,
+        DB::table('inventario.producto_stock_sede')->insert([
             'producto_id' => $productoId,
             'sede_id' => $payload['sede_id'],
             'stock_actual' => 0,
@@ -240,9 +245,13 @@ class ProductoService
         ]);
     }
 
-    private function syncActivePrice(int $productoId, string $tipoPrecio, float $monto, int $userId): void
+    private function syncActivePrice(int $productoId, string $tipoPrecio, ?float $monto, int $userId): void
     {
-        $current = DB::table('train_gimnasio.producto_precios')
+        if ($monto === null) {
+            return;
+        }
+
+        $current = DB::table('inventario.producto_precios')
             ->where('producto_id', $productoId)
             ->where('tipo_precio', $tipoPrecio)
             ->where('estado', 1)
@@ -259,7 +268,7 @@ class ProductoService
         }
 
         if ($current) {
-            DB::table('train_gimnasio.producto_precios')
+            DB::table('inventario.producto_precios')
                 ->where('id', $current->id)
                 ->update([
                     'vigencia_fin' => now(),
@@ -268,10 +277,7 @@ class ProductoService
                 ]);
         }
 
-        $priceId = $this->nextId('train_gimnasio.producto_precios', self::PRODUCTO_PRECIO_LOCK);
-
-        DB::table('train_gimnasio.producto_precios')->insert([
-            'id' => $priceId,
+        DB::table('inventario.producto_precios')->insert([
             'producto_id' => $productoId,
             'sede_id' => null,
             'tipo_precio' => $tipoPrecio,
@@ -289,7 +295,7 @@ class ProductoService
 
     private function ensureCodigoIsUnique(string $codigo, ?int $exceptId = null): void
     {
-        $query = DB::table('train_gimnasio.productos')->where('codigo', $codigo);
+        $query = DB::table('inventario.productos')->where('codigo', $codigo);
 
         if ($exceptId) {
             $query->where('id', '<>', $exceptId);
@@ -345,7 +351,7 @@ class ProductoService
 
     private function publicUploadUrl(string $filename, Request $request): string
     {
-        $baseUrl = rtrim(config('app.url') ?: $request->getSchemeAndHttpHost(), '/');
+        $baseUrl = rtrim($request->getSchemeAndHttpHost(), '/');
 
         return "{$baseUrl}/uploads/productos/{$filename}";
     }
@@ -363,14 +369,6 @@ class ProductoService
         if (File::exists($fullPath)) {
             File::delete($fullPath);
         }
-    }
-
-    private function nextId(string $table, int $lockKey): int
-    {
-        DB::select('SELECT pg_advisory_xact_lock(?)', [$lockKey]);
-        $row = DB::selectOne("SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM {$table}");
-
-        return (int) ($row->next_id ?? 1);
     }
 
     private function nullableString(mixed $value): ?string

@@ -92,7 +92,7 @@ class ProductoController extends Controller
             'imagen' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:3072'],
             'remove_imagen' => ['nullable', 'boolean'],
             'precio_costo' => ['nullable', 'numeric', 'min:0'],
-            'precio_venta' => ['required', 'numeric', 'min:0'],
+            'precio_venta' => ['nullable', 'numeric', 'min:0'],
             'sede_id' => ['nullable', 'integer', 'min:1'],
             'stock_inicial' => ['nullable', 'numeric', 'min:0'],
             'stock_minimo_sede' => ['nullable', 'numeric', 'min:0'],

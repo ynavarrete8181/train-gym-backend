@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'removebg' => [
+        'key' => env('REMOVEBG_API_KEY'),
+        'url' => env('REMOVEBG_API_URL', 'https://api.remove.bg/v1.0/removebg'),
+    ],
+
 ];

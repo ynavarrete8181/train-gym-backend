@@ -20,6 +20,14 @@ class AuditService
         'producto_stock_sede' => 'inventarios',
         'producto_lotes' => 'inventarios',
         'producto_precios' => 'inventarios',
+        'ventas' => 'ventas',
+        'ventas_devoluciones' => 'ventas',
+        'ventas_devolucion_detalles' => 'ventas',
+        'socio_membresias' => 'ventas',
+        'membresia_precios_sede' => 'personas',
+        'seguridad_usuarios' => 'seguridad',
+        'seguridad_usuario_roles' => 'seguridad',
+        'seguridad_roles' => 'seguridad',
         'auth_usuarios' => 'auth',
         'auth_usuario_roles' => 'auth',
         'auth_roles' => 'auth',
@@ -94,14 +102,14 @@ class AuditService
             $table = $payload['tabla'] ?? null;
             $module = $payload['modulo'] ?? $this->resolveModule($table);
 
-            DB::table('train_gimnasio.aud_cambios')->insert([
+            DB::table('auditoria.aud_cambios')->insert([
                 'gimnasio_id' => $payload['gimnasio_id'] ?? $user?->gimnasio_id,
                 'sede_id' => $payload['sede_id'] ?? $request->input('sede_id'),
                 'actor_usuario_id' => $payload['actor_usuario_id'] ?? $user?->id,
                 'actor_rol_id' => $payload['actor_rol_id'] ?? $this->resolveActorRoleId($user?->id),
                 'actor_persona_id' => $payload['actor_persona_id'] ?? $this->resolveActorPersonaId($user?->id),
                 'operacion' => Str::upper(Str::substr((string) ($payload['operacion'] ?? 'U'), 0, 1)),
-                'esquema' => $payload['esquema'] ?? 'train_gimnasio',
+                'esquema' => $payload['esquema'] ?? 'core',
                 'tabla' => $table,
                 'modulo' => $module,
                 'accion' => $payload['accion'] ?? null,
@@ -194,7 +202,7 @@ class AuditService
             return null;
         }
 
-        return DB::table('train_gimnasio.auth_usuario_roles')
+        return DB::table('seguridad.usuario_roles')
             ->where('usuario_id', $userId)
             ->orderBy('id')
             ->value('rol_id');
@@ -206,7 +214,7 @@ class AuditService
             return null;
         }
 
-        return DB::table('train_gimnasio.auth_usuarios')
+        return DB::table('seguridad.usuarios')
             ->where('id', $userId)
             ->value('persona_id');
     }

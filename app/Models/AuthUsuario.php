@@ -10,7 +10,7 @@ class AuthUsuario extends Authenticatable
 {
     use HasApiTokens, Notifiable;
 
-    protected $table = 'train_gimnasio.auth_usuarios';
+    protected $table = 'seguridad.usuarios';
     protected $primaryKey = 'id';
     public $timestamps = true;
 

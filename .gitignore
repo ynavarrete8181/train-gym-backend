@@ -1,0 +1,5 @@
+/vendor
+.env
+env.zip
+global-bundle.pem
+/node_modules

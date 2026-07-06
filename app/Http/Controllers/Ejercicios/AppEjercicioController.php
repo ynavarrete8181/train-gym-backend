@@ -23,6 +23,8 @@ class AppEjercicioController extends Controller
     public function getExerciseDetail(Request $request, $id)
     {
         $ejercicio = $this->ejercicioQuery->obtenerPorId((int)$id);
+        $planId = $request->query('plan_id');
+        $planEjercicioId = $request->query('plan_ejercicio_id');
 
         if (!$ejercicio) {
             return response()->json(['message' => 'Ejercicio no encontrado'], 404);
@@ -38,15 +40,21 @@ class AppEjercicioController extends Controller
         }
 
         $historial = [];
+        $ejecucionHoy = null;
         if ($personaId) {
-            // Buscar últimas 3 ejecuciones de ESTE ejercicio (usando join con plan_ejercicios si es necesario o directo)
-            $historialDb = DB::table('entrenamiento.plan_ejecuciones as pe')
+            $historialQuery = DB::table('entrenamiento.plan_ejecuciones as pe')
                 ->join('entrenamiento.plan_ejercicios as p_ej', 'pe.plan_ejercicio_id', '=', 'p_ej.id')
                 ->join('entrenamiento.planes as p', 'pe.plan_id', '=', 'p.id')
-                ->where('p.persona_id', $personaId) // o si es grupal, podemos no filtrar por p.persona_id y confiar en el usuario autenticado (si pe tuviera persona_id).
-                // Pero como plan_ejecuciones no tiene persona_id directo (solo el plan), lo buscaremos usando la fecha y estado
                 ->where('p_ej.ejercicio_id', $id)
-                ->whereIn('pe.estado', ['COMPLETADO', 'PARCIAL'])
+                ->whereIn('pe.estado', ['COMPLETADO', 'PARCIAL']);
+
+            if ($planEjercicioId) {
+                $historialQuery->where('p_ej.id', (int) $planEjercicioId);
+            } else {
+                $historialQuery->where('p.persona_id', $personaId);
+            }
+
+            $historialDb = $historialQuery
                 ->orderBy('pe.fecha_ejecucion', 'desc')
                 ->take(10)
                 ->get();
@@ -61,6 +69,24 @@ class AppEjercicioController extends Controller
                     'detalle_series' => json_decode($h->repeticiones_reales, true)
                 ];
             }
+
+            if ($planId && $planEjercicioId) {
+                $ejecucionHoyRow = DB::table('entrenamiento.plan_ejecuciones')
+                    ->where('plan_id', (int) $planId)
+                    ->where('plan_ejercicio_id', (int) $planEjercicioId)
+                    ->whereDate('fecha_ejecucion', now()->toDateString())
+                    ->first();
+
+                if ($ejecucionHoyRow) {
+                    $ejecucionHoy = [
+                        'series' => json_decode($ejecucionHoyRow->repeticiones_reales, true) ?? [],
+                        'rpe' => $ejecucionHoyRow->rpe_real,
+                        'dolor_nivel' => $ejecucionHoyRow->dolor_nivel ?? null,
+                        'obs' => $ejecucionHoyRow->observaciones,
+                        'estado' => $ejecucionHoyRow->estado,
+                    ];
+                }
+            }
         }
 
         // Construir el JSON consolidado que la app móvil espera.
@@ -73,12 +99,15 @@ class AppEjercicioController extends Controller
                 'tags' => array_values(array_filter([$ejercicio['grupo_muscular'], $ejercicio['equipamiento']])),
                 'instructions' => $ejercicio['instrucciones'] ? [$ejercicio['instrucciones']] : [],
                 // Campos adicionales según requiera la UI futura
+                'plan_id' => $planId ? (int) $planId : null,
+                'plan_ejercicio_id' => $planEjercicioId ? (int) $planEjercicioId : null,
                 'note' => '',
                 'series' => 0,
                 'reps' => 0,
                 'load' => 'Libre',
                 'rpe' => '',
-                'status' => 'PENDIENTE',
+                'status' => $ejecucionHoy['estado'] ?? 'PENDIENTE',
+                'ejecucion' => $ejecucionHoy,
                 'historial' => $historial
             ]
         ]);

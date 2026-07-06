@@ -377,8 +377,8 @@ class MembresiaController extends Controller
     public function storeAsignacionLote(Request $request)
     {
         $data = $request->validate([
-            'socio_ids' => ['required', 'array', 'min:1'],
-            'socio_ids.*' => ['integer'],
+            'persona_ids' => ['required', 'array', 'min:1'],
+            'persona_ids.*' => ['integer'],
             'membresia_id' => ['required', 'integer'],
             'sede_id' => ['required', 'integer'],
             'fecha_inicio' => ['required', 'date'],
@@ -402,15 +402,35 @@ class MembresiaController extends Controller
         $createdIds = [];
 
         DB::transaction(function () use ($data, $estadoActivoId, $estadoInactivoId, $modo, &$createdIds) {
-            foreach (array_unique($data['socio_ids']) as $socioId) {
+            foreach (array_unique($data['persona_ids']) as $personaId) {
+                // Find or create socio
                 $socio = DB::table('socios.socios as s')
                     ->join('core.personas as p', 'p.id', '=', 's.persona_id')
-                    ->where('s.id', $socioId)
+                    ->where('s.persona_id', $personaId)
                     ->select('s.id', 'p.numero_identificacion as cedula')
                     ->first();
 
                 if (!$socio) {
-                    continue;
+                    $persona = DB::table('core.personas')->where('id', $personaId)->first();
+                    if (!$persona) continue;
+
+                    $ultimoSocioId = DB::table('socios.socios')->max('id') ?? 0;
+                    $codigoSocio = 'SOC-' . str_pad($ultimoSocioId + 1, 4, '0', STR_PAD_LEFT);
+
+                    $newSocioId = DB::table('socios.socios')->insertGetId([
+                        'persona_id' => $personaId,
+                        'sede_id' => $data['sede_id'],
+                        'codigo_socio' => $codigoSocio,
+                        'fecha_alta' => now(),
+                        'estado_id' => $estadoActivoId,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+
+                    $socio = (object)[
+                        'id' => $newSocioId,
+                        'cedula' => $persona->numero_identificacion
+                    ];
                 }
 
                 $fechaInicio = $data['fecha_inicio'];

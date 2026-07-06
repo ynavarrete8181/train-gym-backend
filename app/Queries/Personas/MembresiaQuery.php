@@ -178,8 +178,8 @@ class MembresiaQuery
 
     public function listarSociosDisponibles(): array
     {
-        return DB::table('socios.socios as s')
-            ->join('core.personas as p', 'p.id', '=', 's.persona_id')
+        return DB::table('core.personas as p')
+            ->leftJoin('socios.socios as s', 'p.id', '=', 's.persona_id')
             ->leftJoin('core.estados as e', 'e.id', '=', 's.estado_id')
             ->leftJoin('socios.socio_membresias as sm', function ($join) {
                 $join->on('sm.socio_id', '=', 's.id')
@@ -193,7 +193,7 @@ class MembresiaQuery
             })
             ->leftJoin('socios.membresias as m', 'm.id', '=', 'sm.membresia_id')
             ->selectRaw("
-                s.id,
+                s.id as socio_id,
                 s.codigo_socio,
                 p.id as persona_id,
                 p.numero_identificacion as cedula,
@@ -211,7 +211,7 @@ class MembresiaQuery
             ->orderBy('p.apellidos')
             ->get()
             ->map(fn ($item) => [
-                'socio_id' => (int) $item->id,
+                'socio_id' => $item->socio_id ? (int) $item->socio_id : null,
                 'persona_id' => (int) $item->persona_id,
                 'codigo_socio' => $item->codigo_socio,
                 'cedula' => $item->cedula,

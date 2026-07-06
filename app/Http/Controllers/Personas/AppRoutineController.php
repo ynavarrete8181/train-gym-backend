@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Personas;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Queries\Entrenamiento\PlanEntrenamientoQuery;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class AppRoutineController extends Controller
@@ -18,8 +19,8 @@ class AppRoutineController extends Controller
 
     public function getRoutineByDay(Request $request)
     {
-        $week = $request->query('week', 1);
-        $day = strtolower($request->query('day', 'lunes'));
+        $week = $request->query->has('week') ? max(1, (int) $request->query('week')) : null;
+        $day = strtolower($request->query('day', $this->currentDayKey()));
 
         // Obtener el último plan activo
         $planId = DB::table('entrenamiento.planes')
@@ -47,6 +48,9 @@ class AppRoutineController extends Controller
             ]);
         }
 
+        $totalWeeks = $this->getTotalWeeks($detalle['dias']);
+        $week = $week ?: $this->resolveCurrentWeek($detalle['plan']['fecha_inicio'] ?? null, $totalWeeks);
+
         // Buscar el día exacto
         $diaBuscado = null;
         foreach ($detalle['dias'] as $d) {
@@ -61,7 +65,10 @@ class AppRoutineController extends Controller
                 'message' => 'No hay rutina programada para este día.',
                 'data' => [
                     'planName' => $detalle['plan']['nombre'],
+                    'planStartDate' => $detalle['plan']['fecha_inicio'] ?? null,
+                    'planEndDate' => $detalle['plan']['fecha_fin'] ?? null,
                     'week' => (int)$week,
+                    'totalWeeks' => $totalWeeks,
                     'day' => $day,
                     'exercises' => []
                 ]
@@ -73,6 +80,8 @@ class AppRoutineController extends Controller
             foreach ($bloque['ejercicios'] as $ejercicio) {
                 $seriesCount = is_array($ejercicio['series']) ? count($ejercicio['series']) : 0;
                 $firstRep = $seriesCount > 0 ? $ejercicio['series'][0]['repeticiones'] : 0;
+                $plannedSeries = $this->mapPlannedSeries($ejercicio);
+                $firstLoad = $plannedSeries[0]['target_load'] ?? 'Libre';
                 
                 // Buscar si ya tiene una ejecución para hoy
                 $ejecucion = DB::table('entrenamiento.plan_ejecuciones')
@@ -88,7 +97,8 @@ class AppRoutineController extends Controller
                     'note' => $ejercicio['observaciones'] ?? '',
                     'series' => $seriesCount,
                     'reps' => $firstRep,
-                    'load' => 'Libre',
+                    'load' => $firstLoad,
+                    'plannedSeries' => $plannedSeries,
                     'rpe' => (string) ($ejercicio['rpe_objetivo'] ?? ''),
                     'status' => $ejecucion ? $ejecucion->estado : 'PENDIENTE',
                     'ejecucion' => $ejecucion ? [
@@ -106,7 +116,10 @@ class AppRoutineController extends Controller
             'data' => [
                 'planId' => $planId,
                 'planName' => $detalle['plan']['nombre'],
+                'planStartDate' => $detalle['plan']['fecha_inicio'] ?? null,
+                'planEndDate' => $detalle['plan']['fecha_fin'] ?? null,
                 'week' => (int)$week,
+                'totalWeeks' => $totalWeeks,
                 'day' => $day,
                 'exercises' => $mappedExercises
             ]
@@ -118,15 +131,83 @@ class AppRoutineController extends Controller
      */
     public function getTodayRoutine(Request $request)
     {
-        $days = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
-        $today = $days[date('w')];
-        
         $request->merge([
-            'day' => $today,
-            'week' => 1 // Temporalmente forzado a semana 1
+            'day' => $this->currentDayKey(),
         ]);
 
         return $this->getRoutineByDay($request);
+    }
+
+    private function currentDayKey(): string
+    {
+        $days = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
+        return $days[(int) date('w')];
+    }
+
+    private function getTotalWeeks(array $days): int
+    {
+        $weeks = array_map(fn ($day) => (int) ($day['semana'] ?? 1), $days);
+        return max(1, max($weeks ?: [1]));
+    }
+
+    private function resolveCurrentWeek(?string $planStartDate, int $totalWeeks): int
+    {
+        if (!$planStartDate) {
+            return 1;
+        }
+
+        try {
+            $start = Carbon::parse($planStartDate)->startOfDay();
+            $today = Carbon::today();
+            $daysElapsed = (int) max(0, $start->diffInDays($today, false));
+            $currentWeek = intdiv($daysElapsed, 7) + 1;
+            return min(max(1, $currentWeek), max(1, $totalWeeks));
+        } catch (\Throwable $e) {
+            return 1;
+        }
+    }
+
+    private function mapPlannedSeries(array $ejercicio): array
+    {
+        $series = is_array($ejercicio['series'] ?? null) ? $ejercicio['series'] : [];
+        $rmValue = $ejercicio['rm_registro_valor'] ?? $ejercicio['rm_referencia'] ?? null;
+
+        return array_map(function ($serie) use ($rmValue) {
+            $targetLoad = $this->resolveTargetLoad($serie, $rmValue);
+
+            return [
+                'numero_serie' => (int) ($serie['numero_serie'] ?? 0),
+                'reps' => (string) ($serie['repeticiones'] ?? ''),
+                'target_load' => $targetLoad,
+                'tipo_carga' => $serie['tipo_carga'] ?? null,
+                'porcentaje_rm' => $serie['porcentaje_rm'] ?? null,
+                'carga_fija' => $serie['carga_fija'] ?? null,
+                'unidad_carga' => $serie['unidad_carga'] ?? 'kg',
+            ];
+        }, $series);
+    }
+
+    private function resolveTargetLoad(array $serie, mixed $rmValue): string
+    {
+        $unit = $serie['unidad_carga'] ?? 'kg';
+        $fixedLoad = $serie['carga_fija'] ?? null;
+        $percentRm = $serie['porcentaje_rm'] ?? null;
+
+        if ($fixedLoad !== null) {
+            return rtrim(rtrim(number_format((float) $fixedLoad, 2, '.', ''), '0'), '.') . " {$unit}";
+        }
+
+        if ($percentRm !== null) {
+            $percent = (float) $percentRm;
+            if ($rmValue !== null) {
+                $calculated = ((float) $rmValue) * ($percent / 100);
+                return rtrim(rtrim(number_format($calculated, 1, '.', ''), '0'), '.') . " {$unit}";
+            }
+
+            return rtrim(rtrim(number_format($percent, 1, '.', ''), '0'), '.') . "% RM";
+        }
+
+        return 'Libre';
     }
 
     /**

@@ -480,7 +480,7 @@ class MembresiaController extends Controller
             'sede_id' => $data['sede_id'],
             'datos_despues' => [
                 'membresia_id' => $data['membresia_id'],
-                'socio_ids' => $data['socio_ids'],
+                'persona_ids' => $data['persona_ids'],
                 'asignacion_ids' => $createdIds,
                 'modo_conflicto' => $modo,
             ],

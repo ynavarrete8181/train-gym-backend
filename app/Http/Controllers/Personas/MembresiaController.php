@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Personas;
 use App\Http\Controllers\Controller;
 use App\Queries\Personas\MembresiaQuery;
 use App\Services\Audit\AuditService;
+use App\Services\Ventas\VentaService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -12,7 +13,8 @@ class MembresiaController extends Controller
 {
     public function __construct(
         private MembresiaQuery $membresiaQuery,
-        private AuditService $auditService
+        private AuditService $auditService,
+        private VentaService $ventaService
     )
     {
     }
@@ -400,8 +402,9 @@ class MembresiaController extends Controller
         $estadoInactivoId = DB::table('core.estados')->whereIn('codigo', ['INACTIVO', 'ANULADO'])->orderBy('id')->value('id');
         $modo = $data['modo_conflicto'] ?? 'RENOVAR';
         $createdIds = [];
+        $userId = $request->user()?->id ?? 1;
 
-        DB::transaction(function () use ($data, $estadoActivoId, $estadoInactivoId, $modo, &$createdIds) {
+        DB::transaction(function () use ($data, $estadoActivoId, $estadoInactivoId, $modo, &$createdIds, $userId, $membresia) {
             foreach (array_unique($data['persona_ids']) as $personaId) {
                 // Find or create socio
                 $socio = DB::table('socios.socios as s')
@@ -471,6 +474,28 @@ class MembresiaController extends Controller
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
+
+                if ($data['precio_aplicado'] > 0) {
+                    $this->ventaService->store([
+                        'sede_id' => $data['sede_id'],
+                        'persona_id' => $personaId,
+                        'total' => $data['precio_aplicado'],
+                        'subtotal' => $data['precio_aplicado'],
+                        'estado_pago' => 'PENDIENTE',
+                        'tipo_venta' => 'MEMBRESIA',
+                        'membresia_id' => $data['membresia_id'],
+                        'detalles' => [
+                            [
+                                'membresia_id' => $data['membresia_id'],
+                                'tipo_detalle' => 'MEMBRESIA',
+                                'cantidad' => 1,
+                                'precio_unitario' => $data['precio_aplicado'],
+                                'subtotal' => $data['precio_aplicado'],
+                                'descripcion' => "Suscripción " . $membresia->nombre,
+                            ]
+                        ]
+                    ], $userId);
+                }
             }
         });
 

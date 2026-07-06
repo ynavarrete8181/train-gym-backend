@@ -205,6 +205,7 @@ class MembresiaQuery
                 sm.membresia_id as membresia_actual_plan_id,
                 sm.fecha_inicio as membresia_actual_inicio,
                 sm.fecha_fin as membresia_actual_fin,
+                sm.sede_id as membresia_actual_sede_id,
                 m.nombre as membresia_actual_nombre
             ")
             ->orderBy('p.nombres')
@@ -222,6 +223,7 @@ class MembresiaQuery
                     'id' => (int) $item->membresia_actual_id,
                     'membresia_id' => (int) $item->membresia_actual_plan_id,
                     'nombre' => $item->membresia_actual_nombre,
+                    'sede_id' => $item->membresia_actual_sede_id ? (int) $item->membresia_actual_sede_id : null,
                     'fecha_inicio' => $item->membresia_actual_inicio,
                     'fecha_fin' => $item->membresia_actual_fin,
                 ] : null,

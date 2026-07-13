@@ -18,6 +18,7 @@ class MembresiaQuery
                 m.duracion_dias,
                 m.precio as precio_base,
                 m.activa,
+                m.facturacion_automatica,
                 m.created_at,
                 m.updated_at
             ');
@@ -79,6 +80,7 @@ class MembresiaQuery
                 'precio_base' => (float) $item->precio_base,
                 'precio_sede' => $item->precio_sede !== null ? (float) $item->precio_sede : null,
                 'activa' => (bool) $item->activa,
+                'facturacion_automatica' => (bool) $item->facturacion_automatica,
                 'precios_sede' => ($preciosPorSede->get($item->id) ?? collect())
                     ->map(fn ($precio) => [
                         'id' => (int) $precio->id,

@@ -13,6 +13,7 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             ReviveDomainSeeder::class,
+            PlanHibridoDeportivoSeeder::class,
         ]);
     }
 }

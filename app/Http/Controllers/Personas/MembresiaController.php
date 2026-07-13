@@ -34,6 +34,7 @@ class MembresiaController extends Controller
             'duracion_dias' => ['required', 'integer', 'min:1'],
             'precio' => ['required', 'numeric', 'min:0'],
             'activa' => ['nullable', 'boolean'],
+            'facturacion_automatica' => ['nullable', 'boolean'],
             'precios_sede' => ['nullable', 'array'],
             'precios_sede.*.sede_id' => ['required_with:precios_sede', 'integer'],
             'precios_sede.*.precio' => ['required_with:precios_sede', 'numeric', 'min:0'],
@@ -47,6 +48,7 @@ class MembresiaController extends Controller
                 'duracion_dias' => $data['duracion_dias'],
                 'precio' => $data['precio'],
                 'activa' => $data['activa'] ?? true,
+                'facturacion_automatica' => $data['facturacion_automatica'] ?? true,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
@@ -70,6 +72,7 @@ class MembresiaController extends Controller
             'duracion_dias' => ['required', 'integer', 'min:1'],
             'precio' => ['required', 'numeric', 'min:0'],
             'activa' => ['required', 'boolean'],
+            'facturacion_automatica' => ['nullable', 'boolean'],
             'precios_sede' => ['nullable', 'array'],
             'precios_sede.*.sede_id' => ['required_with:precios_sede', 'integer'],
             'precios_sede.*.precio' => ['required_with:precios_sede', 'numeric', 'min:0'],
@@ -85,6 +88,7 @@ class MembresiaController extends Controller
                     'duracion_dias' => $data['duracion_dias'],
                     'precio' => $data['precio'],
                     'activa' => $data['activa'],
+                    'facturacion_automatica' => $data['facturacion_automatica'] ?? true,
                     'updated_at' => now(),
                 ]);
 
@@ -475,7 +479,7 @@ class MembresiaController extends Controller
                     'updated_at' => now(),
                 ]);
 
-                if ($data['precio_aplicado'] > 0) {
+                if ($data['precio_aplicado'] > 0 && $membresia->facturacion_automatica) {
                     $this->ventaService->store([
                         'sede_id' => $data['sede_id'],
                         'persona_id' => $personaId,
@@ -491,7 +495,7 @@ class MembresiaController extends Controller
                                 'cantidad' => 1,
                                 'precio_unitario' => $data['precio_aplicado'],
                                 'subtotal' => $data['precio_aplicado'],
-                                'descripcion' => "Suscripción " . $membresia->nombre,
+                                'descripcion' => "Suscripción " . $membresia->nombre . " (Desde $fechaInicio hasta $fechaFin)",
                             ]
                         ]
                     ], $userId);

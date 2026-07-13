@@ -18,13 +18,16 @@ class AppDashboardController extends Controller
         // 1. Obtener la persona actual
         $personaId = null;
         $persona = null;
+        $cedula = null;
         if ($request->user()) {
             $personaId = $request->user()->persona_id;
             $persona = DB::table('core.personas')->where('id', $personaId)->first();
+            $cedula = $persona?->numero_identificacion ?? $request->user()?->cedula ?? null;
         } else {
             // Mock para entorno local si no hay token
             $persona = DB::table('core.personas')->where('nombres', 'like', '%Yandry%')->first();
             $personaId = $persona ? $persona->id : null;
+            $cedula = $persona?->numero_identificacion;
         }
 
         // --- MÉTRICAS DE ENTRENAMIENTO (PLAN) ---
@@ -50,13 +53,8 @@ class AppDashboardController extends Controller
             }
         }
 
-        // Si no tiene plan propio, buscar el último plan activo (como el Plan Grupal 2 o 3)
-        if (!$planActivo) {
-            $planActivo = DB::table('entrenamiento.planes')
-                ->where('estado', 'ACTIVO')
-                ->orderBy('id', 'desc')
-                ->first();
-        }
+        // Si no tiene plan propio, ya no usamos un plan grupal de respaldo global.
+        // Se respeta si no tiene plan para que la vista se adapte o se oculte.
 
         $planResumen = null;
         if ($planActivo) {
@@ -128,7 +126,7 @@ class AppDashboardController extends Controller
             'volumenSemanal' => 0
         ];
         
-        if ($planActivo) { // Idealmente se filtraría por persona_id si estuviera en ejecuciones
+        if ($planActivo) {
             $inicioSemana = date('Y-m-d', strtotime('monday this week'));
             $finSemana = date('Y-m-d', strtotime('sunday this week'));
 
@@ -136,6 +134,8 @@ class AppDashboardController extends Controller
                 ->where('plan_id', $planActivo->id)
                 ->whereBetween('fecha_ejecucion', [$inicioSemana, $finSemana])
                 ->whereIn('estado', ['COMPLETADO', 'PARCIAL'])
+                ->when($cedula, fn ($query) => $query->where('cedula', $cedula))
+                ->when(!$cedula && $personaId, fn ($query) => $query->where('persona_id', $personaId))
                 ->get();
 
             $diasUnicos = [];
@@ -151,7 +151,7 @@ class AppDashboardController extends Controller
                     foreach ($series as $serie) {
                         if (isset($serie['completado']) && $serie['completado']) {
                             $carga = floatval($serie['carga'] ?? 0);
-                            $reps = intval($serie['repeticiones'] ?? 0);
+                            $reps = intval($serie['reps'] ?? $serie['repeticiones'] ?? 0);
                             $volumenTotal += ($carga * $reps);
                         }
                     }

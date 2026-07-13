@@ -25,19 +25,15 @@ class AppEjercicioController extends Controller
         $ejercicio = $this->ejercicioQuery->obtenerPorId((int)$id);
         $planId = $request->query('plan_id');
         $planEjercicioId = $request->query('plan_ejercicio_id');
+        $week = $request->query->has('week') ? max(1, (int) $request->query('week')) : null;
+        $day = $request->query('day') ? strtolower((string) $request->query('day')) : null;
 
         if (!$ejercicio) {
             return response()->json(['message' => 'Ejercicio no encontrado'], 404);
         }
 
-        // Obtener la persona actual para el historial
-        $personaId = null;
-        if ($request->user()) {
-            $personaId = $request->user()->persona_id;
-        } else {
-            $persona = DB::table('core.personas')->where('nombres', 'like', '%Yandry%')->first();
-            $personaId = $persona ? $persona->id : null;
-        }
+        $identity = $this->resolveAppIdentity($request);
+        $personaId = $identity['persona_id'];
 
         $historial = [];
         $ejecucionHoy = null;
@@ -46,7 +42,9 @@ class AppEjercicioController extends Controller
                 ->join('entrenamiento.plan_ejercicios as p_ej', 'pe.plan_ejercicio_id', '=', 'p_ej.id')
                 ->join('entrenamiento.planes as p', 'pe.plan_id', '=', 'p.id')
                 ->where('p_ej.ejercicio_id', $id)
-                ->whereIn('pe.estado', ['COMPLETADO', 'PARCIAL']);
+                ->whereIn('pe.estado', ['COMPLETADO', 'PARCIAL'])
+                ->when($identity['cedula'], fn ($query) => $query->where('pe.cedula', $identity['cedula']))
+                ->when(!$identity['cedula'] && $identity['persona_id'], fn ($query) => $query->where('pe.persona_id', $identity['persona_id']));
 
             if ($planEjercicioId) {
                 $historialQuery->where('p_ej.id', (int) $planEjercicioId);
@@ -74,7 +72,11 @@ class AppEjercicioController extends Controller
                 $ejecucionHoyRow = DB::table('entrenamiento.plan_ejecuciones')
                     ->where('plan_id', (int) $planId)
                     ->where('plan_ejercicio_id', (int) $planEjercicioId)
-                    ->whereDate('fecha_ejecucion', now()->toDateString())
+                    ->when($week, fn ($query) => $query->where('semana', $week))
+                    ->when($day, fn ($query) => $query->where('dia', $day))
+                    ->when(!$week || !$day, fn ($query) => $query->whereDate('fecha_ejecucion', now()->toDateString()))
+                    ->when($identity['cedula'], fn ($query) => $query->where('cedula', $identity['cedula']))
+                    ->when(!$identity['cedula'] && $identity['persona_id'], fn ($query) => $query->where('persona_id', $identity['persona_id']))
                     ->first();
 
                 if ($ejecucionHoyRow) {
@@ -101,6 +103,8 @@ class AppEjercicioController extends Controller
                 // Campos adicionales según requiera la UI futura
                 'plan_id' => $planId ? (int) $planId : null,
                 'plan_ejercicio_id' => $planEjercicioId ? (int) $planEjercicioId : null,
+                'week' => $week,
+                'day' => $day,
                 'note' => '',
                 'series' => 0,
                 'reps' => 0,
@@ -111,5 +115,38 @@ class AppEjercicioController extends Controller
                 'historial' => $historial
             ]
         ]);
+    }
+
+    private function resolveAppIdentity(Request $request): array
+    {
+        $user = $request->user();
+        $personaId = $user?->persona_id;
+        $usuarioId = $user?->id;
+        $cedula = null;
+
+        if ($personaId) {
+            $persona = DB::table('core.personas')
+                ->where('id', $personaId)
+                ->select('id', 'numero_identificacion')
+                ->first();
+            $cedula = $persona?->numero_identificacion;
+        }
+
+        if (!$cedula) {
+            $cedula = $user?->cedula ?? null;
+        }
+
+        if (!$personaId) {
+            $persona = DB::table('core.personas')->where('nombres', 'like', '%Yandry%')->first();
+            $personaId = $persona ? $persona->id : null;
+            $cedula = $persona?->numero_identificacion ?? $cedula;
+            $usuarioId = DB::table('seguridad.usuarios')->where('persona_id', $personaId)->value('id') ?? $usuarioId;
+        }
+
+        return [
+            'persona_id' => $personaId ? (int) $personaId : null,
+            'usuario_id' => $usuarioId ? (int) $usuarioId : null,
+            'cedula' => $cedula ? trim((string) $cedula) : null,
+        ];
     }
 }

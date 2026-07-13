@@ -21,13 +21,42 @@ class AppRoutineController extends Controller
     {
         $week = $request->query->has('week') ? max(1, (int) $request->query('week')) : null;
         $day = strtolower($request->query('day', $this->currentDayKey()));
+        $identity = $this->resolveAppIdentity($request);
 
-        // Obtener el último plan activo
-        $planId = DB::table('entrenamiento.planes')
-            ->where('estado', 'ACTIVO')
-            ->orderBy('id', 'desc')
-            ->value('id');
+        // 1. Obtener el último plan activo priorizando las asignaciones explícitas.
+        $planId = null;
 
+        if ($identity['persona_id']) {
+            // Buscar si tiene asignación directa en plan_asignaciones (ej. planes grupales asignados)
+            $asignacion = DB::table('entrenamiento.plan_asignaciones')
+                ->where('persona_id', $identity['persona_id'])
+                ->where('estado', 'ACTIVO')
+                ->orderBy('id', 'desc')
+                ->first();
+
+            if ($asignacion) {
+                // Verificar que el plan asignado también esté activo
+                $planId = DB::table('entrenamiento.planes')
+                    ->where('id', $asignacion->plan_id)
+                    ->where('estado', 'ACTIVO')
+                    ->value('id');
+            }
+            
+            // Si no encontró o el asignado no está activo, buscar en tabla planes directamente
+            // FALLBACK DESACTIVADO: La app debe respetar estrictamente las asignaciones.
+            // Si la asignación está pausada, no debe mostrar el plan aunque el usuario sea el creador.
+            /*
+            if (!$planId) {
+                $planId = DB::table('entrenamiento.planes')
+                    ->where('persona_id', $identity['persona_id'])
+                    ->where('estado', 'ACTIVO')
+                    ->orderBy('id', 'desc')
+                    ->value('id');
+            }
+            */
+        }
+
+        // Ya no se usa plan de respaldo global. Si no hay asignación, se devuelve error.
         if (!$planId) {
             return response()->json(['message' => 'No hay planes activos'], 404);
         }
@@ -87,7 +116,10 @@ class AppRoutineController extends Controller
                 $ejecucion = DB::table('entrenamiento.plan_ejecuciones')
                     ->where('plan_id', $planId)
                     ->where('plan_ejercicio_id', $ejercicio['id'])
-                    ->where('fecha_ejecucion', date('Y-m-d'))
+                    ->where('semana', (int) $week)
+                    ->where('dia', $day)
+                    ->when($identity['cedula'], fn ($query) => $query->where('cedula', $identity['cedula']))
+                    ->when(!$identity['cedula'] && $identity['persona_id'], fn ($query) => $query->where('persona_id', $identity['persona_id']))
                     ->first();
                 
                 $mappedExercises[] = [
@@ -183,15 +215,37 @@ class AppRoutineController extends Controller
                 'porcentaje_rm' => $serie['porcentaje_rm'] ?? null,
                 'carga_fija' => $serie['carga_fija'] ?? null,
                 'unidad_carga' => $serie['unidad_carga'] ?? 'kg',
+                'tiempo_segundos' => $serie['tiempo_segundos'] ?? null,
+                'distancia_metros' => $serie['distancia_metros'] ?? null,
+                'rpe' => $serie['rpe'] ?? null,
+                'descanso_segundos' => $serie['descanso_segundos'] ?? null,
             ];
         }, $series);
     }
 
     private function resolveTargetLoad(array $serie, mixed $rmValue): string
     {
+        $type = strtoupper((string) ($serie['tipo_carga'] ?? 'LIBRE'));
         $unit = $serie['unidad_carga'] ?? 'kg';
         $fixedLoad = $serie['carga_fija'] ?? null;
         $percentRm = $serie['porcentaje_rm'] ?? null;
+        $rpe = $serie['rpe'] ?? null;
+        $time = $serie['tiempo_segundos'] ?? null;
+        $distance = $serie['distancia_metros'] ?? null;
+
+        if ($type === 'RPE') {
+            return $rpe !== null
+                ? 'RPE ' . rtrim(rtrim(number_format((float) $rpe, 1, '.', ''), '0'), '.')
+                : 'RPE';
+        }
+
+        if ($type === 'TIEMPO') {
+            return $time !== null ? "{$time} seg" : 'Tiempo';
+        }
+
+        if ($type === 'DISTANCIA') {
+            return $distance !== null ? "{$distance} m" : 'Distancia';
+        }
 
         if ($fixedLoad !== null) {
             return rtrim(rtrim(number_format((float) $fixedLoad, 2, '.', ''), '0'), '.') . " {$unit}";
@@ -219,6 +273,8 @@ class AppRoutineController extends Controller
             'plan_id' => 'required|integer',
             'plan_ejercicio_id' => 'required|integer',
             'fecha_ejecucion' => 'required|date',
+            'semana' => 'required|integer|min:1',
+            'dia' => 'required|string|max:20',
             'estado' => 'required|string|max:20',
             'series' => 'nullable|array',
             'rpe_real' => 'nullable|numeric',
@@ -226,14 +282,7 @@ class AppRoutineController extends Controller
             'observaciones' => 'nullable|string'
         ]);
 
-        $personaId = null;
-        if ($request->user()) {
-            $personaId = $request->user()->persona_id;
-        } else {
-            // Mock para local
-            $persona = DB::table('core.personas')->where('nombres', 'like', '%Yandry%')->first();
-            $personaId = $persona ? $persona->id : null;
-        }
+        $identity = $this->resolveAppIdentity($request);
 
         // Procesar series para sacar la carga máxima (opcional, para estadísticas rápidas)
         $series = $request->series ?? [];
@@ -250,10 +299,15 @@ class AppRoutineController extends Controller
             [
                 'plan_id' => $request->plan_id,
                 'plan_ejercicio_id' => $request->plan_ejercicio_id,
-                'fecha_ejecucion' => $request->fecha_ejecucion,
+                'semana' => (int) $request->semana,
+                'dia' => strtolower($request->dia),
+                'cedula' => $identity['cedula'],
             ],
             [
+                'persona_id' => $identity['persona_id'],
+                'usuario_id' => $identity['usuario_id'],
                 'estado' => $request->estado,
+                'fecha_ejecucion' => $request->fecha_ejecucion,
                 'series_completadas' => count($series),
                 'repeticiones_reales' => json_encode($series),
                 'carga_real' => $maxCarga,
@@ -270,5 +324,39 @@ class AppRoutineController extends Controller
             'message' => 'Ejecución registrada con éxito',
             'status' => 'success'
         ]);
+    }
+
+    private function resolveAppIdentity(Request $request): array
+    {
+        $user = $request->user();
+        $personaId = $user?->persona_id;
+        $usuarioId = $user?->id;
+        $cedula = null;
+
+        if ($personaId) {
+            $persona = DB::table('core.personas')
+                ->where('id', $personaId)
+                ->select('id', 'numero_identificacion')
+                ->first();
+            $cedula = $persona?->numero_identificacion;
+        }
+
+        if (!$cedula) {
+            $cedula = $user?->cedula ?? null;
+        }
+
+        if (!$personaId) {
+            // Mock para desarrollo local sin token real.
+            $persona = DB::table('core.personas')->where('nombres', 'like', '%Yandry%')->first();
+            $personaId = $persona ? $persona->id : null;
+            $cedula = $persona?->numero_identificacion ?? $cedula;
+            $usuarioId = DB::table('seguridad.usuarios')->where('persona_id', $personaId)->value('id') ?? $usuarioId;
+        }
+
+        return [
+            'persona_id' => $personaId ? (int) $personaId : null,
+            'usuario_id' => $usuarioId ? (int) $usuarioId : null,
+            'cedula' => $cedula ? trim((string) $cedula) : null,
+        ];
     }
 }

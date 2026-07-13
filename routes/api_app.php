@@ -20,8 +20,13 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
+use App\Http\Controllers\Personas\AppProgressController;
+
 // Rutas del Dashboard
 Route::get('dashboard', [AppDashboardController::class, 'getDashboardSummary']);
+
+// Rutas de Progreso (Evolución)
+Route::get('progreso', [AppProgressController::class, 'getProgress']);
 
 // Rutas de Rutina de Entrenamiento
 Route::get('rutinas', [AppRoutineController::class, 'getRoutineByDay']);

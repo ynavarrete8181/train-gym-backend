@@ -38,8 +38,9 @@ ALTER TABLE entrenamiento.plan_ejecuciones
     DROP CONSTRAINT IF EXISTS plan_ejecuciones_unique_ejercicio_fecha;
 
 DROP INDEX IF EXISTS entrenamiento.plan_ejecuciones_unique_persona_semana_dia;
+DROP INDEX IF EXISTS entrenamiento.plan_ejecuciones_identity_schedule_idx;
 
-CREATE UNIQUE INDEX plan_ejecuciones_unique_persona_semana_dia
+CREATE INDEX plan_ejecuciones_identity_schedule_idx
     ON entrenamiento.plan_ejecuciones (
         plan_id,
         plan_ejercicio_id,
@@ -66,6 +67,7 @@ DROP INDEX IF EXISTS entrenamiento.plan_ejecuciones_semana_dia_idx;
 DROP INDEX IF EXISTS entrenamiento.plan_ejecuciones_cedula_idx;
 DROP INDEX IF EXISTS entrenamiento.plan_ejecuciones_persona_idx;
 DROP INDEX IF EXISTS entrenamiento.plan_ejecuciones_unique_persona_semana_dia;
+DROP INDEX IF EXISTS entrenamiento.plan_ejecuciones_identity_schedule_idx;
 
 ALTER TABLE entrenamiento.plan_ejecuciones
     ADD CONSTRAINT plan_ejecuciones_unique_ejercicio_fecha UNIQUE (plan_ejercicio_id, fecha_ejecucion),

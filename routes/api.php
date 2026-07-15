@@ -16,6 +16,9 @@ use Illuminate\Support\Facades\Route;
 // Rutas de Autenticación (Tienen sus propios middlewares internos)
 require __DIR__ . '/api_auth.php';
 
+// Rutas del módulo de Notificaciones
+require __DIR__ . '/api_notificaciones.php';
+
 // Rutas de Gimnasio (Agrupadas bajo el prefijo 'gimnasio' y autenticadas)
 Route::middleware('auth:sanctum')->prefix('gimnasio')->group(function () {
     

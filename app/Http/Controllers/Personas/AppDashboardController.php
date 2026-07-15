@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Personas;
 
 use App\Http\Controllers\Controller;
 use App\Queries\Ventas\VentaDebtQuery;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -62,12 +63,19 @@ class AppDashboardController extends Controller
             $diasConfigurados = DB::table('entrenamiento.plan_dias')
                 ->where('plan_id', $planActivo->id)
                 ->count();
+            $diaActual = $this->resolvePlanDaySummary($planActivo, $personaId, $cedula);
                 
             $planResumen = [
                 'id' => $planActivo->id,
                 'nombre' => $planActivo->nombre,
                 'diasConfigurados' => $diasConfigurados,
                 'estado' => $planActivo->estado,
+                'semanaActual' => $diaActual['semana'],
+                'diaActual' => $diaActual['dia'],
+                'diaActualLabel' => $diaActual['dia_label'],
+                'ejerciciosTotal' => $diaActual['ejercicios_total'],
+                'ejerciciosCompletados' => $diaActual['ejercicios_completados'],
+                'porcentaje' => $diaActual['porcentaje'],
             ];
         }
 
@@ -174,5 +182,159 @@ class AppDashboardController extends Controller
                 'estadisticas' => $estadisticas
             ]
         ]);
+    }
+
+    private function resolvePlanDaySummary(object $plan, ?int $personaId, ?string $cedula): array
+    {
+        $dias = DB::table('entrenamiento.plan_dias')
+            ->where('plan_id', $plan->id)
+            ->select('id', 'semana', 'dia')
+            ->orderBy('semana')
+            ->orderByRaw($this->dayOrderSql('dia'))
+            ->get();
+
+        if ($dias->isEmpty()) {
+            return [
+                'semana' => 1,
+                'dia' => $this->currentDayKey(),
+                'dia_label' => $this->dayLabel($this->currentDayKey()),
+                'ejercicios_total' => 0,
+                'ejercicios_completados' => 0,
+                'porcentaje' => 0,
+            ];
+        }
+
+        $totalWeeks = max(1, (int) $dias->max('semana'));
+        $week = $this->resolveCurrentWeek($plan->fecha_inicio ?? null, $totalWeeks);
+        $today = $this->currentDayKey();
+        $todayOrder = $this->dayOrder($today);
+        $diasSemana = $dias->filter(fn ($dia) => (int) $dia->semana === $week)->values();
+
+        if ($diasSemana->isEmpty()) {
+            $week = (int) $dias->max('semana');
+            $diasSemana = $dias->filter(fn ($dia) => (int) $dia->semana === $week)->values();
+        }
+
+        $selected = $diasSemana->first(fn ($dia) => $this->normalizeDay($dia->dia) === $today);
+
+        if (!$selected) {
+            $selected = $diasSemana
+                ->filter(fn ($dia) => $this->dayOrder($dia->dia) <= $todayOrder)
+                ->sortByDesc(fn ($dia) => $this->dayOrder($dia->dia))
+                ->first();
+        }
+
+        $selected = $selected ?: $diasSemana->first();
+        $selectedDay = $this->normalizeDay($selected->dia ?? $today);
+        $selectedWeek = (int) ($selected->semana ?? $week);
+
+        $ejercicioIds = DB::table('entrenamiento.plan_ejercicios as pe')
+            ->join('entrenamiento.plan_bloques as pb', 'pb.id', '=', 'pe.plan_bloque_id')
+            ->where('pb.plan_dia_id', $selected->id)
+            ->pluck('pe.id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $total = count($ejercicioIds);
+        $completed = 0;
+
+        if ($total > 0) {
+            $query = DB::table('entrenamiento.plan_ejecuciones')
+                ->where('plan_id', $plan->id)
+                ->whereIn('plan_ejercicio_id', $ejercicioIds)
+                ->where('semana', $selectedWeek)
+                ->where('dia', $selectedDay)
+                ->whereIn('estado', ['COMPLETADO', 'PARCIAL', 'COMPLETADO_CON_AJUSTE']);
+
+            if ($cedula) {
+                $query->where('cedula', $cedula);
+            } elseif ($personaId) {
+                $query->where('persona_id', $personaId);
+            }
+
+            $completed = (int) $query->distinct()->count('plan_ejercicio_id');
+        }
+
+        return [
+            'semana' => $selectedWeek,
+            'dia' => $selectedDay,
+            'dia_label' => $this->dayLabel($selectedDay),
+            'ejercicios_total' => $total,
+            'ejercicios_completados' => min($completed, $total),
+            'porcentaje' => $total > 0 ? (int) round((min($completed, $total) / $total) * 100) : 0,
+        ];
+    }
+
+    private function resolveCurrentWeek(?string $planStartDate, int $totalWeeks): int
+    {
+        if (!$planStartDate) {
+            return 1;
+        }
+
+        try {
+            $start = Carbon::parse($planStartDate)->startOfDay();
+            $today = Carbon::today();
+            $daysElapsed = (int) max(0, $start->diffInDays($today, false));
+            $currentWeek = intdiv($daysElapsed, 7) + 1;
+            return min(max(1, $currentWeek), max(1, $totalWeeks));
+        } catch (\Throwable) {
+            return 1;
+        }
+    }
+
+    private function currentDayKey(): string
+    {
+        $days = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
+        return $days[(int) date('w')];
+    }
+
+    private function normalizeDay(?string $day): string
+    {
+        $value = strtolower(trim((string) $day));
+        return str_replace(['miércoles', 'sábado'], ['miercoles', 'sabado'], $value);
+    }
+
+    private function dayLabel(?string $day): string
+    {
+        return [
+            'lunes' => 'Lunes',
+            'martes' => 'Martes',
+            'miercoles' => 'Miercoles',
+            'jueves' => 'Jueves',
+            'viernes' => 'Viernes',
+            'sabado' => 'Sabado',
+            'domingo' => 'Domingo',
+        ][$this->normalizeDay($day)] ?? 'Dia';
+    }
+
+    private function dayOrder(?string $day): int
+    {
+        return [
+            'lunes' => 1,
+            'martes' => 2,
+            'miercoles' => 3,
+            'jueves' => 4,
+            'viernes' => 5,
+            'sabado' => 6,
+            'domingo' => 7,
+        ][$this->normalizeDay($day)] ?? 8;
+    }
+
+    private function dayOrderSql(string $column): string
+    {
+        return "
+            CASE LOWER({$column})
+                WHEN 'lunes' THEN 1
+                WHEN 'martes' THEN 2
+                WHEN 'miercoles' THEN 3
+                WHEN 'miércoles' THEN 3
+                WHEN 'jueves' THEN 4
+                WHEN 'viernes' THEN 5
+                WHEN 'sabado' THEN 6
+                WHEN 'sábado' THEN 6
+                WHEN 'domingo' THEN 7
+                ELSE 8
+            END
+        ";
     }
 }

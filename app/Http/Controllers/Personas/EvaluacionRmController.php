@@ -32,6 +32,7 @@ class EvaluacionRmController extends Controller
 
         $id = DB::table('entrenamiento.evaluaciones')->insertGetId([
             ...$data,
+            'cedula' => $this->resolveCedula($data['persona_id']),
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -53,6 +54,7 @@ class EvaluacionRmController extends Controller
 
         $updated = DB::table('entrenamiento.evaluaciones')->where('id', $id)->update([
             ...$data,
+            'cedula' => $this->resolveCedula($data['persona_id']),
             'updated_at' => now(),
         ]);
 
@@ -95,6 +97,7 @@ class EvaluacionRmController extends Controller
 
         $id = DB::table('entrenamiento.rm_registros')->insertGetId([
             ...$data,
+            'cedula' => $this->resolveCedula($data['persona_id']),
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -118,6 +121,7 @@ class EvaluacionRmController extends Controller
 
         $updated = DB::table('entrenamiento.rm_registros')->where('id', $id)->update([
             ...$data,
+            'cedula' => $this->resolveCedula($data['persona_id']),
             'updated_at' => now(),
         ]);
 
@@ -137,5 +141,14 @@ class EvaluacionRmController extends Controller
         }
 
         return response()->json(['message' => 'Registro RM eliminado correctamente.']);
+    }
+
+    private function resolveCedula(int $personaId): ?string
+    {
+        $cedula = DB::table('core.personas')
+            ->where('id', $personaId)
+            ->value('numero_identificacion');
+
+        return $cedula ? trim((string) $cedula) : null;
     }
 }

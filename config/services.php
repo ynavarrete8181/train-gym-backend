@@ -40,4 +40,10 @@ return [
         'url' => env('REMOVEBG_API_URL', 'https://api.remove.bg/v1.0/removebg'),
     ],
 
+    'openai' => [
+        'key' => env('OPENAI_API_KEY'),
+        'model' => env('OPENAI_MODEL', 'gpt-4.1-mini'),
+        'url' => env('OPENAI_API_URL', 'https://api.openai.com/v1/responses'),
+    ],
+
 ];

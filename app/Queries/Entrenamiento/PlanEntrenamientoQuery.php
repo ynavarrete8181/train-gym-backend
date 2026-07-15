@@ -159,6 +159,7 @@ class PlanEntrenamientoQuery
                 ->selectRaw("
                     pe.*,
                     e.nombre as ejercicio_nombre,
+                    rr.persona_id as rm_registro_persona_id,
                     rr.rm_estimado as rm_registro_valor
                 ")
                 ->orderBy('pe.orden')
@@ -360,6 +361,7 @@ class PlanEntrenamientoQuery
                                 'usa_rm' => (bool) $ejercicio->usa_rm,
                                 'rm_referencia' => $ejercicio->rm_referencia !== null ? (float) $ejercicio->rm_referencia : null,
                                 'rm_registro_id' => $ejercicio->rm_registro_id !== null ? (int) $ejercicio->rm_registro_id : null,
+                                'rm_registro_persona_id' => $ejercicio->rm_registro_persona_id !== null ? (int) $ejercicio->rm_registro_persona_id : null,
                                 'rm_registro_valor' => $ejercicio->rm_registro_valor !== null ? (float) $ejercicio->rm_registro_valor : null,
                                 'modo_prescripcion' => $ejercicio->modo_prescripcion,
                                 'descanso_segundos' => $ejercicio->descanso_segundos !== null ? (int) $ejercicio->descanso_segundos : null,

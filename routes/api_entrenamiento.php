@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Ejercicios\EjercicioController;
+use App\Http\Controllers\Ejercicios\EjercicioAiController;
 use App\Http\Controllers\Personas\EvaluacionRmController;
 use App\Http\Controllers\Personas\PlanRutinaController;
 use App\Http\Controllers\Personas\EjecucionController;
@@ -41,10 +42,13 @@ Route::delete('rutina-plantillas/{id}', [PlanRutinaController::class, 'destroyTe
 Route::get('ejecucion/planes', [EjecucionController::class, 'planes']);
 Route::get('ejecuciones', [EjecucionController::class, 'index']);
 Route::get('ejecuciones/historial', [EjecucionController::class, 'history']);
-    Route::get('ejecuciones/progreso', [EjecucionController::class, 'progreso']);
+Route::get('ejecuciones/progreso', [EjecucionController::class, 'progreso']);
+Route::get('ejecuciones/reporte-secuencias', [EjecucionController::class, 'reporteSecuencias']);
 Route::post('ejecuciones', [EjecucionController::class, 'store']);
 
 Route::get('reportes/evolucion', [ReporteEvolucionController::class, 'index']);
 
 // Catálogo de Ejercicios
+Route::post('ejercicios/ia-analisis', [EjercicioAiController::class, 'analyze']);
+Route::post('ejercicios/{id}/ia-analisis', [EjercicioAiController::class, 'analyzeExisting']);
 Route::apiResource('ejercicios', EjercicioController::class);

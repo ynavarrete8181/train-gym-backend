@@ -42,9 +42,9 @@ class AppEjercicioController extends Controller
                 ->join('entrenamiento.plan_ejercicios as p_ej', 'pe.plan_ejercicio_id', '=', 'p_ej.id')
                 ->join('entrenamiento.planes as p', 'pe.plan_id', '=', 'p.id')
                 ->where('p_ej.ejercicio_id', $id)
-                ->whereIn('pe.estado', ['COMPLETADO', 'PARCIAL'])
-                ->when($identity['cedula'], fn ($query) => $query->where('pe.cedula', $identity['cedula']))
-                ->when(!$identity['cedula'] && $identity['persona_id'], fn ($query) => $query->where('pe.persona_id', $identity['persona_id']));
+                ->whereIn('pe.estado', ['COMPLETADO', 'PARCIAL']);
+
+            $this->applyIdentityFilter($historialQuery, $identity, 'pe');
 
             if ($planEjercicioId) {
                 $historialQuery->where('p_ej.id', (int) $planEjercicioId);
@@ -74,16 +74,18 @@ class AppEjercicioController extends Controller
                     ->where('plan_ejercicio_id', (int) $planEjercicioId)
                     ->when($week, fn ($query) => $query->where('semana', $week))
                     ->when($day, fn ($query) => $query->where('dia', $day))
-                    ->when(!$week || !$day, fn ($query) => $query->whereDate('fecha_ejecucion', now()->toDateString()))
-                    ->when($identity['cedula'], fn ($query) => $query->where('cedula', $identity['cedula']))
-                    ->when(!$identity['cedula'] && $identity['persona_id'], fn ($query) => $query->where('persona_id', $identity['persona_id']))
-                    ->first();
+                    ->when(!$week || !$day, fn ($query) => $query->whereDate('fecha_ejecucion', now()->toDateString()));
+
+                $this->applyIdentityFilter($ejecucionHoyRow, $identity);
+
+                $ejecucionHoyRow = $ejecucionHoyRow->first();
 
                 if ($ejecucionHoyRow) {
                     $ejecucionHoy = [
                         'series' => json_decode($ejecucionHoyRow->repeticiones_reales, true) ?? [],
                         'rpe' => $ejecucionHoyRow->rpe_real,
                         'dolor_nivel' => $ejecucionHoyRow->dolor_nivel ?? null,
+                        'rm_estimado_temporal' => $ejecucionHoyRow->rm_estimado_temporal ?? null,
                         'obs' => $ejecucionHoyRow->observaciones,
                         'estado' => $ejecucionHoyRow->estado,
                     ];
@@ -148,5 +150,19 @@ class AppEjercicioController extends Controller
             'usuario_id' => $usuarioId ? (int) $usuarioId : null,
             'cedula' => $cedula ? trim((string) $cedula) : null,
         ];
+    }
+
+    private function applyIdentityFilter($query, array $identity, ?string $alias = null): void
+    {
+        $prefix = $alias ? "{$alias}." : '';
+
+        if ($identity['persona_id']) {
+            $query->where($prefix . 'persona_id', $identity['persona_id']);
+            return;
+        }
+
+        if ($identity['cedula']) {
+            $query->where($prefix . 'cedula', $identity['cedula']);
+        }
     }
 }

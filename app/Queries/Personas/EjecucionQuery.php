@@ -242,6 +242,200 @@ class EjecucionQuery
         ];
     }
 
+    public function listarReporteSecuenciasPorPlan(int $planId): array
+    {
+        $rows = DB::table('entrenamiento.plan_ejercicios as pe')
+            ->join('entrenamiento.plan_bloques as pb', 'pb.id', '=', 'pe.plan_bloque_id')
+            ->join('entrenamiento.plan_dias as pd', 'pd.id', '=', 'pb.plan_dia_id')
+            ->join('entrenamiento.ejercicios as e', 'e.id', '=', 'pe.ejercicio_id')
+            ->leftJoin('entrenamiento.plan_ejecuciones as ex', 'ex.plan_ejercicio_id', '=', 'pe.id')
+            ->where('pd.plan_id', $planId)
+            ->selectRaw("
+                pe.id as plan_ejercicio_id,
+                pe.ejercicio_id,
+                e.nombre as ejercicio_nombre,
+                pd.semana,
+                pd.dia,
+                pb.nombre as bloque,
+                ex.id as ejecucion_id,
+                ex.fecha_ejecucion,
+                ex.estado,
+                ex.repeticiones_reales,
+                ex.carga_real,
+                ex.observaciones
+            ")
+            ->orderBy('pd.semana')
+            ->orderByRaw("
+                CASE pd.dia
+                    WHEN 'LUNES' THEN 1
+                    WHEN 'MARTES' THEN 2
+                    WHEN 'MIERCOLES' THEN 3
+                    WHEN 'JUEVES' THEN 4
+                    WHEN 'VIERNES' THEN 5
+                    WHEN 'SABADO' THEN 6
+                    WHEN 'DOMINGO' THEN 7
+                    ELSE 8
+                END
+            ")
+            ->orderBy('pb.orden')
+            ->orderBy('pe.orden')
+            ->orderByDesc('ex.fecha_ejecucion')
+            ->get();
+
+        $planExerciseIds = $rows->pluck('plan_ejercicio_id')->map(fn ($id) => (int) $id)->unique()->values()->all();
+
+        $series = empty($planExerciseIds)
+            ? collect()
+            : DB::table('entrenamiento.plan_ejercicio_series')
+                ->whereIn('plan_ejercicio_id', $planExerciseIds)
+                ->orderBy('numero_serie')
+                ->orderBy('id')
+                ->get()
+                ->groupBy('plan_ejercicio_id');
+
+        $latestRows = [];
+        foreach ($rows as $row) {
+            $id = (int) $row->plan_ejercicio_id;
+            if (!isset($latestRows[$id]) || (!$latestRows[$id]->ejecucion_id && $row->ejecucion_id)) {
+                $latestRows[$id] = $row;
+            }
+        }
+
+        $weeks = [];
+        foreach ($latestRows as $row) {
+            $week = (int) $row->semana;
+            if (!isset($weeks[$week])) {
+                $weeks[$week] = [
+                    'label' => 'Sem ' . $week,
+                    'week' => $week,
+                    'plannedReps' => 0,
+                    'actualReps' => 0,
+                    'plannedVolume' => 0,
+                    'actualVolume' => 0,
+                    'exercises' => [],
+                ];
+            }
+
+            $plannedSeries = [];
+            $plannedReps = 0;
+            $plannedVolume = 0;
+            foreach (($series->get($row->plan_ejercicio_id) ?? collect()) as $serie) {
+                $reps = (int) $this->parseNumber($serie->repeticiones ?? 0);
+                $load = $this->parseNumber($serie->carga_fija ?? 0);
+                $volume = $load > 0 && $reps > 0 ? $load * $reps : 0;
+                $plannedReps += $reps;
+                $plannedVolume += $volume;
+                $plannedSeries[] = [
+                    'number' => (int) ($serie->numero_serie ?? (count($plannedSeries) + 1)),
+                    'reps' => $reps,
+                    'load' => round($load, 1),
+                    'volume' => round($volume, 1),
+                ];
+            }
+
+            $actual = $this->extractSequenceMetrics($row->repeticiones_reales, $row->carga_real);
+
+            $weeks[$week]['plannedReps'] += $plannedReps;
+            $weeks[$week]['actualReps'] += $actual['reps'];
+            $weeks[$week]['plannedVolume'] += $plannedVolume;
+            $weeks[$week]['actualVolume'] += $actual['volume'];
+            $weeks[$week]['exercises'][] = [
+                'id' => (int) $row->plan_ejercicio_id,
+                'exerciseId' => (int) $row->ejercicio_id,
+                'name' => $row->ejercicio_nombre,
+                'day' => $row->dia,
+                'block' => $row->bloque,
+                'state' => $row->estado,
+                'date' => $row->fecha_ejecucion,
+                'plannedReps' => $plannedReps,
+                'actualReps' => $actual['reps'],
+                'plannedVolume' => round($plannedVolume, 1),
+                'actualVolume' => round($actual['volume'], 1),
+                'compliance' => $plannedReps > 0 ? (int) round(($actual['reps'] / $plannedReps) * 100) : 0,
+                'plannedSeries' => $plannedSeries,
+                'actualSeries' => $actual['series'],
+                'observation' => $row->observaciones,
+            ];
+        }
+
+        ksort($weeks);
+        $weekly = array_values(array_map(function ($week) {
+            $week['plannedReps'] = (int) $week['plannedReps'];
+            $week['actualReps'] = (int) $week['actualReps'];
+            $week['plannedVolume'] = round($week['plannedVolume'], 1);
+            $week['actualVolume'] = round($week['actualVolume'], 1);
+            $week['compliance'] = $week['plannedReps'] > 0
+                ? (int) round(($week['actualReps'] / $week['plannedReps']) * 100)
+                : 0;
+
+            return $week;
+        }, $weeks));
+
+        $plannedReps = array_sum(array_column($weekly, 'plannedReps'));
+        $actualReps = array_sum(array_column($weekly, 'actualReps'));
+        $plannedVolume = array_sum(array_column($weekly, 'plannedVolume'));
+        $actualVolume = array_sum(array_column($weekly, 'actualVolume'));
+
+        return [
+            'plannedReps' => (int) $plannedReps,
+            'actualReps' => (int) $actualReps,
+            'plannedVolume' => round($plannedVolume, 1),
+            'actualVolume' => round($actualVolume, 1),
+            'compliance' => $plannedReps > 0 ? (int) round(($actualReps / $plannedReps) * 100) : 0,
+            'weeks' => $weekly,
+        ];
+    }
+
+    private function extractSequenceMetrics(?string $rawSeries, $fallbackLoad = null): array
+    {
+        $decoded = json_decode($rawSeries ?? '[]', true);
+        $series = is_array($decoded) ? $decoded : [];
+
+        if (empty($series) && $rawSeries) {
+            $series = [[
+                'set' => 1,
+                'reps' => $this->parseNumber($rawSeries),
+                'carga' => $this->parseNumber($fallbackLoad ?? 0),
+            ]];
+        }
+
+        $reps = 0;
+        $volume = 0;
+        $normalized = [];
+
+        foreach ($series as $index => $serie) {
+            $load = $this->parseNumber($serie['carga'] ?? $serie['load'] ?? $fallbackLoad ?? 0);
+            $serieReps = (int) $this->parseNumber($serie['reps'] ?? $serie['repeticiones'] ?? 0);
+            $reps += $serieReps;
+            $volume += $load * $serieReps;
+            $normalized[] = [
+                'number' => (int) ($serie['numero_serie'] ?? $serie['set'] ?? ($index + 1)),
+                'reps' => $serieReps,
+                'load' => round($load, 1),
+            ];
+        }
+
+        return [
+            'reps' => $reps,
+            'volume' => $volume,
+            'series' => $normalized,
+        ];
+    }
+
+    private function parseNumber($value): float
+    {
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+
+        $normalized = str_replace(',', '.', (string) $value);
+        if (preg_match('/-?\d+(?:\.\d+)?/', $normalized, $matches)) {
+            return (float) $matches[0];
+        }
+
+        return 0;
+    }
+
     public function listarHistorialPorPlan(int $planId): array
     {
         return DB::table('entrenamiento.plan_ejecuciones as ex')

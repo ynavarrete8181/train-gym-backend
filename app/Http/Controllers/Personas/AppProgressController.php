@@ -88,9 +88,9 @@ class AppProgressController extends Controller
         // Obtener ejecuciones
         $queryEjecuciones = DB::table('entrenamiento.plan_ejecuciones')
             ->where('plan_id', $planId)
-            ->whereIn('estado', ['COMPLETADO', 'PARCIAL', 'COMPLETADO_CON_AJUSTE'])
-            ->when($identity['cedula'], fn ($q) => $q->where('cedula', $identity['cedula']))
-            ->when(!$identity['cedula'] && $identity['persona_id'], fn ($q) => $q->where('persona_id', $identity['persona_id']));
+            ->whereIn('estado', ['COMPLETADO', 'PARCIAL', 'COMPLETADO_CON_AJUSTE']);
+
+        $this->applyIdentityFilter($queryEjecuciones, $identity);
 
         if (str_starts_with($filter, 'semana_')) {
             $targetWeek = (int) str_replace('semana_', '', $filter);
@@ -164,10 +164,11 @@ class AppProgressController extends Controller
 
         $todasLasEjecuciones = DB::table('entrenamiento.plan_ejecuciones')
             ->where('plan_id', $planId)
-            ->whereIn('estado', ['COMPLETADO', 'PARCIAL', 'COMPLETADO_CON_AJUSTE'])
-            ->when($identity['cedula'], fn ($q) => $q->where('cedula', $identity['cedula']))
-            ->when(!$identity['cedula'] && $identity['persona_id'], fn ($q) => $q->where('persona_id', $identity['persona_id']))
-            ->get();
+            ->whereIn('estado', ['COMPLETADO', 'PARCIAL', 'COMPLETADO_CON_AJUSTE']);
+
+        $this->applyIdentityFilter($todasLasEjecuciones, $identity);
+
+        $todasLasEjecuciones = $todasLasEjecuciones->get();
 
         foreach ($todasLasEjecuciones as $ej) {
             $semana = $ej->semana;
@@ -518,6 +519,18 @@ class AppProgressController extends Controller
         return '#E2E8F0'; // colors.surfaceAlt
     }
 
+    private function applyIdentityFilter($query, array $identity): void
+    {
+        if ($identity['persona_id']) {
+            $query->where('persona_id', $identity['persona_id']);
+            return;
+        }
+
+        if ($identity['cedula']) {
+            $query->where('cedula', $identity['cedula']);
+        }
+    }
+
     private function resolveAppIdentity(Request $request): array
     {
         $user = $request->user();
@@ -537,7 +550,7 @@ class AppProgressController extends Controller
             $cedula = $user?->cedula ?? null;
         }
 
-        if (!$personaId) {
+        if (!$personaId && app()->environment(['local', 'testing'])) {
             // Mock para desarrollo local sin token real.
             $persona = DB::table('core.personas')->where('nombres', 'like', '%Yandry%')->first();
             $personaId = $persona ? $persona->id : null;

@@ -59,17 +59,22 @@ class UsuarioController extends Controller
             'gimnasio_id' => ['nullable', 'integer'],
             'persona_id' => ['nullable', 'integer'],
             'cedula' => ['nullable', 'string', 'max:30'],
-            'email' => ['required', 'email', 'max:150'],
+            'email' => ['required', 'string', 'max:150'],
             'password' => ['required', 'string', 'min:6'],
             'estado' => ['nullable', 'string', 'in:ACTIVO,INACTIVO,BLOQUEADO'],
             'roles' => ['nullable', 'array'],
             'roles.*' => ['integer'],
             'sedes' => ['nullable', 'array'],
             'sedes.*' => ['integer'],
+        ], [
+            'email.required' => 'El usuario es obligatorio.',
+            'email.max' => 'El usuario no puede superar 150 caracteres.',
+            'password.required' => 'La contraseña es obligatoria.',
+            'password.min' => 'La contraseña debe tener al menos 6 caracteres.',
         ]);
 
         if (\Illuminate\Support\Facades\DB::table('seguridad.usuarios')->where('email', $data['email'])->exists()) {
-            throw \Illuminate\Validation\ValidationException::withMessages(['email' => 'El correo ya está en uso.']);
+            throw \Illuminate\Validation\ValidationException::withMessages(['email' => 'El usuario ya está en uso.']);
         }
         if (!empty($data['cedula']) && \Illuminate\Support\Facades\DB::table('seguridad.usuarios')->where('cedula', $data['cedula'])->exists()) {
             throw \Illuminate\Validation\ValidationException::withMessages(['cedula' => 'La cédula ya está registrada en otro usuario.']);
@@ -89,17 +94,21 @@ class UsuarioController extends Controller
             'gimnasio_id' => ['nullable', 'integer'],
             'persona_id' => ['nullable', 'integer'],
             'cedula' => ['nullable', 'string', 'max:30'],
-            'email' => ['required', 'email', 'max:150'],
+            'email' => ['required', 'string', 'max:150'],
             'password' => ['nullable', 'string', 'min:6'],
             'estado' => ['nullable', 'string', 'in:ACTIVO,INACTIVO,BLOQUEADO'],
             'roles' => ['nullable', 'array'],
             'roles.*' => ['integer'],
             'sedes' => ['nullable', 'array'],
             'sedes.*' => ['integer'],
+        ], [
+            'email.required' => 'El usuario es obligatorio.',
+            'email.max' => 'El usuario no puede superar 150 caracteres.',
+            'password.min' => 'La contraseña debe tener al menos 6 caracteres.',
         ]);
 
         if (\Illuminate\Support\Facades\DB::table('seguridad.usuarios')->where('email', $data['email'])->where('id', '!=', $id)->exists()) {
-            throw \Illuminate\Validation\ValidationException::withMessages(['email' => 'El correo ya está en uso.']);
+            throw \Illuminate\Validation\ValidationException::withMessages(['email' => 'El usuario ya está en uso.']);
         }
         if (!empty($data['cedula']) && \Illuminate\Support\Facades\DB::table('seguridad.usuarios')->where('cedula', $data['cedula'])->where('id', '!=', $id)->exists()) {
             throw \Illuminate\Validation\ValidationException::withMessages(['cedula' => 'La cédula ya está registrada en otro usuario.']);

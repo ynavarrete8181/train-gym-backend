@@ -19,7 +19,7 @@ class EvaluacionRmQuery
                 e.nivel_resultado,
                 e.fecha_proxima_evaluacion,
                 e.observaciones,
-                p.numero_identificacion as cedula,
+                COALESCE(e.cedula, p.numero_identificacion) as cedula,
                 p.nombres,
                 p.apellidos
             ");
@@ -71,7 +71,7 @@ class EvaluacionRmQuery
                 r.fecha_registro,
                 r.fecha_proximo_control,
                 r.observaciones,
-                p.numero_identificacion as cedula,
+                COALESCE(r.cedula, p.numero_identificacion) as cedula,
                 p.nombres,
                 p.apellidos,
                 ej.nombre as ejercicio_nombre

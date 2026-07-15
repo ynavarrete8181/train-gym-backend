@@ -7,6 +7,7 @@ use App\Http\Controllers\Personas\AppRMController;
 use App\Http\Controllers\Ejercicios\AppEjercicioController;
 use App\Http\Controllers\Personas\AppEvaluacionController;
 use App\Http\Controllers\Personas\AppFacturaController;
+use App\Http\Controllers\Personas\AppPlanesController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -31,6 +32,8 @@ Route::get('progreso', [AppProgressController::class, 'getProgress']);
 // Rutas de Rutina de Entrenamiento
 Route::get('rutinas', [AppRoutineController::class, 'getRoutineByDay']);
 Route::get('rutinas/hoy', [AppRoutineController::class, 'getTodayRoutine']);
+Route::post('rutinas/calcular-rm-temporal', [AppRoutineController::class, 'calculateTemporaryRmLoads']);
+Route::delete('rutinas/rm-temporal', [AppRoutineController::class, 'clearTemporaryRm']);
 Route::post('rutinas/ejecutar', [AppRoutineController::class, 'registerExecution']);
 
 // Rutas de Detalle de Ejercicios
@@ -47,3 +50,6 @@ Route::get('rms', [AppRMController::class, 'getRMs']);
 
 // Rutas de Facturación
 Route::get('facturas', [AppFacturaController::class, 'getFacturas']);
+
+// Rutas de Planes / Membresías
+Route::get('planes', [AppPlanesController::class, 'getPlanes']);

@@ -46,6 +46,15 @@ class EjecucionController extends Controller
         return response()->json($this->query->listarProgresoPorPlan((int) $data['plan_id']));
     }
 
+    public function reporteSecuencias(Request $request)
+    {
+        $data = $request->validate([
+            'plan_id' => ['required', 'integer'],
+        ]);
+
+        return response()->json($this->query->listarReporteSecuenciasPorPlan((int) $data['plan_id']));
+    }
+
     public function store(Request $request)
     {
         $data = $request->validate([
@@ -54,7 +63,7 @@ class EjecucionController extends Controller
             'fecha_ejecucion' => ['required', 'date'],
             'estado' => ['required', 'string', 'max:20'],
             'series_completadas' => ['nullable', 'integer', 'min:0'],
-            'repeticiones_reales' => ['nullable', 'string', 'max:50'],
+            'repeticiones_reales' => ['nullable', 'string', 'max:2000'],
             'carga_real' => ['nullable', 'numeric', 'min:0'],
             'unidad_carga_real' => ['nullable', 'string', 'max:20'],
             'rpe_real' => ['nullable', 'numeric', 'min:0', 'max:10'],

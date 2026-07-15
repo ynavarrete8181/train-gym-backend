@@ -109,21 +109,29 @@ class AppRoutineController extends Controller
             foreach ($bloque['ejercicios'] as $ejercicio) {
                 $seriesCount = is_array($ejercicio['series']) ? count($ejercicio['series']) : 0;
                 $firstRep = $seriesCount > 0 ? $ejercicio['series'][0]['repeticiones'] : 0;
-                $plannedSeries = $this->mapPlannedSeries($ejercicio);
-                $firstLoad = $plannedSeries[0]['target_load'] ?? 'Libre';
-                
+
                 // Buscar si ya tiene una ejecución para hoy
                 $ejecucion = DB::table('entrenamiento.plan_ejecuciones')
                     ->where('plan_id', $planId)
                     ->where('plan_ejercicio_id', $ejercicio['id'])
                     ->where('semana', (int) $week)
-                    ->where('dia', $day)
-                    ->when($identity['cedula'], fn ($query) => $query->where('cedula', $identity['cedula']))
-                    ->when(!$identity['cedula'] && $identity['persona_id'], fn ($query) => $query->where('persona_id', $identity['persona_id']))
+                    ->where('dia', $day);
+
+                $this->applyIdentityFilter($ejecucion, $identity);
+
+                $ejecucion = $ejecucion
                     ->first();
+
+                $plannedSeries = $this->mapPlannedSeries(
+                    $ejercicio,
+                    $identity['persona_id'],
+                    $ejecucion->rm_estimado_temporal ?? null
+                );
+                $firstLoad = $plannedSeries[0]['target_load'] ?? 'Libre';
                 
                 $mappedExercises[] = [
                     'id' => (string) $ejercicio['ejercicio_id'],
+                    'plan_id' => $planId,
                     'plan_ejercicio_id' => $ejercicio['id'],
                     'name' => $ejercicio['ejercicio_nombre'],
                     'note' => $ejercicio['observaciones'] ?? '',
@@ -137,6 +145,7 @@ class AppRoutineController extends Controller
                         'series' => json_decode($ejecucion->repeticiones_reales, true) ?? [],
                         'rpe' => $ejecucion->rpe_real,
                         'dolor_nivel' => $ejecucion->dolor_nivel ?? null,
+                        'rm_estimado_temporal' => $ejecucion->rm_estimado_temporal ?? null,
                         'obs' => $ejecucion->observaciones
                     ] : null,
                 ];
@@ -199,19 +208,20 @@ class AppRoutineController extends Controller
         }
     }
 
-    private function mapPlannedSeries(array $ejercicio): array
+    private function mapPlannedSeries(array $ejercicio, ?int $personaId = null, mixed $temporaryRm = null): array
     {
         $series = is_array($ejercicio['series'] ?? null) ? $ejercicio['series'] : [];
-        $rmValue = $ejercicio['rm_registro_valor'] ?? $ejercicio['rm_referencia'] ?? null;
+        $rmContext = $this->resolveRmContext($ejercicio, $personaId, $temporaryRm);
 
-        return array_map(function ($serie) use ($rmValue) {
-            $targetLoad = $this->resolveTargetLoad($serie, $rmValue);
+        return array_map(function ($serie) use ($rmContext) {
+            $prescription = $this->buildLoadPrescription($serie, $rmContext);
+            $targetLoad = $prescription['display'];
 
             return [
                 'numero_serie' => (int) ($serie['numero_serie'] ?? 0),
                 'reps' => (string) ($serie['repeticiones'] ?? ''),
                 'target_load' => $targetLoad,
-                'tipo_carga' => $serie['tipo_carga'] ?? null,
+                'tipo_carga' => $this->normalizeLoadType($serie['tipo_carga'] ?? null, $serie),
                 'porcentaje_rm' => $serie['porcentaje_rm'] ?? null,
                 'carga_fija' => $serie['carga_fija'] ?? null,
                 'unidad_carga' => $serie['unidad_carga'] ?? 'kg',
@@ -219,49 +229,249 @@ class AppRoutineController extends Controller
                 'distancia_metros' => $serie['distancia_metros'] ?? null,
                 'rpe' => $serie['rpe'] ?? null,
                 'descanso_segundos' => $serie['descanso_segundos'] ?? null,
+                'prescripcion_carga' => $prescription,
             ];
         }, $series);
     }
 
     private function resolveTargetLoad(array $serie, mixed $rmValue): string
     {
-        $type = strtoupper((string) ($serie['tipo_carga'] ?? 'LIBRE'));
+        return $this->buildLoadPrescription($serie, [
+            'rm' => $rmValue !== null ? (float) $rmValue : null,
+            'source' => $rmValue !== null ? 'manual' : null,
+            'registro_id' => null,
+        ])['display'];
+    }
+
+    private function buildLoadPrescription(array $serie, array $rmContext): array
+    {
+        $type = $this->normalizeLoadType($serie['tipo_carga'] ?? null, $serie);
         $unit = $serie['unidad_carga'] ?? 'kg';
         $fixedLoad = $serie['carga_fija'] ?? null;
         $percentRm = $serie['porcentaje_rm'] ?? null;
         $rpe = $serie['rpe'] ?? null;
         $time = $serie['tiempo_segundos'] ?? null;
         $distance = $serie['distancia_metros'] ?? null;
+        $rmValue = $rmContext['rm'] ?? null;
+
+        $base = [
+            'tipo' => $type,
+            'display' => 'Libre',
+            'unidad' => $unit,
+            'rm_usado' => $rmValue,
+            'rm_origen' => $rmContext['source'] ?? null,
+            'rm_registro_id' => $rmContext['registro_id'] ?? null,
+            'porcentaje_rm' => $percentRm !== null ? (float) $percentRm : null,
+            'carga_calculada' => null,
+            'carga_redondeada' => null,
+            'barra_kg' => 20,
+            'discos_por_lado' => [],
+            'nota' => null,
+        ];
 
         if ($type === 'RPE') {
-            return $rpe !== null
+            $base['display'] = $rpe !== null
                 ? 'RPE ' . rtrim(rtrim(number_format((float) $rpe, 1, '.', ''), '0'), '.')
                 : 'RPE';
+            return $base;
         }
 
         if ($type === 'TIEMPO') {
-            return $time !== null ? "{$time} seg" : 'Tiempo';
+            $base['display'] = $time !== null ? "{$time} seg" : 'Tiempo';
+            return $base;
         }
 
         if ($type === 'DISTANCIA') {
-            return $distance !== null ? "{$distance} m" : 'Distancia';
+            $base['display'] = $distance !== null ? "{$distance} m" : 'Distancia';
+            return $base;
         }
 
         if ($fixedLoad !== null) {
-            return rtrim(rtrim(number_format((float) $fixedLoad, 2, '.', ''), '0'), '.') . " {$unit}";
+            $load = (float) $fixedLoad;
+            return [
+                ...$base,
+                'display' => $this->formatKg($load, $unit),
+                'carga_calculada' => $load,
+                ...$this->plateBreakdown($load),
+            ];
         }
 
         if ($percentRm !== null) {
             $percent = (float) $percentRm;
             if ($rmValue !== null) {
                 $calculated = ((float) $rmValue) * ($percent / 100);
-                return rtrim(rtrim(number_format($calculated, 1, '.', ''), '0'), '.') . " {$unit}";
+                $breakdown = $this->plateBreakdown($calculated);
+                return [
+                    ...$base,
+                    'display' => $this->formatKg($breakdown['carga_redondeada'], $unit),
+                    'carga_calculada' => round($calculated, 2),
+                    ...$breakdown,
+                    'nota' => $breakdown['carga_redondeada'] !== round($calculated, 2)
+                        ? 'Carga redondeada al disco disponible más cercano.'
+                        : null,
+                ];
             }
 
-            return rtrim(rtrim(number_format($percent, 1, '.', ''), '0'), '.') . "% RM";
+            $base['display'] = rtrim(rtrim(number_format($percent, 1, '.', ''), '0'), '.') . "% RM";
+            $base['nota'] = 'No hay RM registrado para calcular la carga.';
+            return $base;
         }
 
-        return 'Libre';
+        return $base;
+    }
+
+    private function resolveRmContext(array $ejercicio, ?int $personaId, mixed $temporaryRm = null): array
+    {
+        if ($temporaryRm !== null && (float) $temporaryRm > 0) {
+            return [
+                'rm' => round((float) $temporaryRm, 2),
+                'source' => 'estimado_manual_sesion',
+                'registro_id' => null,
+            ];
+        }
+
+        $rmRegistroPersonaId = $ejercicio['rm_registro_persona_id'] ?? null;
+        $rmRegistroPerteneceAlUsuario = $personaId
+            && $rmRegistroPersonaId
+            && (int) $rmRegistroPersonaId === (int) $personaId;
+
+        if (($ejercicio['rm_registro_valor'] ?? null) !== null && $rmRegistroPerteneceAlUsuario) {
+            return [
+                'rm' => (float) $ejercicio['rm_registro_valor'],
+                'source' => 'plan_rm_registro',
+                'registro_id' => $ejercicio['rm_registro_id'] ?? null,
+            ];
+        }
+
+        if (($ejercicio['rm_referencia'] ?? null) !== null) {
+            return [
+                'rm' => (float) $ejercicio['rm_referencia'],
+                'source' => 'plan_rm_referencia',
+                'registro_id' => null,
+            ];
+        }
+
+        if (!$personaId || empty($ejercicio['ejercicio_id'])) {
+            return ['rm' => null, 'source' => null, 'registro_id' => null];
+        }
+
+        $latestRm = DB::table('entrenamiento.rm_registros')
+            ->where('persona_id', $personaId)
+            ->where('ejercicio_id', (int) $ejercicio['ejercicio_id'])
+            ->orderByDesc('fecha_registro')
+            ->orderByDesc('id')
+            ->select('id', 'rm_estimado')
+            ->first();
+
+        if ($latestRm && $latestRm->rm_estimado !== null) {
+            return [
+                'rm' => (float) $latestRm->rm_estimado,
+                'source' => 'ultimo_rm_usuario',
+                'registro_id' => (int) $latestRm->id,
+            ];
+        }
+
+        $estimated = $this->estimateRmFromExecution($personaId, (int) $ejercicio['ejercicio_id']);
+
+        return [
+            'rm' => $estimated['rm'],
+            'source' => $estimated['rm'] !== null ? 'estimado_por_historial' : null,
+            'registro_id' => null,
+        ];
+    }
+
+    private function estimateRmFromExecution(int $personaId, int $exerciseId): array
+    {
+        $rows = DB::table('entrenamiento.plan_ejecuciones as ex')
+            ->join('entrenamiento.plan_ejercicios as pe', 'pe.id', '=', 'ex.plan_ejercicio_id')
+            ->where('ex.persona_id', $personaId)
+            ->where('pe.ejercicio_id', $exerciseId)
+            ->whereIn('ex.estado', ['COMPLETADO', 'PARCIAL', 'COMPLETADO_CON_AJUSTE'])
+            ->orderByDesc('ex.fecha_ejecucion')
+            ->orderByDesc('ex.id')
+            ->take(8)
+            ->select('ex.repeticiones_reales', 'ex.carga_real', 'ex.rm_estimado_temporal')
+            ->get();
+
+        $best = null;
+
+        foreach ($rows as $row) {
+            if ($row->rm_estimado_temporal !== null && (float) $row->rm_estimado_temporal > 0) {
+                $best = max($best ?? 0, (float) $row->rm_estimado_temporal);
+                continue;
+            }
+
+            $series = json_decode($row->repeticiones_reales ?? '[]', true);
+            if (!is_array($series) || empty($series)) {
+                $series = [['carga' => $row->carga_real, 'reps' => 1]];
+            }
+
+            foreach ($series as $serie) {
+                $load = (float) ($serie['carga'] ?? 0);
+                $reps = (float) ($serie['reps'] ?? $serie['repeticiones'] ?? 0);
+                if ($load <= 0 || $reps <= 0) {
+                    continue;
+                }
+                $estimate = $reps <= 1 ? $load : $load * (1 + ($reps / 30));
+                $best = max($best ?? 0, $estimate);
+            }
+        }
+
+        return ['rm' => $best ? round($best, 1) : null];
+    }
+
+    private function normalizeLoadType(mixed $type, array $serie = []): string
+    {
+        $value = strtoupper(trim((string) ($type ?? '')));
+        $value = str_replace([' ', '-'], '_', $value);
+
+        if (in_array($value, ['%RM', 'RM', 'PORCENTAJE_RM', 'PORCENTAJE'], true)) {
+            return 'PORCENTAJE_RM';
+        }
+
+        if (in_array($value, ['FIJA', 'PESO_FIJO', 'CARGA_FIJA'], true)) {
+            return 'PESO_FIJO';
+        }
+
+        if ($value === '' && ($serie['porcentaje_rm'] ?? null) !== null) {
+            return 'PORCENTAJE_RM';
+        }
+
+        if ($value === '' && ($serie['carga_fija'] ?? null) !== null) {
+            return 'PESO_FIJO';
+        }
+
+        return $value ?: 'LIBRE';
+    }
+
+    private function plateBreakdown(float $targetLoad): array
+    {
+        $bar = 20.0;
+        $rounded = round($targetLoad / 2.5) * 2.5;
+        $sideLoad = max(0, ($rounded - $bar) / 2);
+        $available = [25, 20, 15, 10, 5, 2.5, 1.25];
+        $plates = [];
+        $remaining = round($sideLoad, 2);
+
+        foreach ($available as $plate) {
+            $count = (int) floor(($remaining + 0.001) / $plate);
+            if ($count > 0) {
+                $plates[] = ['peso' => $plate, 'cantidad' => $count];
+                $remaining = round($remaining - ($plate * $count), 2);
+            }
+        }
+
+        return [
+            'carga_redondeada' => round($rounded, 2),
+            'barra_kg' => $bar,
+            'discos_por_lado' => $plates,
+            'restante_por_lado' => max(0, $remaining),
+        ];
+    }
+
+    private function formatKg(float $value, string $unit = 'kg'): string
+    {
+        return rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.') . " {$unit}";
     }
 
     /**
@@ -277,6 +487,7 @@ class AppRoutineController extends Controller
             'dia' => 'required|string|max:20',
             'estado' => 'required|string|max:20',
             'series' => 'nullable|array',
+            'rm_estimado_manual' => 'nullable|numeric|min:0',
             'rpe_real' => 'nullable|numeric',
             'dolor_nivel' => 'nullable|numeric|min:0|max:10',
             'observaciones' => 'nullable|string'
@@ -293,12 +504,17 @@ class AppRoutineController extends Controller
                 $maxCarga = $carga;
             }
         }
+        $manualTemporaryRm = $request->filled('rm_estimado_manual') ? (float) $request->rm_estimado_manual : null;
+        $temporaryRm = $manualTemporaryRm && $manualTemporaryRm > 0
+            ? round($manualTemporaryRm, 2)
+            : $this->calculateTemporaryRmFromSeries($series);
 
         // Usamos updateOrInsert
         DB::table('entrenamiento.plan_ejecuciones')->updateOrInsert(
             [
                 'plan_id' => $request->plan_id,
                 'plan_ejercicio_id' => $request->plan_ejercicio_id,
+                'persona_id' => $identity['persona_id'],
                 'semana' => (int) $request->semana,
                 'dia' => strtolower($request->dia),
                 'cedula' => $identity['cedula'],
@@ -311,6 +527,7 @@ class AppRoutineController extends Controller
                 'series_completadas' => count($series),
                 'repeticiones_reales' => json_encode($series),
                 'carga_real' => $maxCarga,
+                'rm_estimado_temporal' => $temporaryRm,
                 'unidad_carga_real' => 'kg',
                 'rpe_real' => $request->rpe_real,
                 'dolor_nivel' => $request->dolor_nivel,
@@ -324,6 +541,212 @@ class AppRoutineController extends Controller
             'message' => 'Ejecución registrada con éxito',
             'status' => 'success'
         ]);
+    }
+
+    public function calculateTemporaryRmLoads(Request $request)
+    {
+        $data = $request->validate([
+            'plan_id' => ['required', 'integer'],
+            'plan_ejercicio_id' => ['required', 'integer'],
+            'rm_estimado' => ['required', 'numeric', 'min:1'],
+            'semana' => ['required', 'integer', 'min:1'],
+            'dia' => ['required', 'string', 'max:20'],
+            'fecha_ejecucion' => ['nullable', 'date'],
+        ]);
+
+        $identity = $this->resolveAppIdentity($request);
+        if (!$identity['persona_id']) {
+            return response()->json(['message' => 'No se pudo resolver la persona autenticada.'], 422);
+        }
+
+        $hasAssignment = DB::table('entrenamiento.plan_asignaciones')
+            ->where('plan_id', (int) $data['plan_id'])
+            ->where('persona_id', $identity['persona_id'])
+            ->where('estado', 'ACTIVO')
+            ->exists();
+
+        if (!$hasAssignment) {
+            return response()->json(['message' => 'El plan no está asignado a la persona autenticada.'], 403);
+        }
+
+        $planExercise = DB::table('entrenamiento.plan_ejercicios as pe')
+            ->join('entrenamiento.plan_bloques as pb', 'pb.id', '=', 'pe.plan_bloque_id')
+            ->join('entrenamiento.plan_dias as pd', 'pd.id', '=', 'pb.plan_dia_id')
+            ->where('pe.id', (int) $data['plan_ejercicio_id'])
+            ->where('pd.plan_id', (int) $data['plan_id'])
+            ->select('pe.id', 'pe.ejercicio_id')
+            ->first();
+
+        if (!$planExercise) {
+            return response()->json(['message' => 'Ejercicio del plan no encontrado.'], 404);
+        }
+
+        $series = DB::table('entrenamiento.plan_ejercicio_series')
+            ->where('plan_ejercicio_id', (int) $data['plan_ejercicio_id'])
+            ->orderBy('numero_serie')
+            ->orderBy('id')
+            ->get()
+            ->map(fn ($serie) => (array) $serie)
+            ->all();
+
+        $rmContext = [
+            'rm' => round((float) $data['rm_estimado'], 2),
+            'source' => 'estimado_manual_sesion',
+            'registro_id' => null,
+        ];
+
+        DB::table('entrenamiento.plan_ejecuciones')->updateOrInsert(
+            [
+                'plan_id' => (int) $data['plan_id'],
+                'plan_ejercicio_id' => (int) $data['plan_ejercicio_id'],
+                'persona_id' => $identity['persona_id'],
+                'semana' => (int) $data['semana'],
+                'dia' => strtolower($data['dia']),
+                'cedula' => $identity['cedula'],
+            ],
+            [
+                'usuario_id' => $identity['usuario_id'],
+                'estado' => 'PENDIENTE',
+                'fecha_ejecucion' => $data['fecha_ejecucion'] ?? now()->toDateString(),
+                'series_completadas' => 0,
+                'rm_estimado_temporal' => $rmContext['rm'],
+                'unidad_carga_real' => 'kg',
+                'updated_at' => now(),
+                'created_at' => now(),
+            ]
+        );
+
+        $plannedSeries = array_map(function ($serie) use ($rmContext) {
+            $prescription = $this->buildLoadPrescription($serie, $rmContext);
+
+            return [
+                'numero_serie' => (int) ($serie['numero_serie'] ?? 0),
+                'reps' => (string) ($serie['repeticiones'] ?? ''),
+                'target_load' => $prescription['display'],
+                'tipo_carga' => $this->normalizeLoadType($serie['tipo_carga'] ?? null, $serie),
+                'porcentaje_rm' => $serie['porcentaje_rm'] ?? null,
+                'carga_fija' => $serie['carga_fija'] ?? null,
+                'unidad_carga' => $serie['unidad_carga'] ?? 'kg',
+                'rpe' => $serie['rpe'] ?? null,
+                'descanso_segundos' => $serie['descanso_segundos'] ?? null,
+                'prescripcion_carga' => $prescription,
+            ];
+        }, $series);
+
+        return response()->json([
+            'status' => 'success',
+            'rm_estimado_temporal' => $rmContext['rm'],
+            'series' => $plannedSeries,
+        ]);
+    }
+
+    public function clearTemporaryRm(Request $request)
+    {
+        $data = $request->validate([
+            'plan_id' => ['required', 'integer'],
+            'plan_ejercicio_id' => ['required', 'integer'],
+            'semana' => ['required', 'integer', 'min:1'],
+            'dia' => ['required', 'string', 'max:20'],
+        ]);
+
+        $identity = $this->resolveAppIdentity($request);
+        if (!$identity['persona_id']) {
+            return response()->json(['message' => 'No se pudo resolver la persona autenticada.'], 422);
+        }
+
+        DB::table('entrenamiento.plan_ejecuciones')
+            ->where('plan_id', (int) $data['plan_id'])
+            ->where('plan_ejercicio_id', (int) $data['plan_ejercicio_id'])
+            ->where('persona_id', $identity['persona_id'])
+            ->where('semana', (int) $data['semana'])
+            ->where('dia', strtolower($data['dia']))
+            ->update([
+                'rm_estimado_temporal' => null,
+                'updated_at' => now(),
+            ]);
+
+        $plannedSeries = $this->getPlannedSeriesForPlanExercise(
+            (int) $data['plan_id'],
+            (int) $data['plan_ejercicio_id'],
+            $identity['persona_id'],
+            null
+        );
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'RM temporal eliminado.',
+            'series' => $plannedSeries,
+        ]);
+    }
+
+    private function getPlannedSeriesForPlanExercise(
+        int $planId,
+        int $planExerciseId,
+        ?int $personaId,
+        mixed $temporaryRm = null
+    ): array {
+        $planExercise = DB::table('entrenamiento.plan_ejercicios as pe')
+            ->join('entrenamiento.plan_bloques as pb', 'pb.id', '=', 'pe.plan_bloque_id')
+            ->join('entrenamiento.plan_dias as pd', 'pd.id', '=', 'pb.plan_dia_id')
+            ->join('entrenamiento.ejercicios as e', 'e.id', '=', 'pe.ejercicio_id')
+            ->leftJoin('entrenamiento.rm_registros as rr', 'rr.id', '=', 'pe.rm_registro_id')
+            ->where('pe.id', $planExerciseId)
+            ->where('pd.plan_id', $planId)
+            ->selectRaw("
+                pe.*,
+                e.nombre as ejercicio_nombre,
+                rr.persona_id as rm_registro_persona_id,
+                rr.rm_estimado as rm_registro_valor
+            ")
+            ->first();
+
+        if (!$planExercise) {
+            return [];
+        }
+
+        $series = DB::table('entrenamiento.plan_ejercicio_series')
+            ->where('plan_ejercicio_id', $planExerciseId)
+            ->orderBy('numero_serie')
+            ->orderBy('id')
+            ->get()
+            ->map(fn ($serie) => (array) $serie)
+            ->all();
+
+        $exercise = (array) $planExercise;
+        $exercise['series'] = $series;
+
+        return $this->mapPlannedSeries($exercise, $personaId, $temporaryRm);
+    }
+
+    private function applyIdentityFilter($query, array $identity): void
+    {
+        if ($identity['persona_id']) {
+            $query->where('persona_id', $identity['persona_id']);
+            return;
+        }
+
+        if ($identity['cedula']) {
+            $query->where('cedula', $identity['cedula']);
+        }
+    }
+
+    private function calculateTemporaryRmFromSeries(array $series): ?float
+    {
+        $best = null;
+
+        foreach ($series as $serie) {
+            $load = (float) ($serie['carga'] ?? 0);
+            $reps = (float) ($serie['reps'] ?? $serie['repeticiones'] ?? 0);
+
+            if ($load <= 0 || $reps <= 0) {
+                continue;
+            }
+
+            $estimate = $reps <= 1 ? $load : $load * (1 + ($reps / 30));
+            $best = max($best ?? 0, $estimate);
+        }
+
+        return $best ? round($best, 2) : null;
     }
 
     private function resolveAppIdentity(Request $request): array
@@ -345,7 +768,7 @@ class AppRoutineController extends Controller
             $cedula = $user?->cedula ?? null;
         }
 
-        if (!$personaId) {
+        if (!$personaId && app()->environment(['local', 'testing'])) {
             // Mock para desarrollo local sin token real.
             $persona = DB::table('core.personas')->where('nombres', 'like', '%Yandry%')->first();
             $personaId = $persona ? $persona->id : null;

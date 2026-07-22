@@ -36,6 +36,8 @@ class CreateSchemas extends Command
             'ventas',
             'auditoria',
             'inventario',
+            'notificaciones',
+            'comunicaciones',
         ];
 
         foreach ($schemas as $schema) {

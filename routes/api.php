@@ -24,18 +24,28 @@ Route::middleware('auth:sanctum')->prefix('gimnasio')->group(function () {
     
     // Módulo de Seguridad y Auditoría
     require __DIR__ . '/api_seguridad.php';
+    require __DIR__ . '/api_logs.php';
+    require __DIR__ . '/api_staff.php';
     
     // Módulo de Servicios y Horarios
     require __DIR__ . '/api_servicios.php';
 
     // Módulo de Personas y Membresías
     require __DIR__ . '/api_personas.php';
+
+    // Módulos operativos de agenda, reservas y asistencia
+    require __DIR__ . '/api_reservas.php';
+    require __DIR__ . '/api_asistencia.php';
+    require __DIR__ . '/api_acceso.php';
     
     // Módulo de Entrenamiento (Rutinas, Evaluaciones)
     require __DIR__ . '/api_entrenamiento.php';
 
     // Módulo de Ventas y Punto de Venta
     require __DIR__ . '/api_ventas.php';
+
+    // Reportes gerenciales
+    require __DIR__ . '/api_reportes.php';
 
 });
 

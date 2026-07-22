@@ -18,11 +18,16 @@ class UsuarioQuery
                 u.estado,
                 u.fecha_baja,
                 u.foto_perfil_url,
+                u.requiere_cambio_password,
+                u.password_temporal_generada_at,
+                u.ultimo_login_at,
+                u.email_credenciales,
                 u.created_at,
                 u.updated_at,
                 COALESCE(u.cedula, p.numero_identificacion) as cedula,
                 p.nombres,
-                p.apellidos
+                p.apellidos,
+                p.email as persona_email
             ");
 
         if (!empty($filters['buscar'])) {
@@ -71,11 +76,16 @@ class UsuarioQuery
                 u.estado,
                 u.fecha_baja,
                 u.foto_perfil_url,
+                u.requiere_cambio_password,
+                u.password_temporal_generada_at,
+                u.ultimo_login_at,
+                u.email_credenciales,
                 u.created_at,
                 u.updated_at,
                 COALESCE(u.cedula, p.numero_identificacion) as cedula,
                 p.nombres,
-                p.apellidos
+                p.apellidos,
+                p.email as persona_email
             ")
             ->where('u.id', $id)
             ->first();
@@ -176,9 +186,14 @@ class UsuarioQuery
             'gimnasio_id' => $usuario->gimnasio_id ? (int) $usuario->gimnasio_id : null,
             'persona_id' => $usuario->persona_id ? (int) $usuario->persona_id : null,
             'email' => $usuario->email,
+            'persona_email' => $usuario->persona_email ?? null,
+            'email_credenciales' => $usuario->email_credenciales ?? null,
             'estado' => $usuario->estado,
             'fecha_baja' => $usuario->fecha_baja,
             'foto_perfil_url' => $usuario->foto_perfil_url,
+            'requiere_cambio_password' => (bool) ($usuario->requiere_cambio_password ?? false),
+            'password_temporal_generada_at' => $usuario->password_temporal_generada_at ?? null,
+            'ultimo_login_at' => $usuario->ultimo_login_at ?? null,
             'created_at' => $usuario->created_at,
             'updated_at' => $usuario->updated_at,
             'cedula' => $usuario->cedula,

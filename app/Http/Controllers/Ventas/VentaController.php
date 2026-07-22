@@ -58,7 +58,12 @@ class VentaController extends Controller
     public function index(Request $request)
     {
         $sedeId = $request->header('X-Sede-Id') ?? 1; // Default
-        return response()->json($this->ventaQuery->getList((int) $sedeId));
+        $filters = $request->validate([
+            'buscar' => ['nullable', 'string', 'max:150'],
+            'cedula' => ['nullable', 'string', 'max:30'],
+        ]);
+
+        return response()->json($this->ventaQuery->getList((int) $sedeId, $filters['cedula'] ?? $filters['buscar'] ?? null));
     }
 
     public function cierreCaja(Request $request)

@@ -11,5 +11,7 @@ Route::get('seguridad/usuarios/catalogos', [UsuarioController::class, 'catalogos
 Route::get('seguridad/usuarios/{id}', [UsuarioController::class, 'show']);
 Route::post('seguridad/usuarios', [UsuarioController::class, 'store']);
 Route::put('seguridad/usuarios/{id}', [UsuarioController::class, 'update']);
+Route::put('seguridad/usuarios/{id}/accesos', [UsuarioController::class, 'updateAccess']);
+Route::post('seguridad/usuarios/{id}/reenviar-credenciales', [UsuarioController::class, 'resendCredentials']);
 Route::post('seguridad/usuarios/{id}/estado', [UsuarioController::class, 'changeStatus']);
 Route::get('seguridad/roles', [UsuarioController::class, 'roles']);

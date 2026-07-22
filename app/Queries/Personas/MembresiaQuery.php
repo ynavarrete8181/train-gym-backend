@@ -124,7 +124,7 @@ class MembresiaQuery
                 sm.precio_aplicado,
                 se.nombre as sede_nombre,
                 s.codigo_socio,
-                p.numero_identificacion as cedula,
+                COALESCE(s.persona_cedula, p.numero_identificacion) as cedula,
                 p.nombres,
                 p.apellidos,
                 m.nombre as membresia_nombre,
@@ -138,10 +138,10 @@ class MembresiaQuery
             $buscar = '%' . trim($filtros['buscar']) . '%';
             $query->where(function ($q) use ($buscar) {
                 $q->where('s.codigo_socio', 'like', $buscar)
-                    ->orWhere('p.numero_identificacion', 'like', $buscar)
-                    ->orWhere('p.nombres', 'like', $buscar)
-                    ->orWhere('p.apellidos', 'like', $buscar)
-                    ->orWhere('m.nombre', 'like', $buscar);
+                    ->orWhereRaw("COALESCE(s.persona_cedula, p.numero_identificacion, '') ILIKE ?", [$buscar])
+                    ->orWhereRaw("COALESCE(p.nombres, '') ILIKE ?", [$buscar])
+                    ->orWhereRaw("COALESCE(p.apellidos, '') ILIKE ?", [$buscar])
+                    ->orWhereRaw("COALESCE(m.nombre, '') ILIKE ?", [$buscar]);
             });
         }
 

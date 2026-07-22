@@ -101,6 +101,28 @@ class AuditService
             $device = $this->detectDeviceType($userAgent);
             $table = $payload['tabla'] ?? null;
             $module = $payload['modulo'] ?? $this->resolveModule($table);
+            $requestId = $payload['request_id']
+                ?? $request->attributes->get('request_id')
+                ?? $request->headers->get('X-Request-ID')
+                ?? (string) Str::uuid();
+            $before = $this->toJsonValue($payload['datos_antes'] ?? null);
+            $after = $this->toJsonValue($payload['datos_despues'] ?? null);
+            $changes = $this->toJsonValue(
+                $payload['campos_cambiados'] ?? $this->calculateChanges(
+                    $payload['datos_antes'] ?? null,
+                    $payload['datos_despues'] ?? null
+                )
+            );
+
+            $this->registrarEventoProfesional($request, [
+                ...$payload,
+                'request_id' => $requestId,
+                'modulo' => $module,
+                'tabla' => $table,
+                'datos_antes' => $before,
+                'datos_despues' => $after,
+                'campos_cambiados' => $changes,
+            ]);
 
             DB::table('auditoria.aud_cambios')->insert([
                 'gimnasio_id' => $payload['gimnasio_id'] ?? $user?->gimnasio_id,
@@ -114,22 +136,17 @@ class AuditService
                 'modulo' => $module,
                 'accion' => $payload['accion'] ?? null,
                 'registro_id' => $payload['registro_id'] ?? null,
-                'datos_antes' => $this->toJsonValue($payload['datos_antes'] ?? null),
-                'datos_despues' => $this->toJsonValue($payload['datos_despues'] ?? null),
-                'campos_cambiados' => $this->toJsonValue(
-                    $payload['campos_cambiados'] ?? $this->calculateChanges(
-                        $payload['datos_antes'] ?? null,
-                        $payload['datos_despues'] ?? null
-                    )
-                ),
-                'request_id' => $payload['request_id'] ?? $request->headers->get('X-Request-ID') ?? (string) Str::uuid(),
+                'datos_antes' => $this->jsonColumn($before),
+                'datos_despues' => $this->jsonColumn($after),
+                'campos_cambiados' => $this->jsonColumn($changes),
+                'request_id' => $requestId,
                 'ip' => $request->ip(),
                 'user_agent' => $userAgent,
                 'created_at' => now(),
-                'registro_pk' => $this->toJsonValue($payload['registro_pk'] ?? ['id' => $payload['registro_id'] ?? null]),
+                'registro_pk' => $this->jsonColumn($payload['registro_pk'] ?? ['id' => $payload['registro_id'] ?? null]),
                 'ip_publica' => null,
                 'ip_forwarded_for' => $request->headers->get('X-Forwarded-For'),
-                'proxy_headers' => $this->toJsonValue([
+                'proxy_headers' => $this->jsonColumn([
                     'x_forwarded_for' => $request->headers->get('X-Forwarded-For'),
                     'x_real_ip' => $request->headers->get('X-Real-IP'),
                     'cf_connecting_ip' => $request->headers->get('CF-Connecting-IP'),
@@ -148,6 +165,67 @@ class AuditService
         }
     }
 
+    private function registrarEventoProfesional(Request $request, array $payload): void
+    {
+        if (!$this->tablaExiste('auditoria.eventos')) {
+            return;
+        }
+
+        $user = $request->user();
+        $eventoId = DB::table('auditoria.eventos')->insertGetId([
+            'request_id' => $payload['request_id'],
+            'usuario_id' => $payload['actor_usuario_id'] ?? $user?->id,
+            'persona_id_afectada' => $payload['persona_id_afectada'] ?? $payload['persona_id'] ?? null,
+            'sede_id' => $payload['sede_id'] ?? $request->input('sede_id'),
+            'modulo' => $payload['modulo'] ?? 'general',
+            'entidad' => $payload['tabla'] ?? $payload['entidad'] ?? null,
+            'entidad_id' => isset($payload['registro_id']) ? (string) $payload['registro_id'] : null,
+            'accion' => $payload['accion'] ?? 'actividad',
+            'descripcion' => $payload['descripcion'] ?? null,
+            'origen' => $payload['origen'] ?? $this->resolverOrigen($request),
+            'ip' => $request->ip(),
+            'user_agent' => (string) $request->userAgent(),
+            'metadata' => $this->jsonColumn($payload['metadata'] ?? [
+                'operacion' => $payload['operacion'] ?? null,
+                'esquema' => $payload['esquema'] ?? null,
+                'registro_pk' => $payload['registro_pk'] ?? ['id' => $payload['registro_id'] ?? null],
+            ]),
+            'created_at' => now(),
+        ]);
+
+        if ($this->tablaExiste('auditoria.snapshots')) {
+            DB::table('auditoria.snapshots')->insert([
+                'evento_id' => $eventoId,
+                'antes' => $this->jsonColumn($payload['datos_antes'] ?? null),
+                'despues' => $this->jsonColumn($payload['datos_despues'] ?? null),
+                'created_at' => now(),
+            ]);
+        }
+
+        if (!$this->tablaExiste('auditoria.cambios')) {
+            return;
+        }
+
+        $changes = is_array($payload['campos_cambiados'] ?? null) ? $payload['campos_cambiados'] : [];
+        $rows = [];
+        foreach ($changes as $field => $change) {
+            $before = is_array($change) ? ($change['antes'] ?? null) : null;
+            $after = is_array($change) ? ($change['despues'] ?? null) : null;
+            $rows[] = [
+                'evento_id' => $eventoId,
+                'campo' => (string) $field,
+                'valor_anterior' => $this->stringValue($before),
+                'valor_nuevo' => $this->stringValue($after),
+                'tipo_dato' => gettype($after ?? $before),
+                'created_at' => now(),
+            ];
+        }
+
+        if ($rows) {
+            DB::table('auditoria.cambios')->insert($rows);
+        }
+    }
+
     private function toJsonValue(mixed $value): mixed
     {
         if ($value === null) {
@@ -159,6 +237,15 @@ class AuditService
         }
 
         return $value;
+    }
+
+    private function jsonColumn(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        return json_encode($this->toJsonValue($value), JSON_UNESCAPED_UNICODE);
     }
 
     private function calculateChanges(mixed $before, mixed $after): array
@@ -181,6 +268,44 @@ class AuditService
         }
 
         return $changes;
+    }
+
+    private function stringValue(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_array($value) || is_object($value)) {
+            return json_encode($value, JSON_UNESCAPED_UNICODE);
+        }
+
+        return (string) $value;
+    }
+
+    private function resolverOrigen(Request $request): string
+    {
+        $path = $request->path();
+
+        if (str_starts_with($path, 'api/app')) {
+            return 'APP';
+        }
+
+        if ($request->headers->has('X-Device-ID') || $request->headers->has('X-Turnstile-ID')) {
+            return 'TORNIQUETE';
+        }
+
+        return 'WEB';
+    }
+
+    private function tablaExiste(string $tabla): bool
+    {
+        try {
+            $row = DB::selectOne('SELECT to_regclass(?) AS table_name', [$tabla]);
+            return !empty($row?->table_name);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     private function normalizeArray(mixed $value): array

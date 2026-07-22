@@ -46,4 +46,13 @@ return [
         'url' => env('OPENAI_API_URL', 'https://api.openai.com/v1/responses'),
     ],
 
+    'expo_push' => [
+        'url' => env('EXPO_PUSH_URL', 'https://exp.host/--/api/v2/push/send'),
+        'enabled' => env('EXPO_PUSH_ENABLED', true),
+    ],
+
+    'notificaciones' => [
+        'globales_hora' => env('NOTIFICACIONES_GLOBALES_HORA', '07:00'),
+    ],
+
 ];

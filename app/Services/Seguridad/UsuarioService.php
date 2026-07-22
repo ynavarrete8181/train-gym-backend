@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class UsuarioService
@@ -26,22 +27,32 @@ class UsuarioService
         $cedula = $this->resolveCedula($data);
 
         $usuarioId = DB::transaction(function () use ($data, $user, $cedula) {
+            $password = $data['password'] ?? Str::password(10, true, true, false, false);
+
             $usuarioId = DB::table('seguridad.usuarios')->insertGetId([
                 'gimnasio_id' => $data['gimnasio_id'] ?? $user?->gimnasio_id,
                 'persona_id' => $data['persona_id'] ?? null,
                 'cedula' => $cedula,
                 'email' => trim((string) $data['email']),
-                'password_hash' => Hash::make($data['password']),
+                'password_hash' => Hash::make($password),
                 'estado' => $data['estado'] ?? 'ACTIVO',
                 'fecha_baja' => ($data['estado'] ?? 'ACTIVO') === 'ACTIVO' ? null : now(),
+                'requiere_cambio_password' => (bool) ($data['requiere_cambio_password'] ?? true),
+                'password_temporal_generada_at' => now(),
+                'email_credenciales' => $data['email_credenciales'] ?? null,
                 'created_id_user' => $user?->id,
                 'updated_id_user' => $user?->id,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
 
-            $this->syncRoles($usuarioId, $data['roles'] ?? []);
-            $this->syncSedes($usuarioId, $data['sedes'] ?? null);
+            if (array_key_exists('roles', $data)) {
+                $this->syncRoles($usuarioId, $data['roles'] ?? []);
+            }
+
+            if (array_key_exists('sedes', $data)) {
+                $this->syncSedes($usuarioId, $data['sedes'] ?? []);
+            }
 
             return $usuarioId;
         });
@@ -86,14 +97,25 @@ class UsuarioService
 
             if (!empty($data['password'])) {
                 $payload['password_hash'] = Hash::make($data['password']);
+                $payload['requiere_cambio_password'] = (bool) ($data['requiere_cambio_password'] ?? true);
+                $payload['password_temporal_generada_at'] = now();
+            }
+
+            if (array_key_exists('email_credenciales', $data)) {
+                $payload['email_credenciales'] = $data['email_credenciales'];
             }
 
             DB::table('seguridad.usuarios')
                 ->where('id', $id)
                 ->update($payload);
 
-            $this->syncRoles($id, $data['roles'] ?? []);
-            $this->syncSedes($id, $data['sedes'] ?? null);
+            if (array_key_exists('roles', $data)) {
+                $this->syncRoles($id, $data['roles'] ?? []);
+            }
+
+            if (array_key_exists('sedes', $data)) {
+                $this->syncSedes($id, $data['sedes'] ?? []);
+            }
         });
 
         $after = $this->usuarioQuery->obtenerPorId($id);
@@ -102,6 +124,32 @@ class UsuarioService
             'esquema' => 'seguridad',
             'modulo' => 'seguridad',
             'accion' => 'actualizar_usuario',
+        ]);
+
+        return $after ?? [];
+    }
+
+    public function actualizarAccesos(Request $request, int $id, array $data): array
+    {
+        $before = $this->usuarioQuery->obtenerPorId($id);
+
+        if (!$before) {
+            throw ValidationException::withMessages([
+                'usuario' => 'No se encontró el usuario solicitado.',
+            ]);
+        }
+
+        DB::transaction(function () use ($id, $data) {
+            $this->syncRoles($id, $data['roles'] ?? []);
+            $this->syncSedes($id, $data['sedes'] ?? []);
+        });
+
+        $after = $this->usuarioQuery->obtenerPorId($id);
+
+        $this->auditService->updated($request, 'seguridad_usuarios_accesos', $id, $before, $after, [
+            'esquema' => 'seguridad',
+            'modulo' => 'seguridad',
+            'accion' => 'actualizar_accesos_usuario',
         ]);
 
         return $after ?? [];
@@ -203,21 +251,13 @@ class UsuarioService
         DB::table('seguridad.usuario_roles')->insert($rows);
     }
 
-    private function syncSedes(int $usuarioId, ?array $sedes): void
+    private function syncSedes(int $usuarioId, array $sedes): void
     {
-        $sedeIds = collect($sedes ?? [])
+        $sedeIds = collect($sedes)
             ->filter(fn ($sede) => $sede !== null && $sede !== '')
             ->map(fn ($sede) => (int) $sede)
             ->unique()
             ->values();
-
-        if ($sedeIds->isEmpty()) {
-            $sedeIds = DB::table('core.sedes')
-                ->where('activa', true)
-                ->pluck('id')
-                ->map(fn ($id) => (int) $id)
-                ->values();
-        }
 
         DB::table('seguridad.usuario_sedes')->where('usuario_id', $usuarioId)->delete();
 

@@ -8,6 +8,9 @@ use App\Http\Controllers\Ejercicios\AppEjercicioController;
 use App\Http\Controllers\Personas\AppEvaluacionController;
 use App\Http\Controllers\Personas\AppFacturaController;
 use App\Http\Controllers\Personas\AppPlanesController;
+use App\Http\Controllers\Acceso\AccesoController;
+use App\Http\Controllers\Asistencia\AsistenciaController;
+use App\Http\Controllers\Reservas\ReservaController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -53,3 +56,12 @@ Route::get('facturas', [AppFacturaController::class, 'getFacturas']);
 
 // Rutas de Planes / Membresías
 Route::get('planes', [AppPlanesController::class, 'getPlanes']);
+
+// Rutas de Acceso, Reservas y Asistencia
+Route::get('acceso', [AccesoController::class, 'credencialApp']);
+Route::get('asistencias', [AsistenciaController::class, 'index']);
+Route::get('reservas', [ReservaController::class, 'index']);
+Route::get('reservas/membresias', [ReservaController::class, 'membresiasApp']);
+Route::get('reservas/disponibilidad', [ReservaController::class, 'disponibilidad']);
+Route::post('reservas', [ReservaController::class, 'store']);
+Route::post('reservas/{id}/cancelar', [ReservaController::class, 'cancelar']);

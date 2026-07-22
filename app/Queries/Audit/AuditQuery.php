@@ -55,6 +55,8 @@ class AuditQuery
                 a.actor_usuario_id,
                 a.actor_rol_id,
                 a.actor_persona_id,
+                a.actor_usuario_cedula,
+                a.actor_persona_cedula,
                 a.operacion,
                 a.esquema,
                 a.tabla,
@@ -76,7 +78,8 @@ class AuditQuery
                 a.equipo_usuario,
                 au.email as actor_email,
                 ar.nombre as actor_rol_nombre,
-                CONCAT(COALESCE(p.nombres, ''), ' ', COALESCE(p.apellidos, '')) as actor_nombre
+                CONCAT(COALESCE(p.nombres, ''), ' ', COALESCE(p.apellidos, '')) as actor_nombre,
+                COALESCE(a.actor_usuario_cedula, au.cedula, p.numero_identificacion) as actor_cedula
             ")
             ->orderByDesc('a.created_at');
 
@@ -100,12 +103,40 @@ class AuditQuery
             $query->where('a.tabla', $filters['tabla']);
         }
 
+        if (!empty($filters['accion'])) {
+            $query->where('a.accion', $filters['accion']);
+        }
+
         if (!empty($filters['operacion'])) {
             $query->where('a.operacion', $filters['operacion']);
         }
 
         if (!empty($filters['request_id'])) {
             $query->where('a.request_id', $filters['request_id']);
+        }
+
+        if (!empty($filters['cedula'])) {
+            $cedula = '%' . trim((string) $filters['cedula']) . '%';
+            $query->where(function ($q) use ($cedula) {
+                $q->whereRaw("COALESCE(a.actor_usuario_cedula, '') ILIKE ?", [$cedula])
+                    ->orWhereRaw("COALESCE(a.actor_persona_cedula, '') ILIKE ?", [$cedula])
+                    ->orWhereRaw("COALESCE(au.cedula, '') ILIKE ?", [$cedula])
+                    ->orWhereRaw("COALESCE(p.numero_identificacion, '') ILIKE ?", [$cedula]);
+            });
+        }
+
+        if (!empty($filters['buscar'])) {
+            $buscar = '%' . trim((string) $filters['buscar']) . '%';
+            $query->where(function ($q) use ($buscar) {
+                $q->whereRaw("COALESCE(a.actor_usuario_cedula, '') ILIKE ?", [$buscar])
+                    ->orWhereRaw("COALESCE(a.actor_persona_cedula, '') ILIKE ?", [$buscar])
+                    ->orWhereRaw("COALESCE(au.email, '') ILIKE ?", [$buscar])
+                    ->orWhereRaw("CONCAT(COALESCE(p.nombres, ''), ' ', COALESCE(p.apellidos, '')) ILIKE ?", [$buscar])
+                    ->orWhereRaw("COALESCE(a.accion, '') ILIKE ?", [$buscar])
+                    ->orWhereRaw("COALESCE(a.modulo, '') ILIKE ?", [$buscar])
+                    ->orWhereRaw("COALESCE(a.tabla, '') ILIKE ?", [$buscar])
+                    ->orWhereRaw("COALESCE(a.request_id, '') ILIKE ?", [$buscar]);
+            });
         }
 
         if (!empty($filters['fecha_desde'])) {
@@ -130,6 +161,9 @@ class AuditQuery
             'actor_persona_id' => $row->actor_persona_id ? (int) $row->actor_persona_id : null,
             'actor_email' => $row->actor_email,
             'actor_nombre' => trim((string) $row->actor_nombre),
+            'actor_cedula' => $row->actor_cedula,
+            'actor_usuario_cedula' => $row->actor_usuario_cedula,
+            'actor_persona_cedula' => $row->actor_persona_cedula,
             'actor_rol_nombre' => $row->actor_rol_nombre,
             'operacion' => $row->operacion,
             'esquema' => $row->esquema,

@@ -103,26 +103,41 @@ class VentaQuery
         return $venta;
     }
 
-    public function getList(?int $sedeId = null)
+    public function getList(?int $sedeId = null, ?string $buscar = null)
     {
         $detallesSubquery = $this->buildDetalleSubquery();
 
-        return DB::table('ventas.ventas as v')
+        $query = DB::table('ventas.ventas as v')
             ->leftJoin('core.personas as p', 'p.id', '=', 'v.persona_id')
             ->leftJoin('seguridad.usuarios as u', 'u.id', '=', 'v.vendedor_usuario_id')
             ->leftJoin('core.personas as pu', 'pu.id', '=', 'u.persona_id')
             ->leftJoin('socios.membresias as vm', 'vm.id', '=', 'v.membresia_id')
             ->selectRaw("
                 v.*,
-                p.numero_identificacion as cliente_cedula,
+                COALESCE(v.persona_cedula, p.numero_identificacion) as cliente_cedula,
+                COALESCE(v.vendedor_usuario_cedula, u.cedula) as vendedor_cedula,
                 CONCAT(COALESCE(p.nombres, ''), ' ', COALESCE(p.apellidos, '')) as cliente_nombre,
                 CONCAT(COALESCE(pu.nombres, ''), ' ', COALESCE(pu.apellidos, '')) as vendedor_nombre,
                 vm.nombre as venta_membresia_nombre,
                 {$detallesSubquery}
             ")
             ->orderBy('v.created_at', 'desc')
-            ->when($sedeId, fn ($query) => $query->where('v.sede_id', $sedeId))
-            ->get()
+            ->when($sedeId, fn ($query) => $query->where('v.sede_id', $sedeId));
+
+        if ($buscar) {
+            $term = '%' . mb_strtolower(trim($buscar)) . '%';
+            $query->where(function ($builder) use ($term) {
+                $builder->whereRaw('LOWER(COALESCE(v.referencia, \'\')) LIKE ?', [$term])
+                    ->orWhereRaw('LOWER(COALESCE(v.persona_cedula, p.numero_identificacion, \'\')) LIKE ?', [$term])
+                    ->orWhereRaw('LOWER(COALESCE(v.vendedor_usuario_cedula, u.cedula, \'\')) LIKE ?', [$term])
+                    ->orWhereRaw("LOWER(CONCAT(COALESCE(p.nombres, ''), ' ', COALESCE(p.apellidos, ''))) LIKE ?", [$term])
+                    ->orWhereRaw("LOWER(CONCAT(COALESCE(pu.nombres, ''), ' ', COALESCE(pu.apellidos, ''))) LIKE ?", [$term])
+                    ->orWhereRaw('LOWER(COALESCE(v.forma_pago, \'\')) LIKE ?', [$term])
+                    ->orWhereRaw('CAST(v.id AS TEXT) LIKE ?', [$term]);
+            });
+        }
+
+        return $query->get()
             ->map(fn ($venta) => $this->hydrateVenta($venta));
     }
 

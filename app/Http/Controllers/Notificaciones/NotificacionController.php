@@ -61,6 +61,17 @@ class NotificacionController extends Controller
         return response()->json(['message' => 'Notificacion marcada como leida.']);
     }
 
+    public function markAllAsRead(Request $request)
+    {
+        $user = $request->user();
+        $total = $this->notificacionService->marcarTodasLeidas($user?->id, $user?->persona_id);
+
+        return response()->json([
+            'message' => 'Notificaciones marcadas como leidas.',
+            'total' => $total,
+        ]);
+    }
+
     public function registerDevice(Request $request)
     {
         $data = $request->validate([

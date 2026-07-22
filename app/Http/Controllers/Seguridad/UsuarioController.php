@@ -4,14 +4,19 @@ namespace App\Http\Controllers\Seguridad;
 
 use App\Http\Controllers\Controller;
 use App\Queries\Seguridad\UsuarioQuery;
+use App\Services\Seguridad\CredencialesUsuarioService;
 use App\Services\Seguridad\UsuarioService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\ValidationException;
 
 class UsuarioController extends Controller
 {
     public function __construct(
         private UsuarioQuery $usuarioQuery,
-        private UsuarioService $usuarioService
+        private UsuarioService $usuarioService,
+        private CredencialesUsuarioService $credencialesUsuarioService
     ) {
     }
 
@@ -60,7 +65,9 @@ class UsuarioController extends Controller
             'persona_id' => ['nullable', 'integer'],
             'cedula' => ['nullable', 'string', 'max:30'],
             'email' => ['required', 'string', 'max:150'],
-            'password' => ['required', 'string', 'min:6'],
+            'email_credenciales' => ['nullable', 'string', 'email', 'max:150'],
+            'password' => ['nullable', 'string', 'min:6'],
+            'enviar_credenciales' => ['nullable', 'boolean'],
             'estado' => ['nullable', 'string', 'in:ACTIVO,INACTIVO,BLOQUEADO'],
             'roles' => ['nullable', 'array'],
             'roles.*' => ['integer'],
@@ -69,22 +76,31 @@ class UsuarioController extends Controller
         ], [
             'email.required' => 'El usuario es obligatorio.',
             'email.max' => 'El usuario no puede superar 150 caracteres.',
-            'password.required' => 'La contraseña es obligatoria.',
             'password.min' => 'La contraseña debe tener al menos 6 caracteres.',
         ]);
 
-        if (\Illuminate\Support\Facades\DB::table('seguridad.usuarios')->where('email', $data['email'])->exists()) {
-            throw \Illuminate\Validation\ValidationException::withMessages(['email' => 'El usuario ya está en uso.']);
+        if (DB::table('seguridad.usuarios')->where('email', $data['email'])->exists()) {
+            throw ValidationException::withMessages(['email' => 'El usuario ya está en uso.']);
         }
-        if (!empty($data['cedula']) && \Illuminate\Support\Facades\DB::table('seguridad.usuarios')->where('cedula', $data['cedula'])->exists()) {
-            throw \Illuminate\Validation\ValidationException::withMessages(['cedula' => 'La cédula ya está registrada en otro usuario.']);
+        if (!empty($data['cedula']) && DB::table('seguridad.usuarios')->where('cedula', $data['cedula'])->exists()) {
+            throw ValidationException::withMessages(['cedula' => 'La cédula ya está registrada en otro usuario.']);
         }
 
+        $data['password'] = $data['password'] ?? $this->credencialesUsuarioService->generarClaveTemporal();
+        $data['requiere_cambio_password'] = true;
+
         $usuario = $this->usuarioService->crear($request, $data);
+        $envio = null;
+
+        if (!empty($data['enviar_credenciales'])) {
+            $envio = $this->credencialesUsuarioService->reenviarCredenciales((int) $usuario['id'], $request->user()?->id);
+            $usuario = $envio['usuario'] ?? $usuario;
+        }
 
         return response()->json([
             'message' => 'Usuario creado correctamente.',
             'usuario' => $usuario,
+            'envio' => $envio['envio'] ?? null,
         ], 201);
     }
 
@@ -95,7 +111,9 @@ class UsuarioController extends Controller
             'persona_id' => ['nullable', 'integer'],
             'cedula' => ['nullable', 'string', 'max:30'],
             'email' => ['required', 'string', 'max:150'],
+            'email_credenciales' => ['nullable', 'string', 'email', 'max:150'],
             'password' => ['nullable', 'string', 'min:6'],
+            'requiere_cambio_password' => ['nullable', 'boolean'],
             'estado' => ['nullable', 'string', 'in:ACTIVO,INACTIVO,BLOQUEADO'],
             'roles' => ['nullable', 'array'],
             'roles.*' => ['integer'],
@@ -107,11 +125,11 @@ class UsuarioController extends Controller
             'password.min' => 'La contraseña debe tener al menos 6 caracteres.',
         ]);
 
-        if (\Illuminate\Support\Facades\DB::table('seguridad.usuarios')->where('email', $data['email'])->where('id', '!=', $id)->exists()) {
-            throw \Illuminate\Validation\ValidationException::withMessages(['email' => 'El usuario ya está en uso.']);
+        if (DB::table('seguridad.usuarios')->where('email', $data['email'])->where('id', '!=', $id)->exists()) {
+            throw ValidationException::withMessages(['email' => 'El usuario ya está en uso.']);
         }
-        if (!empty($data['cedula']) && \Illuminate\Support\Facades\DB::table('seguridad.usuarios')->where('cedula', $data['cedula'])->where('id', '!=', $id)->exists()) {
-            throw \Illuminate\Validation\ValidationException::withMessages(['cedula' => 'La cédula ya está registrada en otro usuario.']);
+        if (!empty($data['cedula']) && DB::table('seguridad.usuarios')->where('cedula', $data['cedula'])->where('id', '!=', $id)->exists()) {
+            throw ValidationException::withMessages(['cedula' => 'La cédula ya está registrada en otro usuario.']);
         }
 
         $usuario = $this->usuarioService->actualizar($request, $id, $data);
@@ -119,6 +137,67 @@ class UsuarioController extends Controller
         return response()->json([
             'message' => 'Usuario actualizado correctamente.',
             'usuario' => $usuario,
+        ]);
+    }
+
+    public function updateAccess(Request $request, int $id)
+    {
+        $data = $request->validate([
+            'roles' => ['nullable', 'array'],
+            'roles.*' => ['integer'],
+            'sedes' => ['nullable', 'array'],
+            'sedes.*' => ['integer'],
+        ]);
+
+        $usuario = $this->usuarioService->actualizarAccesos($request, $id, $data);
+
+        return response()->json([
+            'message' => 'Accesos actualizados correctamente.',
+            'usuario' => $usuario,
+        ]);
+    }
+
+    public function resendCredentials(Request $request, int $id)
+    {
+        $resultado = $this->credencialesUsuarioService->reenviarCredenciales($id, $request->user()?->id);
+
+        return response()->json([
+            'message' => $resultado['envio']['message'] ?? 'Credenciales procesadas.',
+            'usuario' => $resultado['usuario'],
+            'envio' => $resultado['envio'],
+        ]);
+    }
+
+    public function changeTemporaryPassword(Request $request)
+    {
+        $data = $request->validate([
+            'password_actual' => ['required', 'string', 'max:255'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+        ], [
+            'password.min' => 'La nueva contraseña debe tener al menos 8 caracteres.',
+            'password.confirmed' => 'La confirmación de contraseña no coincide.',
+        ]);
+
+        $usuario = $request->user();
+
+        if (!$usuario || !Hash::check($data['password_actual'], $usuario->password_hash)) {
+            throw ValidationException::withMessages([
+                'password_actual' => 'La contraseña actual no es correcta.',
+            ]);
+        }
+
+        DB::table('seguridad.usuarios')
+            ->where('id', $usuario->id)
+            ->update([
+                'password_hash' => Hash::make($data['password']),
+                'requiere_cambio_password' => false,
+                'password_temporal_generada_at' => null,
+                'updated_id_user' => $usuario->id,
+                'updated_at' => now(),
+            ]);
+
+        return response()->json([
+            'message' => 'Contraseña actualizada correctamente.',
         ]);
     }
 

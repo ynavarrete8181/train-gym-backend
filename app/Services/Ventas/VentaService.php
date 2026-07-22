@@ -2,12 +2,18 @@
 
 namespace App\Services\Ventas;
 
+use App\Services\Notificaciones\AdminNotificationService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 class VentaService
 {
     private ?array $ventaDetalleColumns = null;
+
+    public function __construct(private AdminNotificationService $adminNotificationService)
+    {
+    }
 
     private function businessDate(): string
     {
@@ -36,7 +42,7 @@ class VentaService
 
     public function store(array $payload, int $userId)
     {
-        return DB::transaction(function () use ($payload, $userId) {
+        $ventaId = DB::transaction(function () use ($payload, $userId) {
             $total = (float) ($payload['total'] ?? 0);
             $estadoPago = strtoupper((string) ($payload['estado_pago'] ?? 'PAGADO'));
             $saldoPendiente = $estadoPago === 'PENDIENTE'
@@ -113,11 +119,15 @@ class VentaService
 
             return $ventaId;
         });
+
+        $this->notificarVenta($ventaId, $userId);
+
+        return $ventaId;
     }
 
     public function updateOpenSale(int $ventaId, array $payload, int $userId)
     {
-        return DB::transaction(function () use ($ventaId, $payload, $userId) {
+        $ventaId = DB::transaction(function () use ($ventaId, $payload, $userId) {
             $venta = DB::table('ventas.ventas')->where('id', $ventaId)->first();
 
             if (!$venta) {
@@ -204,5 +214,43 @@ class VentaService
 
             return $ventaId;
         });
+
+        $this->notificarVenta($ventaId, $userId, true);
+
+        return $ventaId;
+    }
+
+    private function notificarVenta(int $ventaId, int $userId, bool $actualizada = false): void
+    {
+        try {
+            $venta = DB::table('ventas.ventas as v')
+                ->leftJoin('core.sedes as s', 's.id', '=', 'v.sede_id')
+                ->leftJoin('core.personas as cliente', 'cliente.id', '=', 'v.persona_id')
+                ->leftJoin('seguridad.usuarios as u', 'u.id', '=', 'v.vendedor_usuario_id')
+                ->leftJoin('core.personas as cajero', 'cajero.id', '=', 'u.persona_id')
+                ->where('v.id', $ventaId)
+                ->selectRaw("
+                    v.id,
+                    v.sede_id,
+                    v.referencia,
+                    v.total,
+                    v.estado_pago,
+                    v.forma_pago,
+                    v.tipo_venta,
+                    s.nombre as sede_nombre,
+                    TRIM(CONCAT(COALESCE(cliente.nombres, ''), ' ', COALESCE(cliente.apellidos, ''))) as cliente_nombre,
+                    TRIM(CONCAT(COALESCE(cajero.nombres, ''), ' ', COALESCE(cajero.apellidos, ''))) as cajero_nombre
+                ")
+                ->first();
+
+            if ($venta) {
+                $this->adminNotificationService->ventaRegistrada($venta, $userId, $actualizada);
+            }
+        } catch (\Throwable $exception) {
+            Log::warning('No se pudo notificar venta registrada.', [
+                'venta_id' => $ventaId,
+                'error' => $exception->getMessage(),
+            ]);
+        }
     }
 }

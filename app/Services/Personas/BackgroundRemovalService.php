@@ -2,6 +2,7 @@
 
 namespace App\Services\Personas;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -16,18 +17,22 @@ class BackgroundRemovalService
             throw new RuntimeException('Configura REMOVEBG_API_KEY para quitar el fondo con IA.');
         }
 
-        $response = Http::timeout(60)
-            ->withHeaders(['X-Api-Key' => $apiKey])
-            ->attach(
-                'image_file',
-                fopen($file->getRealPath(), 'r'),
-                $file->getClientOriginalName()
-            )
-            ->post(config('services.removebg.url'), [
-                'size' => 'auto',
-                'type' => 'person',
-                'format' => 'png',
-            ]);
+        try {
+            $response = Http::timeout(60)
+                ->withHeaders(['X-Api-Key' => $apiKey])
+                ->attach(
+                    'image_file',
+                    fopen($file->getRealPath(), 'r'),
+                    $file->getClientOriginalName()
+                )
+                ->post(config('services.removebg.url'), [
+                    'size' => 'auto',
+                    'type' => 'person',
+                    'format' => 'png',
+                ]);
+        } catch (ConnectionException $exception) {
+            throw new RuntimeException('No se pudo conectar con el servicio de IA para quitar el fondo.');
+        }
 
         if (!$response->successful()) {
             $message = $response->json('errors.0.title')
@@ -35,6 +40,10 @@ class BackgroundRemovalService
                 ?? $response->json('detail')
                 ?? $response->json('message')
                 ?? 'No se pudo quitar el fondo con IA.';
+
+            if (str_contains(strtolower($message), 'insufficient credits')) {
+                $message = 'La cuenta de remove.bg no tiene creditos disponibles para quitar el fondo.';
+            }
 
             throw new RuntimeException($message);
         }

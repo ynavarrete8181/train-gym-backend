@@ -5,8 +5,10 @@ namespace App\Services\Ventas;
 use App\Queries\Ventas\DevolucionVentaQuery;
 use App\Services\Audit\AuditService;
 use App\Services\Inventarios\ProductoMovimientoService;
+use App\Services\Notificaciones\AdminNotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class DevolucionVentaService
@@ -14,7 +16,8 @@ class DevolucionVentaService
     public function __construct(
         private DevolucionVentaQuery $devolucionVentaQuery,
         private ProductoMovimientoService $productoMovimientoService,
-        private AuditService $auditService
+        private AuditService $auditService,
+        private AdminNotificationService $adminNotificationService
     ) {
     }
 
@@ -38,7 +41,7 @@ class DevolucionVentaService
     {
         $payload = $this->normalizePayload($input);
 
-        return DB::transaction(function () use ($payload, $request) {
+        $resultado = DB::transaction(function () use ($payload, $request) {
             $venta = $this->devolucionVentaQuery->findVenta($payload['venta_id']);
 
             if (!$venta) {
@@ -201,6 +204,21 @@ class DevolucionVentaService
                 'venta' => $this->devolucionVentaQuery->findVenta($payload['venta_id']),
             ];
         });
+
+        try {
+            $this->adminNotificationService->devolucionRegistrada(
+                $resultado['devolucion'] ?? [],
+                $resultado['venta'] ?? [],
+                $request->user()?->id
+            );
+        } catch (\Throwable $exception) {
+            Log::warning('No se pudo notificar devolucion de venta.', [
+                'venta_id' => $payload['venta_id'],
+                'error' => $exception->getMessage(),
+            ]);
+        }
+
+        return $resultado;
     }
 
     private function normalizePayload(array $input): array

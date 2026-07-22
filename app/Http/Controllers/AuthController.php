@@ -85,6 +85,16 @@ class AuthController extends Controller
             ], 401);
         }
 
+        $loginAt = now();
+
+        DB::table('seguridad.usuarios')
+            ->where('id', $u->id)
+            ->update([
+                'ultimo_login_at' => $loginAt,
+                'updated_at' => $loginAt,
+            ]);
+
+        $u->ultimo_login_at = $loginAt;
         $token = $u->createToken('train-gym-web')->plainTextToken;
 
         $this->auditService->activity($request, 'auth', 'login', [
@@ -154,6 +164,9 @@ class AuthController extends Controller
             'email' => $u->email,
             'gimnasio_id' => $u->gimnasio_id,
             'persona_id' => $u->persona_id,
+            'requiere_cambio_password' => (bool) ($u->requiere_cambio_password ?? false),
+            'password_temporal_generada_at' => $u->password_temporal_generada_at,
+            'ultimo_login_at' => $u->ultimo_login_at,
             'username' => trim(($persona->nombres ?? '') . ' ' . ($persona->apellidos ?? '')) ?: $u->email,
             'name' => trim(($persona->nombres ?? '') . ' ' . ($persona->apellidos ?? '')) ?: $u->email,
             'cedula' => $u->cedula ?: ($persona->numero_identificacion ?? null),

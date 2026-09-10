@@ -8,24 +8,30 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
+/**
+ * Log técnico "visible": además del storage/logs/laravel.log de siempre,
+ * guarda el evento en logs.eventos (y logs.excepciones si aplica) para
+ * poder verlo en la interfaz (Auditoría > Errores del sistema) sin tener
+ * que entrar al servidor a leer el archivo de log.
+ */
 class LogSistemaService
 {
-    public function info(Request $request, string $modulo, string $accion, string $mensaje, array $contexto = []): ?int
+    public function info(?Request $request, string $modulo, string $accion, string $mensaje, array $contexto = []): ?int
     {
         return $this->registrar($request, 'INFO', 'BACKEND', $modulo, $accion, $mensaje, $contexto);
     }
 
-    public function warning(Request $request, string $modulo, string $accion, string $mensaje, array $contexto = []): ?int
+    public function warning(?Request $request, string $modulo, string $accion, string $mensaje, array $contexto = []): ?int
     {
         return $this->registrar($request, 'WARNING', 'BACKEND', $modulo, $accion, $mensaje, $contexto);
     }
 
-    public function error(Request $request, string $modulo, string $accion, string $mensaje, array $contexto = []): ?int
+    public function error(?Request $request, string $modulo, string $accion, string $mensaje, array $contexto = []): ?int
     {
         return $this->registrar($request, 'ERROR', 'BACKEND', $modulo, $accion, $mensaje, $contexto);
     }
 
-    public function excepcion(Request $request, Throwable $exception, array $contexto = []): ?int
+    public function excepcion(?Request $request, Throwable $exception, array $contexto = []): ?int
     {
         $logEventoId = $this->registrar(
             $request,
@@ -37,7 +43,7 @@ class LogSistemaService
             $contexto
         );
 
-        if (!$logEventoId || !$this->tablaExiste('logs.excepciones')) {
+        if (! $logEventoId || ! $this->tablaExiste('logs.excepciones')) {
             return $logEventoId;
         }
 
@@ -52,9 +58,7 @@ class LogSistemaService
                 'created_at' => now(),
             ]);
         } catch (Throwable $e) {
-            Log::warning('No se pudo registrar excepción técnica', [
-                'message' => $e->getMessage(),
-            ]);
+            Log::warning('No se pudo registrar excepción técnica', ['message' => $e->getMessage()]);
         }
 
         return $logEventoId;
@@ -62,7 +66,7 @@ class LogSistemaService
 
     public function integracion(array $data): ?int
     {
-        if (!$this->tablaExiste('logs.integraciones')) {
+        if (! $this->tablaExiste('logs.integraciones')) {
             return null;
         }
 
@@ -82,15 +86,13 @@ class LogSistemaService
                 'created_at' => now(),
             ]);
         } catch (Throwable $e) {
-            Log::warning('No se pudo registrar log de integración', [
-                'message' => $e->getMessage(),
-            ]);
+            Log::warning('No se pudo registrar log de integración', ['message' => $e->getMessage()]);
             return null;
         }
     }
 
     public function registrar(
-        Request $request,
+        ?Request $request,
         string $nivel,
         string $canal,
         ?string $modulo,
@@ -98,34 +100,72 @@ class LogSistemaService
         string $mensaje,
         array $contexto = []
     ): ?int {
-        if (!$this->tablaExiste('logs.eventos')) {
+        if (! $this->tablaExiste('logs.eventos')) {
             return null;
         }
 
         try {
-            $user = $request->user();
+            $request = $request ?? request();
+            $user = $request?->user();
 
             return DB::table('logs.eventos')->insertGetId([
-                'request_id' => $contexto['request_id'] ?? $request->attributes->get('request_id') ?? $request->headers->get('X-Request-ID') ?? (string) Str::uuid(),
+                'request_id' => $contexto['request_id'] ?? $request?->attributes->get('request_id') ?? $request?->headers->get('X-Request-ID') ?? (string) Str::uuid(),
                 'nivel' => Str::upper($nivel),
                 'canal' => Str::upper($canal),
                 'modulo' => $modulo,
                 'accion' => $accion,
-                'mensaje' => $mensaje,
+                'mensaje' => mb_substr($mensaje, 0, 4000),
                 'usuario_id' => $contexto['usuario_id'] ?? $user?->id,
-                'persona_id' => $contexto['persona_id'] ?? $user?->persona_id,
-                'sede_id' => $contexto['sede_id'] ?? $request->input('sede_id'),
-                'ip' => $request->ip(),
-                'user_agent' => (string) $request->userAgent(),
+                'sede_id' => $contexto['sede_id'] ?? $request?->input('sede_id'),
+                'ip' => $request?->ip(),
+                'user_agent' => $request ? substr((string) $request->userAgent(), 0, 255) : null,
                 'contexto' => $this->jsonValue($contexto),
                 'created_at' => now(),
             ]);
         } catch (Throwable $e) {
-            Log::warning('No se pudo registrar log técnico', [
-                'message' => $e->getMessage(),
-            ]);
+            Log::warning('No se pudo registrar log técnico', ['message' => $e->getMessage()]);
             return null;
         }
+    }
+
+    public function listarEventos(array $filtros)
+    {
+        $query = DB::table('logs.eventos as e')
+            ->leftJoin('logs.excepciones as x', 'x.log_evento_id', '=', 'e.id')
+            ->leftJoin('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
+            ->select('e.*', 'u.name as usuario_nombre', 'x.exception_class', 'x.archivo', 'x.linea', 'x.stack_trace');
+
+        $this->filtrarTexto($query, 'e.nivel', $filtros['nivel'] ?? null);
+        $this->filtrarTexto($query, 'e.canal', $filtros['canal'] ?? null);
+        $this->filtrarTexto($query, 'e.modulo', $filtros['modulo'] ?? null);
+
+        if (! empty($filtros['busqueda'])) {
+            $texto = mb_strtolower($filtros['busqueda']);
+            $query->where(function ($q) use ($texto): void {
+                $q->orWhereRaw('LOWER(e.mensaje) LIKE ?', ["%{$texto}%"])
+                    ->orWhereRaw('LOWER(e.modulo) LIKE ?', ["%{$texto}%"])
+                    ->orWhereRaw('LOWER(e.accion) LIKE ?', ["%{$texto}%"])
+                    ->orWhereRaw('LOWER(x.exception_class) LIKE ?', ["%{$texto}%"]);
+            });
+        }
+
+        if (! empty($filtros['fecha_desde'])) {
+            $query->where('e.created_at', '>=', $filtros['fecha_desde'] . ' 00:00:00');
+        }
+        if (! empty($filtros['fecha_hasta'])) {
+            $query->where('e.created_at', '<=', $filtros['fecha_hasta'] . ' 23:59:59');
+        }
+
+        return $query->orderByDesc('e.created_at')->paginate($filtros['per_page'] ?? 10, ['*'], 'page', $filtros['page'] ?? 1);
+    }
+
+    public function opcionesFiltro(): array
+    {
+        return [
+            'nivel' => ['INFO', 'WARNING', 'ERROR'],
+            'canal' => DB::table('logs.eventos')->distinct()->orderBy('canal')->pluck('canal')->values(),
+            'modulo' => DB::table('logs.eventos')->distinct()->orderBy('modulo')->pluck('modulo')->filter()->values(),
+        ];
     }
 
     private function jsonValue(mixed $value): ?string
@@ -133,15 +173,20 @@ class LogSistemaService
         if ($value === null) {
             return null;
         }
-
         return json_encode($value, JSON_UNESCAPED_UNICODE);
+    }
+
+    private function filtrarTexto($query, string $columna, mixed $valor): void
+    {
+        if (empty($valor)) return;
+        is_array($valor) ? $query->whereIn($columna, array_filter($valor)) : $query->whereRaw("LOWER({$columna}) LIKE ?", ['%' . mb_strtolower($valor) . '%']);
     }
 
     private function tablaExiste(string $tabla): bool
     {
         try {
             $row = DB::selectOne('SELECT to_regclass(?) AS table_name', [$tabla]);
-            return !empty($row?->table_name);
+            return ! empty($row?->table_name);
         } catch (Throwable) {
             return false;
         }

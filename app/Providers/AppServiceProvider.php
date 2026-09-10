@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Contracts\Integraciones\CorreoTransportContract;
+use App\Services\Integraciones\MicrosoftGraphCorreoTransport;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -11,7 +13,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->bind(CorreoTransportContract::class, MicrosoftGraphCorreoTransport::class);
     }
 
     /**

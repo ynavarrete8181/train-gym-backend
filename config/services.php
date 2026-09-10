@@ -35,24 +35,18 @@ return [
         ],
     ],
 
-    'removebg' => [
-        'key' => env('REMOVEBG_API_KEY'),
-        'url' => env('REMOVEBG_API_URL', 'https://api.remove.bg/v1.0/removebg'),
-    ],
-
-    'openai' => [
-        'key' => env('OPENAI_API_KEY'),
-        'model' => env('OPENAI_MODEL', 'gpt-4.1-mini'),
-        'url' => env('OPENAI_API_URL', 'https://api.openai.com/v1/responses'),
-    ],
-
-    'expo_push' => [
-        'url' => env('EXPO_PUSH_URL', 'https://exp.host/--/api/v2/push/send'),
-        'enabled' => env('EXPO_PUSH_ENABLED', true),
+    'azure' => [
+        'tenant_id' => env('AZURE_TENANT_ID'),
+        'client_id_outlook_graph' => env('AZURE_CLIENT_ID_OUTLOOK_GRAPH'),
+        'client_secret_outlook_graph' => env('AZURE_CLIENT_SECRET_OUTLOOK_GRAPH'),
+        'scope' => env('AZURE_SCOPE', 'https://graph.microsoft.com/.default'),
+        'outlook_sender' => env('AZURE_OUTLOOK_SENDER'),
     ],
 
     'notificaciones' => [
-        'globales_hora' => env('NOTIFICACIONES_GLOBALES_HORA', '07:00'),
+        'timezone' => env('NOTIFICACIONES_TIMEZONE', 'America/Guayaquil'),
+        'frontend_url' => env('FRONTEND_URL', 'http://localhost:5173'),
+        'activacion_horas' => env('USER_ACTIVATION_HOURS', 48),
     ],
 
 ];

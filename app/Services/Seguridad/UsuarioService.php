@@ -2,277 +2,282 @@
 
 namespace App\Services\Seguridad;
 
-use App\Queries\Seguridad\UsuarioQuery;
-use App\Services\Audit\AuditService;
-use Illuminate\Http\Request;
-use Illuminate\Support\Arr;
+use App\Models\User;
+use App\Services\Concerns\RegistraAuditoria;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class UsuarioService
 {
-    public function __construct(
-        private AuditService $auditService,
-        private UsuarioQuery $usuarioQuery
-    ) {
+    use RegistraAuditoria;
+
+    public function __construct(private readonly TiempoRealUsuarioService $tiempoReal) {}
+
+    public function listar(array $filtros): LengthAwarePaginator
+    {
+        $busqueda = trim((string) ($filtros['busqueda'] ?? ''));
+        $roles = $this->resolverRoles($filtros['rol'] ?? []);
+        $estados = array_filter((array) ($filtros['estado'] ?? []), fn ($valor) => $valor !== '');
+        $porPagina = min((int) ($filtros['per_page'] ?? 10), 50);
+
+        return User::query()
+            ->leftJoin('seguridad.cpu_userrole as rol', 'rol.id_userrole', '=', 'seguridad.users.usr_tipo')
+            ->select([
+                'seguridad.users.id',
+                'seguridad.users.name',
+                'seguridad.users.email',
+                'seguridad.users.cedula',
+                'seguridad.users.nombres',
+                'seguridad.users.apellidos',
+                'seguridad.users.usr_tipo',
+                'seguridad.users.usr_estado',
+                'seguridad.users.created_at',
+                'rol.role as rol_nombre',
+            ])
+            ->when($busqueda !== '', function ($query) use ($busqueda): void {
+                $texto = mb_strtolower($busqueda);
+                $query->where(function ($subquery) use ($texto): void {
+                    $subquery
+                        ->whereRaw('LOWER(seguridad.users.name) LIKE ?', ["%{$texto}%"])
+                        ->orWhereRaw('LOWER(seguridad.users.email) LIKE ?', ["%{$texto}%"])
+                        ->orWhereRaw('LOWER(COALESCE(seguridad.users.cedula, \'\')) LIKE ?', ["%{$texto}%"]);
+                });
+            })
+            ->when($filtros['usuario'] ?? [], fn ($query, $valores) => $query->whereIn('seguridad.users.name', (array) $valores))
+            ->when($filtros['correo'] ?? [], fn ($query, $valores) => $query->whereIn('seguridad.users.email', (array) $valores))
+            ->when($filtros['cedula'] ?? [], fn ($query, $valores) => $query->whereIn('seguridad.users.cedula', (array) $valores))
+            ->when($roles, fn ($query) => $query->whereIn('seguridad.users.usr_tipo', $roles))
+            ->when($estados, fn ($query) => $query->whereIn('seguridad.users.usr_estado', $estados))
+            ->orderByDesc('seguridad.users.created_at')
+            ->paginate($porPagina);
     }
 
-    public function crear(Request $request, array $data): array
+    /**
+     * Acepta tanto ids de rol (id_userrole) como nombres de rol (ej. "DEPORTISTA"),
+     * para que otros módulos puedan filtrar usuarios por rol sin conocer el id.
+     */
+    private function resolverRoles(mixed $rol): array
     {
-        $this->assertPersonaDisponible($data['persona_id'] ?? null);
+        $valores = array_filter((array) $rol, fn ($valor) => $valor !== '' && $valor !== null);
+        if (! $valores) {
+            return [];
+        }
 
-        $user = $request->user();
-        $cedula = $this->resolveCedula($data);
+        $ids = array_values(array_filter($valores, fn ($valor) => is_numeric($valor)));
+        $nombres = array_values(array_filter($valores, fn ($valor) => ! is_numeric($valor)));
 
-        $usuarioId = DB::transaction(function () use ($data, $user, $cedula) {
-            $password = $data['password'] ?? Str::password(10, true, true, false, false);
+        if ($nombres) {
+            $idsPorNombre = DB::table('seguridad.cpu_userrole')->whereIn('role', $nombres)->pluck('id_userrole')->all();
+            $ids = array_merge($ids, $idsPorNombre);
+        }
 
-            $usuarioId = DB::table('seguridad.usuarios')->insertGetId([
-                'gimnasio_id' => $data['gimnasio_id'] ?? $user?->gimnasio_id,
-                'persona_id' => $data['persona_id'] ?? null,
-                'cedula' => $cedula,
-                'email' => trim((string) $data['email']),
-                'password_hash' => Hash::make($password),
-                'estado' => $data['estado'] ?? 'ACTIVO',
-                'fecha_baja' => ($data['estado'] ?? 'ACTIVO') === 'ACTIVO' ? null : now(),
-                'requiere_cambio_password' => (bool) ($data['requiere_cambio_password'] ?? true),
-                'password_temporal_generada_at' => now(),
-                'email_credenciales' => $data['email_credenciales'] ?? null,
-                'created_id_user' => $user?->id,
-                'updated_id_user' => $user?->id,
+        return array_values(array_unique($ids));
+    }
+
+    public function opcionesFiltro(): array
+    {
+        $usuarios = User::query()->select('name', 'email', 'cedula')->orderBy('name')->get();
+
+        return [
+            'usuario' => $usuarios->pluck('name')->filter()->unique()->values(),
+            'correo' => $usuarios->pluck('email')->filter()->unique()->values(),
+            'cedula' => $usuarios->pluck('cedula')->filter()->unique()->values(),
+        ];
+    }
+
+    public function crear(array $datos): User
+    {
+        return DB::transaction(function () use ($datos): User {
+            $usuario = User::create([
+                'name' => $this->resolverNombreCompleto($datos),
+                'email' => mb_strtolower(trim($datos['email'])),
+                'password' => Hash::make($datos['password']),
+                'cedula' => $datos['cedula'] ?? null,
+                'nombres' => $datos['nombres'],
+                'apellidos' => $datos['apellidos'] ?? null,
+                'usr_tipo' => $datos['usr_tipo'],
+                'usr_estado' => $datos['usr_estado'] ?? 1,
+            ]);
+
+            DB::table('seguridad.preferencias_usuario')->updateOrInsert(
+                ['id_usuario' => $usuario->id],
+                [
+                    'tema' => 'sistema',
+                    'notificaciones_push' => true,
+                    'notificaciones_correo' => true,
+                    'notificaciones_internas' => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ],
+            );
+
+            if (array_key_exists('funciones', $datos) && is_array($datos['funciones'])) {
+                $this->guardarFuncionesUsuario($usuario->id, (int) $usuario->usr_tipo, $datos['funciones']);
+            } else {
+                $this->sincronizarFuncionesDesdeRol($usuario->id, (int) $usuario->usr_tipo);
+            }
+
+            $creado = $usuario->fresh();
+            $this->auditar('seguridad', 'CREAR', 'seguridad.users', $creado->id, null, $creado);
+            return $creado;
+        });
+    }
+
+    public function actualizar(User $usuario, array $datos): User
+    {
+        return DB::transaction(function () use ($usuario, $datos): User {
+            $antes = $usuario->fresh();
+            $rolAnterior = (int) $usuario->usr_tipo;
+            $rolNuevo = (int) ($datos['usr_tipo'] ?? $usuario->usr_tipo);
+
+            $payload = [
+                'name' => $this->resolverNombreCompleto($datos, $usuario),
+                'email' => mb_strtolower(trim($datos['email'] ?? $usuario->email)),
+                'cedula' => $datos['cedula'] ?? $usuario->cedula,
+                'nombres' => $datos['nombres'] ?? $usuario->nombres,
+                'apellidos' => $datos['apellidos'] ?? $usuario->apellidos,
+                'usr_tipo' => $rolNuevo,
+                'usr_estado' => $datos['usr_estado'] ?? $usuario->usr_estado,
+            ];
+
+            if (! empty($datos['password'])) {
+                $payload['password'] = Hash::make($datos['password']);
+            }
+
+            $usuario->update($payload);
+
+            if ($rolAnterior !== $rolNuevo || empty($this->obtenerFuncionesUsuario($usuario->id))) {
+                $this->sincronizarFuncionesDesdeRol($usuario->id, $rolNuevo);
+            }
+
+            $actualizado = $usuario->fresh();
+            $this->auditar('seguridad', 'ACTUALIZAR', 'seguridad.users', $actualizado->id, $antes, $actualizado);
+            return $actualizado;
+        });
+    }
+
+    public function cambiarEstado(User $usuario, int $estado): User
+    {
+        $antes = $usuario->fresh();
+        $usuario->update(['usr_estado' => $estado]);
+
+        if ($estado !== 1) {
+            DB::table('seguridad.tokens_acceso')->where('id_usuario', $usuario->id)->delete();
+        }
+
+        $actualizado = $usuario->fresh();
+        $this->auditar('seguridad', 'ACTUALIZAR', 'seguridad.users', $actualizado->id, $antes, $actualizado, 'Cambio de estado del usuario.');
+        return $actualizado;
+    }
+
+    public function cambiarClave(User $usuario, string $password): void
+    {
+        $usuario->update(['password' => Hash::make($password)]);
+        DB::table('seguridad.tokens_acceso')->where('id_usuario', $usuario->id)->delete();
+        $this->auditar('seguridad', 'ACTUALIZAR', 'seguridad.users', $usuario->id, null, null, 'Contraseña actualizada.');
+    }
+
+    public function obtenerFuncionesUsuario(int $idUsuario): array
+    {
+        return DB::table('seguridad.cpu_userfunction')
+            ->where('id_users', $idUsuario)
+            ->where('activo', true)
+            ->orderBy('id_usermenu')
+            ->orderBy('orden')
+            ->get()
+            ->map(fn ($funcion): array => (array) $funcion)
+            ->all();
+    }
+
+    public function sincronizarFuncionesDesdeRol(int $idUsuario, int $idRol): void
+    {
+        $funcionesRol = DB::table('seguridad.cpu_userrolefunction')
+            ->where('id_userrole', $idRol)
+            ->where('activo', true)
+            ->orderBy('id_usermenu')
+            ->orderBy('orden')
+            ->get();
+
+        DB::table('seguridad.cpu_userfunction')->where('id_users', $idUsuario)->delete();
+
+        foreach ($funcionesRol as $funcion) {
+            DB::table('seguridad.cpu_userfunction')->insert([
+                'id_users' => $idUsuario,
+                'id_userrole' => $idRol,
+                'id_usermenu' => $funcion->id_usermenu,
+                'nombre' => $funcion->nombre,
+                'icono' => $funcion->icono,
+                'accion' => $funcion->accion,
+                'id_menu' => $funcion->id_menu,
+                'activo' => true,
+                'orden' => $funcion->orden,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+        }
 
-            if (array_key_exists('roles', $data)) {
-                $this->syncRoles($usuarioId, $data['roles'] ?? []);
-            }
-
-            if (array_key_exists('sedes', $data)) {
-                $this->syncSedes($usuarioId, $data['sedes'] ?? []);
-            }
-
-            return $usuarioId;
-        });
-
-        $created = $this->usuarioQuery->obtenerPorId($usuarioId);
-
-        $this->auditService->created($request, 'seguridad_usuarios', $usuarioId, $created, [
-            'esquema' => 'seguridad',
-            'modulo' => 'seguridad',
-            'accion' => 'crear_usuario',
-        ]);
-
-        return $created ?? [];
+        DB::afterCommit(fn () => $this->tiempoReal->emitir($idUsuario, 'MENU_ACTUALIZADO', [
+            'usuario_id' => $idUsuario,
+        ]));
     }
 
-    public function actualizar(Request $request, int $id, array $data): array
+    public function guardarFuncionesUsuario(int $idUsuario, int $idRol, array $codigosFunciones): void
     {
-        $before = $this->usuarioQuery->obtenerPorId($id);
+        $funciones = DB::table('seguridad.cpu_userrolefunction')
+            ->whereIn('id_menu', $codigosFunciones)
+            ->where('activo', true)
+            ->orderByRaw('CASE WHEN id_userrole = ? THEN 0 ELSE 1 END', [$idRol])
+            ->get();
 
-        if (!$before) {
+        $funcionesUnicas = $funciones->unique('id_menu')->values();
+
+        if ($funcionesUnicas->count() !== count(array_unique($codigosFunciones))) {
             throw ValidationException::withMessages([
-                'usuario' => 'No se encontró el usuario a actualizar.',
+                'funciones' => 'Una o varias funciones seleccionadas no existen o están inactivas.',
             ]);
         }
 
-        $this->assertPersonaDisponible($data['persona_id'] ?? null, $id);
+        DB::transaction(function () use ($idUsuario, $idRol, $funcionesUnicas): void {
+            DB::table('seguridad.cpu_userfunction')->where('id_users', $idUsuario)->delete();
 
-        $user = $request->user();
-        $cedula = $this->resolveCedula($data);
-
-        DB::transaction(function () use ($id, $data, $user, $cedula) {
-            $payload = [
-                'gimnasio_id' => $data['gimnasio_id'] ?? $user?->gimnasio_id,
-                'persona_id' => $data['persona_id'] ?? null,
-                'cedula' => $cedula,
-                'email' => trim((string) $data['email']),
-                'estado' => $data['estado'] ?? 'ACTIVO',
-                'fecha_baja' => ($data['estado'] ?? 'ACTIVO') === 'ACTIVO' ? null : now(),
-                'updated_id_user' => $user?->id,
-                'updated_at' => now(),
-            ];
-
-            if (!empty($data['password'])) {
-                $payload['password_hash'] = Hash::make($data['password']);
-                $payload['requiere_cambio_password'] = (bool) ($data['requiere_cambio_password'] ?? true);
-                $payload['password_temporal_generada_at'] = now();
-            }
-
-            if (array_key_exists('email_credenciales', $data)) {
-                $payload['email_credenciales'] = $data['email_credenciales'];
-            }
-
-            DB::table('seguridad.usuarios')
-                ->where('id', $id)
-                ->update($payload);
-
-            if (array_key_exists('roles', $data)) {
-                $this->syncRoles($id, $data['roles'] ?? []);
-            }
-
-            if (array_key_exists('sedes', $data)) {
-                $this->syncSedes($id, $data['sedes'] ?? []);
-            }
-        });
-
-        $after = $this->usuarioQuery->obtenerPorId($id);
-
-        $this->auditService->updated($request, 'seguridad_usuarios', $id, $before, $after, [
-            'esquema' => 'seguridad',
-            'modulo' => 'seguridad',
-            'accion' => 'actualizar_usuario',
-        ]);
-
-        return $after ?? [];
-    }
-
-    public function actualizarAccesos(Request $request, int $id, array $data): array
-    {
-        $before = $this->usuarioQuery->obtenerPorId($id);
-
-        if (!$before) {
-            throw ValidationException::withMessages([
-                'usuario' => 'No se encontró el usuario solicitado.',
-            ]);
-        }
-
-        DB::transaction(function () use ($id, $data) {
-            $this->syncRoles($id, $data['roles'] ?? []);
-            $this->syncSedes($id, $data['sedes'] ?? []);
-        });
-
-        $after = $this->usuarioQuery->obtenerPorId($id);
-
-        $this->auditService->updated($request, 'seguridad_usuarios_accesos', $id, $before, $after, [
-            'esquema' => 'seguridad',
-            'modulo' => 'seguridad',
-            'accion' => 'actualizar_accesos_usuario',
-        ]);
-
-        return $after ?? [];
-    }
-
-    public function cambiarEstado(Request $request, int $id, string $estado): array
-    {
-        $before = $this->usuarioQuery->obtenerPorId($id);
-
-        if (!$before) {
-            throw ValidationException::withMessages([
-                'usuario' => 'No se encontró el usuario solicitado.',
-            ]);
-        }
-
-        DB::table('seguridad.usuarios')
-            ->where('id', $id)
-            ->update([
-                'estado' => $estado,
-                'fecha_baja' => $estado === 'ACTIVO' ? null : now(),
-                'updated_id_user' => $request->user()?->id,
-                'updated_at' => now(),
-            ]);
-
-        $after = $this->usuarioQuery->obtenerPorId($id);
-
-        $this->auditService->updated($request, 'seguridad_usuarios', $id, $before, $after, [
-            'esquema' => 'seguridad',
-            'modulo' => 'seguridad',
-            'accion' => 'cambiar_estado_usuario',
-        ]);
-
-        return $after ?? [];
-    }
-
-    private function assertPersonaDisponible(?int $personaId, ?int $ignoreUserId = null): void
-    {
-        if (!$personaId) {
-            return;
-        }
-
-        $query = DB::table('seguridad.usuarios')
-            ->where('persona_id', $personaId);
-
-        if ($ignoreUserId) {
-            $query->where('id', '!=', $ignoreUserId);
-        }
-
-        if ($query->exists()) {
-            throw ValidationException::withMessages([
-                'persona_id' => 'La persona seleccionada ya está asociada a otro usuario.',
-            ]);
-        }
-    }
-
-    private function resolveCedula(array $data): ?string
-    {
-        $personaId = Arr::get($data, 'persona_id');
-
-        if ($personaId) {
-            $cedula = DB::table('core.personas')
-                ->where('id', $personaId)
-                ->value('numero_identificacion');
-
-            if (!$cedula) {
-                throw ValidationException::withMessages([
-                    'persona_id' => 'La persona seleccionada no tiene cédula registrada.',
+            foreach ($funcionesUnicas as $funcion) {
+                DB::table('seguridad.cpu_userfunction')->insert([
+                    'id_users' => $idUsuario,
+                    'id_userrole' => $idRol,
+                    'id_usermenu' => $funcion->id_usermenu,
+                    'nombre' => $funcion->nombre,
+                    'icono' => $funcion->icono,
+                    'accion' => $funcion->accion,
+                    'id_menu' => $funcion->id_menu,
+                    'activo' => true,
+                    'orden' => $funcion->orden,
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ]);
             }
+        });
 
-            return trim((string) $cedula);
-        }
-
-        $cedula = trim((string) Arr::get($data, 'cedula', ''));
-
-        return $cedula !== '' ? $cedula : null;
+        DB::afterCommit(fn () => $this->tiempoReal->emitir($idUsuario, 'MENU_ACTUALIZADO', [
+            'usuario_id' => $idUsuario,
+        ]));
     }
 
-    private function syncRoles(int $usuarioId, array $roles): void
+    public function actualizarAccesos(User $usuario, int $idRol, array $codigosFunciones): void
     {
-        $roleIds = collect($roles)
-            ->filter(fn ($rol) => $rol !== null && $rol !== '')
-            ->map(fn ($rol) => (int) $rol)
-            ->unique()
-            ->values();
-
-        DB::table('seguridad.usuario_roles')->where('usuario_id', $usuarioId)->delete();
-
-        if ($roleIds->isEmpty()) {
-            return;
-        }
-
-        $rows = $roleIds->map(fn ($rolId) => [
-            'usuario_id' => $usuarioId,
-            'rol_id' => $rolId,
-            'created_at' => now(),
-        ])->all();
-
-        DB::table('seguridad.usuario_roles')->insert($rows);
+        DB::transaction(function () use ($usuario, $idRol, $codigosFunciones): void {
+            $usuario->update(['usr_tipo' => $idRol]);
+            $this->guardarFuncionesUsuario($usuario->id, $idRol, $codigosFunciones);
+        });
     }
 
-    private function syncSedes(int $usuarioId, array $sedes): void
+    private function resolverNombreCompleto(array $datos, ?User $usuario = null): string
     {
-        $sedeIds = collect($sedes)
-            ->filter(fn ($sede) => $sede !== null && $sede !== '')
-            ->map(fn ($sede) => (int) $sede)
-            ->unique()
-            ->values();
+        $nombres = trim((string) ($datos['nombres'] ?? $usuario?->nombres ?? ''));
+        $apellidos = trim((string) ($datos['apellidos'] ?? $usuario?->apellidos ?? ''));
+        $nombreCompleto = trim("{$nombres} {$apellidos}");
 
-        DB::table('seguridad.usuario_sedes')->where('usuario_id', $usuarioId)->delete();
-
-        if ($sedeIds->isEmpty()) {
-            return;
-        }
-
-        $rows = $sedeIds->map(fn ($sedeId) => [
-            'usuario_id' => $usuarioId,
-            'sede_id' => $sedeId,
-            'activo' => true,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ])->all();
-
-        DB::table('seguridad.usuario_sedes')->insert($rows);
+        return $nombreCompleto !== '' ? $nombreCompleto : (string) ($datos['name'] ?? $usuario?->name ?? '');
     }
 }

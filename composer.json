@@ -1,26 +1,25 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/laravel",
+    "name": "revive/train-gym-backend",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
-    "keywords": ["laravel", "framework"],
+    "description": "Backend Laravel API para Revive.",
+    "keywords": ["laravel", "api", "train-gym"],
     "license": "MIT",
     "require": {
-        "php": "^8.2",
-        "ext-pcntl": "*",
-        "laravel/framework": "^12.0",
-        "laravel/reverb": "^1.10",
-        "laravel/sanctum": "^4.3",
-        "laravel/tinker": "^2.10.1"
+        "php": "^8.3",
+        "laravel/framework": "^13.8",
+        "laravel/reverb": "^1.11",
+        "laravel/tinker": "^3.0",
+        "phpoffice/phpspreadsheet": "^5.9"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
-        "laravel/pail": "^1.2.2",
-        "laravel/pint": "^1.24",
-        "laravel/sail": "^1.41",
+        "laravel/pail": "^1.2.5",
+        "laravel/pao": "^1.0.6",
+        "laravel/pint": "^1.27",
         "mockery/mockery": "^1.6",
         "nunomaduro/collision": "^8.6",
-        "phpunit/phpunit": "^11.5.3"
+        "phpunit/phpunit": "^12.5.12"
     },
     "autoload": {
         "psr-4": {
@@ -40,15 +39,15 @@
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
             "@php artisan key:generate",
             "@php artisan migrate --force",
-            "npm install",
+            "npm install --ignore-scripts",
             "npm run build"
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
-            "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1 --timeout=0\" \"php artisan pail --timeout=0\" \"npm run dev\" --names=server,queue,logs,vite --kill-others"
+            "npx --yes concurrently@9.2.1 -c \"#93c5fd,#86efac,#c4b5fd\" \"php artisan serve\" \"php artisan queue:listen database --queue=default,correos,push --tries=3 --timeout=120 --sleep=1\" \"php artisan reverb:start --debug\" --names=api,queue,reverb --kill-others"
         ],
         "test": [
-            "@php artisan config:clear --ansi",
+            "@php artisan config:clear --ansi @no_additional_args",
             "@php artisan test"
         ],
         "post-autoload-dump": [
@@ -82,9 +81,6 @@
         "allow-plugins": {
             "pestphp/pest-plugin": true,
             "php-http/discovery": true
-        },
-        "platform": {
-            "php": "8.2.32"
         }
     },
     "minimum-stability": "stable",

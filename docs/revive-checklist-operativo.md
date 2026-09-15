@@ -27,7 +27,7 @@ Estados:
 | Orden | Módulo | Estado | Resultado esperado |
 | --- | --- | --- | --- |
 | 1 | Sedes | 🟡 | Sedes y configuración operativa correctas |
-| 2 | Roles | 🟡 | Jerarquía Revive V1 registrada y operativa |
+| 2 | Roles | ✅ | Jerarquía Revive V1 registrada y visible |
 | 3 | Permisos | 🟡 | Matriz CRUD y acciones especiales por rol |
 | 4 | Usuarios | ⏳ | Persona + usuario + rol + sede |
 | 5 | Coaches | ⏳ | Perfil, especialidad, sede y disponibilidad |
@@ -115,7 +115,7 @@ Se corrigió la migración para permitir `NULL` en `id_usermenu` antes de restau
 | Relación con membresías | ✅ Existente |
 | Relación con servicios/horarios | ✅ Existente |
 | Relación con supervisor | 🔴 Se define en fases 2-4 |
-| Menús universitarios heredados | 🔴 Pendiente análisis de dependencias antes de ocultar/retirar |
+| Menús universitarios heredados | 🟡 Se retiran de ADMINISTRADOR en Fase 3; permanecen en BD hasta revisar dependencias |
 | Build frontend | 🔴 Pendiente ejecución local |
 | Migración backend | ✅ Ejecutada |
 | Prueba CRUD real con las 3 sedes | 🟡 Revive Centro validada; Home/Xpadel pendientes de prueba rápida |
@@ -148,7 +148,7 @@ Migración agregada:
 
 `2026_09_15_000000_add_revive_superadmin_and_sales_supervisor_roles.php`
 
-La migración registra `SUPERADMINISTRADOR` y `SUPERVISOR DE VENTAS` como roles activos sin asignar todavía permisos automáticos. La matriz de permisos se construirá en Fase 3 para evitar heredar acceso excesivo por accidente.
+La migración registra `SUPERADMINISTRADOR` y `SUPERVISOR DE VENTAS` como roles activos.
 
 ## Checklist Fase 2
 
@@ -163,59 +163,83 @@ La migración registra `SUPERADMINISTRADOR` y `SUPERVISOR DE VENTAS` como roles 
 | RECEPCIONISTA | ✅ Existente |
 | ENTRENADOR | ✅ Existente; interfaz puede mostrar Coach / Entrenador |
 | DEPORTISTA | ✅ Existente |
-| Permisos por rol | 🔴 Fase 3 |
+| Permisos por rol | 🟡 Fase 3 en desarrollo |
 | Alcance por sede | 🔴 Fases 3-4 |
 
 ---
 
 # Fase 3 - Permisos
 
-## Inicio de revisión
+## Base funcional validada
 
-Se inició la revisión desde `Seguridad > Permisos de usuarios`, separando dos conceptos:
+La pantalla `Seguridad > Permisos de usuarios` ya permite abrir el detalle de accesos. Se corrigió el flujo para mostrar errores reales de API y para manejar correctamente usuarios con rol o sin rol.
 
-- permisos heredados por rol;
-- excepciones de permisos asignadas a un usuario concreto.
+Los permisos marcados con etiqueta `Rol` son heredados de la matriz base del rol. Por ello, los cambios estructurales deben hacerse en el rol y no como excepciones individuales por usuario.
 
-La intención es que la mayor parte de la autorización quede definida por rol y que la administración por usuario se utilice solo para excepciones justificadas.
+## Separación ADMINISTRADOR / SUPERADMINISTRADOR
 
-## Incidencia detectada al abrir accesos
+Se define que `SUPERADMINISTRADOR` controla la plataforma y que `ADMINISTRADOR` administra el gimnasio.
 
-Al presionar el botón de administración de permisos de un usuario, la pantalla ejecuta en paralelo:
+Migración agregada:
 
-1. consulta de funciones disponibles;
-2. consulta de funciones heredadas del rol;
-3. consulta de funciones actuales del usuario.
+`2026_09_15_010000_split_superadmin_and_gym_admin_permissions.php`
 
-La pantalla ocultaba cualquier error real de API y mostraba siempre `No se pudieron cargar los accesos del usuario.`. Se actualizó `PermisosUsuariosPage.jsx` para priorizar mensajes de validación, `mensaje`, `message` o el error HTTP disponible, tanto al abrir accesos como al cambiar de rol o guardar.
+La migración realiza estas acciones:
 
-Esto permite identificar el fallo real antes de modificar la matriz de permisos.
+1. copia al `SUPERADMINISTRADOR` todos los permisos actuales del rol `ADMINISTRADOR` para conservar el control global;
+2. promueve la cuenta bootstrap `admin@revive.local` a `SUPERADMINISTRADOR`, evitando perder acceso técnico al aplicar la separación;
+3. retira del rol `ADMINISTRADOR` los permisos técnicos de configuración de Menús, Submenús, Roles, Páginas del sistema, Permisos de usuarios y Configuración de APIs;
+4. retira del rol `ADMINISTRADOR` los accesos universitarios heredados de Facultades/Direcciones, Campos amplios y Carreras/Áreas;
+5. mantiene `SEGURIDAD-USUARIOS` en `ADMINISTRADOR`, porque la administración del gimnasio sí necesita gestionar cuentas operativas;
+6. sincroniza las funciones del usuario bootstrap con el nuevo rol de `SUPERADMINISTRADOR` y limpia de los usuarios ADMINISTRADOR los accesos técnicos retirados.
+
+Permisos retirados de `ADMINISTRADOR` en esta primera separación:
+
+- `SEGURIDAD-MENUS`;
+- `SEGURIDAD-SUBMENUS`;
+- `SEGURIDAD-ROLES`;
+- `SEGURIDAD-PAGINAS`;
+- `SEGURIDAD-PERMISOS-USUARIOS`;
+- `INTEGRACIONES-CONFIG`;
+- `INSTITUCIONAL-UNIDADES`;
+- `INSTITUCIONAL-CAMPOS-AMPLIOS`;
+- `INSTITUCIONAL-CARRERAS-AREAS`.
+
+`INSTITUCIONAL-SEDES` permanece disponible para ADMINISTRADOR.
+
+## Usuarios de referencia
+
+- La cuenta bootstrap `admin@revive.local` queda destinada a `SUPERADMINISTRADOR`.
+- Andrea Amen debe quedar como `ADMINISTRADOR` del gimnasio una vez validada la matriz base.
 
 ## Checklist Fase 3
 
 | Control | Estado |
 | --- | --- |
 | Separación permisos por rol / por usuario | ✅ Definida |
-| Pantalla Permisos de usuarios | 🟡 En diagnóstico |
-| Mostrar error real de API | ✅ Implementado en frontend |
-| Accesos ADMINISTRADOR | 🟡 Pendiente repetir prueba |
-| Accesos SUPERADMINISTRADOR | 🔴 Pendiente definir |
-| Accesos SUPERVISOR DE VENTAS | 🔴 Pendiente definir |
-| Accesos CAJERO | 🔴 Pendiente revisar |
-| Accesos RECEPCIONISTA | 🔴 Pendiente revisar |
-| Accesos ENTRENADOR | 🔴 Pendiente revisar |
-| Accesos DEPORTISTA | 🔴 Pendiente revisar |
-| Matriz CRUD + acciones especiales | 🔴 Pendiente |
+| Pantalla Permisos de usuarios | ✅ Abre detalle de accesos |
+| Mostrar error real de API | ✅ Implementado |
+| Manejo de usuarios sin rol | ✅ Corregido |
+| SUPERADMINISTRADOR hereda control global | 🟡 Migración creada, pendiente ejecutar/probar |
+| ADMINISTRADOR sin seguridad técnica | 🟡 Migración creada, pendiente ejecutar/probar |
+| ADMINISTRADOR sin módulos universitarios | 🟡 Migración creada, pendiente ejecutar/probar |
+| ADMINISTRADOR conserva Usuarios y Sedes | 🟡 Pendiente validar visualmente |
+| SUPERVISOR DE VENTAS | 🔴 Siguiente bloque de matriz |
+| CAJERO | 🔴 Pendiente revisar |
+| RECEPCIONISTA | 🔴 Pendiente revisar |
+| ENTRENADOR | 🔴 Pendiente revisar |
+| DEPORTISTA | 🔴 Pendiente revisar |
+| Matriz CRUD + acciones especiales | 🟡 En desarrollo |
 | Restricción por sede | 🔴 Pendiente fases 3-4 |
 
 ## Próxima validación
 
-1. Actualizar `train-gym-web` desde `dev-revive`.
-2. Abrir nuevamente el escudo de `Administrador Revive`.
-3. Capturar el mensaje real que devuelva la API.
-4. Corregir la causa raíz.
-5. Construir la matriz definitiva de permisos Revive V1.
+1. Ejecutar la migración de separación de permisos.
+2. Cerrar sesión y volver a ingresar con `admin@revive.local` para confirmar que aparece como SUPERADMINISTRADOR y conserva la configuración técnica.
+3. Abrir Andrea Amen, asignar `ADMINISTRADOR` y confirmar que hereda la operación del gimnasio sin Menús, Submenús, Roles, Páginas del sistema, Permisos de usuarios ni Configuración de APIs.
+4. Confirmar que en ADMINISTRADOR solo queda `Sedes` dentro de Estructura operativa.
+5. Continuar con la matriz de `SUPERVISOR DE VENTAS`.
 
 ## Nota de arquitectura
 
-Los submódulos heredados `Facultades / Direcciones`, `Campos amplios` y `Carreras / Áreas` permanecen temporalmente en código y base de datos. No deben eliminarse hasta comprobar todas sus dependencias. En Revive se evaluará ocultarlos del menú si no participan en ningún proceso deportivo u operativo.
+Los submódulos heredados `Facultades / Direcciones`, `Campos amplios` y `Carreras / Áreas` permanecen temporalmente en código y base de datos para no romper dependencias históricas. Se retiran del rol operativo ADMINISTRADOR, pero no se eliminan físicamente hasta comprobar que ningún flujo Revive los necesita.

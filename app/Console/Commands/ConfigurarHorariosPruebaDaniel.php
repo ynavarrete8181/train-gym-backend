@@ -91,7 +91,7 @@ class ConfigurarHorariosPruebaDaniel extends Command
                 ->where('servicio_id', $servicio->id)
                 ->first();
 
-            $agenda->guardarHorarioBloque(
+            $bloque = $agenda->guardarHorarioBloque(
                 [
                     'nombre' => $config['nombre'],
                     'servicio_id' => $servicio->id,
@@ -105,20 +105,35 @@ class ConfigurarHorariosPruebaDaniel extends Command
                 $bloqueExistente?->id,
             );
 
+            $bloqueId = (int) ($bloque->id ?? 0);
+
+            if (! $bloqueId) {
+                $bloqueId = (int) DB::table('gimnasio.horario_bloques')
+                    ->where('nombre', $config['nombre'])
+                    ->where('servicio_id', $servicio->id)
+                    ->value('id');
+            }
+
+            if (! $bloqueId) {
+                throw new \RuntimeException("No se pudo resolver el ID del bloque {$config['nombre']} para {$servicio->nombre}.");
+            }
+
+            DB::table('gimnasio.horario_bloques')
+                ->where('id', $bloqueId)
+                ->update(['activo' => true, 'updated_at' => now()]);
+
             $bloquePersistido = DB::table('gimnasio.horario_bloques')
-                ->where('nombre', $config['nombre'])
-                ->where('servicio_id', $servicio->id)
-                ->where('activo', true)
+                ->where('id', $bloqueId)
                 ->first();
 
             if (! $bloquePersistido) {
-                throw new \RuntimeException("No se pudo confirmar el bloque activo {$config['nombre']} para {$servicio->nombre}.");
+                throw new \RuntimeException("No se pudo confirmar el bloque {$config['nombre']} con ID {$bloqueId}.");
             }
 
             DB::table('gimnasio.horario_entrenadores')->updateOrInsert(
                 [
                     'entrenador_id' => (int) $entrenador->id,
-                    'horario_bloque_id' => (int) $bloquePersistido->id,
+                    'horario_bloque_id' => $bloqueId,
                 ],
                 [
                     'activo' => true,
@@ -128,7 +143,7 @@ class ConfigurarHorariosPruebaDaniel extends Command
             );
 
             $dias = implode(', ', $config['dias']);
-            $this->line("• {$config['nombre']} | {$servicio->nombre} | {$sede->nombre} | {$dias} | {$config['hora_inicio']}-{$config['hora_fin']} | cupo {$config['capacidad']}");
+            $this->line("• #{$bloqueId} {$config['nombre']} | {$servicio->nombre} | {$sede->nombre} | {$dias} | {$config['hora_inicio']}-{$config['hora_fin']} | cupo {$config['capacidad']}");
         }
 
         $this->newLine();

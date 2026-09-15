@@ -143,12 +143,32 @@ Se corrigió la migración para permitir `NULL` en `id_usermenu` antes de restau
 | 4 | RECEPCIONISTA | Clientes, reservas, check-in y apoyo comercial |
 | 4 | ENTRENADOR | Evaluaciones, planificación, rutinas, ejecución y seguimiento deportivo |
 | 5 | DEPORTISTA | Acceso a app y a su propia información, entrenamiento, reservas y progreso |
+| 5 | RESPONSABLE | Acceso de app para gestionar deportistas vinculados, pagos, membresías, reservas y notificaciones permitidas |
 
-Migración agregada:
+Migraciones de roles:
 
-`2026_09_15_000000_add_revive_superadmin_and_sales_supervisor_roles.php`
+- `2026_09_15_000000_add_revive_superadmin_and_sales_supervisor_roles.php`
+- `2026_09_15_041000_add_responsable_app_role.php`
 
-La migración registra `SUPERADMINISTRADOR` y `SUPERVISOR DE VENTAS` como roles activos.
+`RESPONSABLE` se agrega como rol base sin permisos automáticos todavía. Sus permisos y la relación responsable↔deportista se definirán junto con Usuarios/Deportistas para evitar mezclar autenticación con la relación de parentesco o representación.
+
+## Modelo conceptual Cliente / Deportista / Responsable
+
+Para Revive se adopta esta regla:
+
+- `CLIENTE` es el concepto general de la persona con relación comercial con Revive.
+- `DEPORTISTA` es un cliente que participa en procesos deportivos y de entrenamiento.
+- `SOCIO` es una condición comercial derivada de tener una membresía activa; no se maneja como rol independiente.
+- `USUARIO` representa la credencial de acceso al sistema o app.
+- `RESPONSABLE` es un usuario que puede gestionar uno o varios deportistas vinculados cuando corresponda, por ejemplo padre, madre o tutor de un menor.
+
+No se deben duplicar personas entre Cliente y Deportista. La misma persona se presenta como Cliente en los módulos comerciales y como Deportista en los módulos deportivos.
+
+En la app:
+
+- un deportista adulto entra con su propia cuenta y ve entrenamiento, progreso, evaluaciones, reservas, membresía, pagos y notificaciones permitidas;
+- un responsable entra con su propia cuenta y verá `Mis deportistas`, pudiendo gestionar únicamente la información autorizada de los deportistas vinculados;
+- un deportista menor podrá tener o no cuenta propia según la política futura del gimnasio, sin obligar a compartir credenciales con el responsable.
 
 ## Checklist Fase 2
 
@@ -163,8 +183,11 @@ La migración registra `SUPERADMINISTRADOR` y `SUPERVISOR DE VENTAS` como roles 
 | RECEPCIONISTA | ✅ Existente |
 | ENTRENADOR | ✅ Existente; interfaz puede mostrar Coach / Entrenador |
 | DEPORTISTA | ✅ Existente |
+| RESPONSABLE | 🟡 Migración creada; pendiente ejecutar/validar |
+| Modelo Cliente/Deportista/Responsable | ✅ Definido conceptualmente |
 | Permisos por rol | 🟡 Fase 3 en desarrollo |
 | Alcance por sede | 🔴 Fases 3-4 |
+| Relación Responsable ↔ Deportista | 🔴 Fases 4 y 6 |
 
 ---
 
@@ -208,12 +231,13 @@ No recibe Seguridad, configuración técnica, Integraciones, Entrenamiento ni In
 
 ### Validación con usuario real
 
-Karol Cajero fue asignada temporalmente/operativamente como `SUPERVISOR DE VENTAS` y se validó que el menú restringe correctamente Seguridad, Integraciones, Entrenamiento e Inventario. En la prueba aparecieron Dashboard, Clientes, Ventas y Reportes.
+Karol Cajero fue asignada como `SUPERVISOR DE VENTAS` y se validó que el menú restringe correctamente Seguridad, Integraciones, Entrenamiento e Inventario.
 
-Se detectaron dos ajustes adicionales:
+Ajustes detectados y creados:
 
-1. `GIMNASIO-MEMBRESIAS` estaba autorizado pero oculto del menú por diseño histórico (`id_usermenu = null`). Se agregó la migración `2026_09_15_021000_expose_memberships_for_sales_supervisor.php` para mostrar Membresías únicamente al rol SUPERVISOR DE VENTAS, sin alterar el comportamiento de otros roles.
-2. El Dashboard mostraba indicadores técnicos heredados (`Usuarios`, `Roles`, `Menús`, `Funciones`). Se ajustó el frontend para presentar tarjetas iniciales según el rol. SUPERVISOR DE VENTAS verá `Ventas del día`, `Pagos registrados`, `Membresías vendidas` y `Cajas`. Los valores continúan pendientes de integración con métricas reales.
+1. `GIMNASIO-MEMBRESIAS` estaba autorizado pero oculto del menú por diseño histórico (`id_usermenu = null`). Se agregó `2026_09_15_021000_expose_memberships_for_sales_supervisor.php` para mostrar Membresías únicamente al SUPERVISOR DE VENTAS.
+2. El Dashboard mostraba indicadores técnicos heredados. El frontend se ajustó para presentar tarjetas comerciales al SUPERVISOR DE VENTAS.
+3. Para garantizar que `Clientes` sea visible y navegable, se agregó `2026_09_15_040000_expose_clients_for_sales_supervisor.php`. Esta migración reutiliza la asociación visible de `GIMNASIO-DEPORTISTAS` que ya usa ADMINISTRADOR y la replica en SUPERVISOR DE VENTAS, sincronizando también a usuarios existentes del rol.
 
 ### Alcance pendiente
 
@@ -240,21 +264,24 @@ La separación actual de permisos es por módulo. Más adelante, donde el backen
 | ADMINISTRADOR sin módulos universitarios | ✅ Aplicado |
 | Andrea Amen como ADMINISTRADOR | ✅ Validado |
 | SUPERVISOR DE VENTAS restringe módulos técnicos | ✅ Validado visualmente con Karol |
+| Clientes visible para SUPERVISOR DE VENTAS | 🟡 Migración creada; pendiente ejecutar/probar |
 | Membresías visible para SUPERVISOR DE VENTAS | 🟡 Migración creada; pendiente ejecutar/probar |
 | Dashboard comercial por rol | 🟡 Frontend ajustado; pendiente probar |
 | CAJERO | 🔴 Pendiente revisar |
 | RECEPCIONISTA | 🔴 Pendiente revisar |
 | ENTRENADOR | 🔴 Pendiente revisar |
 | DEPORTISTA | 🔴 Pendiente revisar |
+| RESPONSABLE | 🔴 Permisos de app se definen con el flujo de Usuarios/Deportistas |
 | Matriz CRUD + acciones especiales | 🟡 En desarrollo |
 | Restricción por sede | 🔴 Pendiente fases 3-4 |
 
 ## Próxima validación
 
-1. Ejecutar la nueva migración para exponer Membresías al SUPERVISOR DE VENTAS.
-2. Actualizar el frontend y comprobar que el Dashboard de Karol muestra tarjetas comerciales, no técnicas.
-3. Confirmar que el sidebar de Karol muestre Dashboard, Clientes, Membresías, Ventas y Reportes.
+1. Ejecutar las nuevas migraciones.
+2. Confirmar que el sidebar de Karol muestre Dashboard, Clientes, Membresías, Ventas y Reportes.
+3. Confirmar que el rol RESPONSABLE aparezca en Seguridad > Roles.
 4. Continuar con la matriz de CAJERO y RECEPCIONISTA.
+5. En Fases 4 y 6 diseñar la relación Cliente/Deportista/Responsable sin duplicar personas.
 
 ## Nota de arquitectura
 

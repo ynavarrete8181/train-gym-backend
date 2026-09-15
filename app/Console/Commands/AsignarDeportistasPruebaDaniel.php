@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\Gimnasio\AsignacionEntrenadorClienteServicio;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -57,19 +58,21 @@ class AsignarDeportistasPruebaDaniel extends Command
             ->orderBy('id')
             ->value('horario_bloque_id');
 
+        $servicioAsignaciones = app(AsignacionEntrenadorClienteServicio::class);
         $creadas = 0;
         $existentes = 0;
 
-        DB::transaction(function () use ($usuarios, $entrenador, $horarioBloqueId, &$creadas, &$existentes): void {
+        DB::transaction(function () use ($usuarios, $entrenador, $horarioBloqueId, $servicioAsignaciones, &$creadas, &$existentes): void {
             foreach ($usuarios as $usuario) {
                 $deportista = DB::table('gimnasio.deportistas')
                     ->where('usuario_id', $usuario->id)
-                    ->where('estado', 'ACTIVO')
                     ->first();
 
                 if (! $deportista) {
-                    throw new \RuntimeException("{$usuario->name} no tiene un perfil de deportista activo.");
+                    throw new \RuntimeException("{$usuario->name} no tiene un perfil de deportista.");
                 }
+
+                $this->line("{$usuario->name}: perfil {$deportista->codigo_deportista} / estado {$deportista->estado}.");
 
                 $yaExiste = DB::table('gimnasio.asignaciones_entrenador_cliente')
                     ->where('entrenador_id', $entrenador->id)
@@ -82,17 +85,14 @@ class AsignarDeportistasPruebaDaniel extends Command
                     continue;
                 }
 
-                DB::table('gimnasio.asignaciones_entrenador_cliente')->insert([
+                $servicioAsignaciones->asignar([
                     'entrenador_id' => $entrenador->id,
                     'deportista_id' => $deportista->id,
                     'horario_bloque_id' => $horarioBloqueId,
                     'membresia_id' => null,
                     'tipo_asignacion' => 'SEGUIMIENTO',
-                    'estado' => 'ACTIVO',
                     'fecha_inicio' => now()->toDateString(),
                     'observaciones' => 'Asignación local de prueba para validar flujo ENTRENADOR.',
-                    'created_at' => now(),
-                    'updated_at' => now(),
                 ]);
 
                 $creadas++;

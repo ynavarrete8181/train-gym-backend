@@ -27,7 +27,7 @@ Estados:
 | Orden | Módulo | Estado | Resultado esperado |
 | --- | --- | --- | --- |
 | 1 | Sedes | 🟡 | Sedes y configuración operativa correctas |
-| 2 | Roles | ⏳ | Superadmin, Supervisor, Caja/Recepción, Coach, Especialista y Deportista |
+| 2 | Roles | 🟡 | Jerarquía Revive V1 registrada y operativa |
 | 3 | Permisos | ⏳ | Matriz CRUD y acciones especiales por rol |
 | 4 | Usuarios | ⏳ | Persona + usuario + rol + sede |
 | 5 | Coaches | ⏳ | Perfil, especialidad, sede y disponibilidad |
@@ -104,33 +104,75 @@ Se corrigió la migración para permitir `NULL` en `id_usermenu` antes de restau
 | Búsqueda | ✅ |
 | Filtros | ✅ |
 | Paginación | ✅ |
-| API crear/editar | 🟡 En prueba real |
+| API crear/editar | ✅ Validado con Revive Centro |
 | Cambio de estado | ✅ Estructuralmente disponible |
 | Auditoría | ✅ Implementada en servicio |
-| Datos operativos V1 | 🟡 Implementados, en prueba local |
-| Formulario operativo V1 | 🟡 Implementado, en prueba local |
-| Campos opcionales nulos | ✅ Corregido en frontend y backend |
-| Cadena de migraciones | 🟡 Corregida, pendiente reejecutar localmente |
+| Datos operativos V1 | ✅ Migrados |
+| Formulario operativo V1 | ✅ Guardado validado |
+| Campos opcionales nulos | ✅ Corregido y validado |
+| Cadena de migraciones | ✅ Corregida y ejecutada |
 | Relación con planes/precios | ✅ Existente |
 | Relación con membresías | ✅ Existente |
 | Relación con servicios/horarios | ✅ Existente |
 | Relación con supervisor | 🔴 Se define en fases 2-4 |
 | Menús universitarios heredados | 🔴 Pendiente análisis de dependencias antes de ocultar/retirar |
 | Build frontend | 🔴 Pendiente ejecución local |
-| Migración backend | 🟡 Pendiente confirmar ejecución completa |
-| Prueba CRUD real con las 3 sedes | 🟡 Iniciada con Revive Centro |
+| Migración backend | ✅ Ejecutada |
+| Prueba CRUD real con las 3 sedes | 🟡 Revive Centro validada; Home/Xpadel pendientes de prueba rápida |
+
+---
+
+# Fase 2 - Roles
+
+## Roles existentes antes de la revisión
+
+- ADMINISTRADOR
+- CAJERO
+- DEPORTISTA
+- ENTRENADOR
+- RECEPCIONISTA
+
+## Jerarquía Revive V1 definida
+
+| Nivel | Rol | Alcance principal |
+| --- | --- | --- |
+| 1 | SUPERADMINISTRADOR | Configuración global, seguridad, roles, permisos, sedes, parámetros e integraciones |
+| 2 | ADMINISTRADOR | Administración general del gimnasio y operación del negocio |
+| 3 | SUPERVISOR DE VENTAS | Supervisión comercial, cajas, ventas, cierres, anulaciones y desempeño por sedes asignadas |
+| 4 | CAJERO | Cobros, facturación, ventas, apertura y cierre de caja |
+| 4 | RECEPCIONISTA | Clientes, reservas, check-in y apoyo comercial |
+| 4 | ENTRENADOR | Evaluaciones, planificación, rutinas, ejecución y seguimiento deportivo |
+| 5 | DEPORTISTA | Acceso a app y a su propia información, entrenamiento, reservas y progreso |
+
+Migración agregada:
+
+`2026_09_15_000000_add_revive_superadmin_and_sales_supervisor_roles.php`
+
+La migración registra `SUPERADMINISTRADOR` y `SUPERVISOR DE VENTAS` como roles activos sin asignar todavía permisos automáticos. La matriz de permisos se construirá en Fase 3 para evitar heredar acceso excesivo por accidente.
+
+## Checklist Fase 2
+
+| Control | Estado |
+| --- | --- |
+| Inventario de roles existentes | ✅ |
+| Definición jerárquica Revive V1 | ✅ |
+| SUPERADMINISTRADOR | 🟡 Migración creada, pendiente ejecutar/probar |
+| SUPERVISOR DE VENTAS | 🟡 Migración creada, pendiente ejecutar/probar |
+| ADMINISTRADOR | ✅ Se conserva como administrador del gimnasio |
+| CAJERO | ✅ Existente |
+| RECEPCIONISTA | ✅ Existente |
+| ENTRENADOR | ✅ Existente; interfaz puede mostrar Coach / Entrenador |
+| DEPORTISTA | ✅ Existente |
+| Permisos por rol | 🔴 Fase 3 |
+| Alcance por sede | 🔴 Fases 3-4 |
+| Prueba alta/edición/estado en pantalla Roles | 🟡 Pendiente prueba local |
 
 ## Próxima validación
 
-1. Actualizar el backend con la corrección de la migración de membresías.
-2. Ejecutar nuevamente `php artisan migrate` hasta completar la cadena pendiente.
-3. Confirmar que `2026_09_14_220000_expand_institucional_sedes_for_revive` quede en estado `Ran`.
-4. Guardar Revive Centro dejando vacíos los datos opcionales.
-5. Recargar y confirmar persistencia.
-6. Completar luego los datos reales de las tres sedes.
-7. Verificar búsqueda, estado y auditoría.
-8. Ejecutar build del frontend.
-9. Marcar Fase 1 como terminada o registrar correcciones.
+1. Ejecutar `php artisan migrate`.
+2. Verificar que aparezcan `SUPERADMINISTRADOR` y `SUPERVISOR DE VENTAS` en Seguridad > Roles.
+3. Comprobar edición y activación/inactivación.
+4. Iniciar Fase 3 con la matriz de permisos Revive V1.
 
 ## Nota de arquitectura
 

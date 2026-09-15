@@ -86,6 +86,10 @@ Campos incorporados:
 
 No se agregó todavía un `supervisor_id`: esa relación se definirá al cerrar las fases de Roles, Permisos y Usuarios para evitar acoplar la sede a un modelo de roles todavía no validado.
 
+## Corrección de guardado con campos opcionales
+
+Durante la primera prueba de edición se detectó que una sede no debía bloquear el guardado cuando los nuevos datos de contacto u horario estaban vacíos. Se corrigió la validación para que los campos opcionales acepten `null`, y el frontend normaliza cadenas vacías a `null` antes de enviar el payload. Los flags operativos continúan siendo booleanos cuando vienen informados.
+
 ## Checklist Fase 1
 
 | Control | Estado |
@@ -94,27 +98,28 @@ No se agregó todavía un `supervisor_id`: esa relación se definirá al cerrar 
 | Búsqueda | ✅ |
 | Filtros | ✅ |
 | Paginación | ✅ |
-| API crear/editar | ✅ Estructuralmente disponible |
+| API crear/editar | 🟡 En prueba real |
 | Cambio de estado | ✅ Estructuralmente disponible |
 | Auditoría | ✅ Implementada en servicio |
-| Datos operativos V1 | 🟡 Implementados, pendientes de migrar/probar |
-| Formulario operativo V1 | 🟡 Implementado, pendiente de prueba local |
+| Datos operativos V1 | 🟡 Implementados, en prueba local |
+| Formulario operativo V1 | 🟡 Implementado, en prueba local |
+| Campos opcionales nulos | ✅ Corregido en frontend y backend |
 | Relación con planes/precios | ✅ Existente |
 | Relación con membresías | ✅ Existente |
 | Relación con servicios/horarios | ✅ Existente |
 | Relación con supervisor | 🔴 Se define en fases 2-4 |
 | Menús universitarios heredados | 🔴 Pendiente análisis de dependencias antes de ocultar/retirar |
 | Build frontend | 🔴 Pendiente ejecución local |
-| Migración backend | 🔴 Pendiente ejecución local |
-| Prueba CRUD real con las 3 sedes | 🔴 Pendiente |
+| Migración backend | 🟡 Ejecutada en entorno local, pendiente confirmar persistencia CRUD |
+| Prueba CRUD real con las 3 sedes | 🟡 Iniciada con Revive Centro |
 
 ## Próxima validación
 
-1. Ejecutar migración en entorno local.
-2. Abrir Sedes.
-3. Editar Revive Centro, Revive Home y Revive Xpadel con sus datos reales.
-4. Verificar guardado, recarga, búsqueda y estado.
-5. Revisar registro de auditoría.
+1. Actualizar backend y frontend con la corrección de campos `null`.
+2. Guardar Revive Centro dejando vacíos los datos opcionales.
+3. Recargar y confirmar persistencia.
+4. Completar luego los datos reales de las tres sedes.
+5. Verificar búsqueda, estado y auditoría.
 6. Ejecutar build del frontend.
 7. Marcar Fase 1 como terminada o registrar correcciones.
 

@@ -7,9 +7,18 @@ use App\Http\Controllers\Api\Gimnasio\EntrenadorControlador;
 use App\Http\Controllers\Api\Gimnasio\AsignacionEntrenadorClienteControlador;
 use App\Http\Controllers\Api\Gimnasio\ClienteCatalogoControlador;
 use App\Http\Controllers\Api\Gimnasio\ServicioAgendaControlador;
+use App\Http\Controllers\Api\Gimnasio\MiTrabajoEntrenadorControlador;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
+
+    // Trabajo propio del entrenador: nunca recibe ids externos, siempre se resuelve desde el usuario autenticado.
+    Route::get('mi-entrenamiento/deportistas', [MiTrabajoEntrenadorControlador::class, 'deportistas'])
+        ->middleware('base.permiso:ENTRENADOR-MIS-DEPORTISTAS')
+        ->name('gimnasio.mi-entrenamiento.deportistas');
+    Route::get('mi-entrenamiento/agenda', [MiTrabajoEntrenadorControlador::class, 'agenda'])
+        ->middleware('base.permiso:ENTRENADOR-MI-AGENDA')
+        ->name('gimnasio.mi-entrenamiento.agenda');
 
     // Planes: la ficha de Clientes puede consultar el catálogo, pero solo GIMNASIO-PLANES lo administra.
     Route::get('planes', [PlanControlador::class, 'index'])

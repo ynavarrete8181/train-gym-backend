@@ -11,6 +11,33 @@ class GuardarSedeRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        $camposOpcionales = [
+            'codigo',
+            'direccion',
+            'ciudad',
+            'provincia',
+            'telefono',
+            'whatsapp',
+            'email',
+            'hora_apertura',
+            'hora_cierre',
+        ];
+
+        $normalizados = [];
+        foreach ($camposOpcionales as $campo) {
+            if (! $this->exists($campo)) {
+                continue;
+            }
+
+            $valor = $this->input($campo);
+            $normalizados[$campo] = is_string($valor) && trim($valor) === '' ? null : $valor;
+        }
+
+        $this->merge($normalizados);
+    }
+
     public function rules(): array
     {
         return [
@@ -22,12 +49,12 @@ class GuardarSedeRequest extends FormRequest
             'telefono' => ['nullable', 'string', 'max:30'],
             'whatsapp' => ['nullable', 'string', 'max:30'],
             'email' => ['nullable', 'email', 'max:180'],
-            'hora_apertura' => ['nullable', 'required_with:hora_cierre', 'date_format:H:i'],
-            'hora_cierre' => ['nullable', 'required_with:hora_apertura', 'date_format:H:i', 'after:hora_apertura'],
-            'maneja_caja' => ['required', 'boolean'],
-            'maneja_inventario' => ['required', 'boolean'],
-            'permite_reservas' => ['required', 'boolean'],
-            'permite_entrenamiento' => ['required', 'boolean'],
+            'hora_apertura' => ['nullable', 'date_format:H:i'],
+            'hora_cierre' => ['nullable', 'date_format:H:i', 'after:hora_apertura'],
+            'maneja_caja' => ['sometimes', 'boolean'],
+            'maneja_inventario' => ['sometimes', 'boolean'],
+            'permite_reservas' => ['sometimes', 'boolean'],
+            'permite_entrenamiento' => ['sometimes', 'boolean'],
             'aliases' => ['nullable', 'array', 'max:20'],
             'aliases.*' => ['string', 'max:180', 'distinct:ignore_case'],
             'activo' => ['required', 'boolean'],
@@ -39,8 +66,8 @@ class GuardarSedeRequest extends FormRequest
         return [
             'nombre.required' => 'El nombre de la sede es obligatorio.',
             'email.email' => 'Ingrese un correo electrónico válido.',
-            'hora_apertura.required_with' => 'Indique también la hora de apertura.',
-            'hora_cierre.required_with' => 'Indique también la hora de cierre.',
+            'hora_apertura.date_format' => 'La hora de apertura no tiene un formato válido.',
+            'hora_cierre.date_format' => 'La hora de cierre no tiene un formato válido.',
             'hora_cierre.after' => 'La hora de cierre debe ser posterior a la hora de apertura.',
             'aliases.max' => 'Puede registrar hasta 20 alias.',
             'aliases.*.distinct' => 'No repita el mismo alias.',

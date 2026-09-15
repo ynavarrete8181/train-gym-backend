@@ -184,33 +184,38 @@ Migración agregada:
 
 `2026_09_15_010000_split_superadmin_and_gym_admin_permissions.php`
 
-La migración realiza estas acciones:
+La migración copia al SUPERADMINISTRADOR la matriz global, promueve `admin@revive.local` al rol técnico y retira del ADMINISTRADOR los permisos de Menús, Submenús, Roles, Páginas del sistema, Permisos de usuarios, Configuración de APIs y los módulos universitarios heredados. `SEGURIDAD-USUARIOS` e `INSTITUCIONAL-SEDES` permanecen en ADMINISTRADOR por ser funciones operativas del gimnasio.
 
-1. copia al `SUPERADMINISTRADOR` todos los permisos actuales del rol `ADMINISTRADOR` para conservar el control global;
-2. promueve la cuenta bootstrap `admin@revive.local` a `SUPERADMINISTRADOR`, evitando perder acceso técnico al aplicar la separación;
-3. retira del rol `ADMINISTRADOR` los permisos técnicos de configuración de Menús, Submenús, Roles, Páginas del sistema, Permisos de usuarios y Configuración de APIs;
-4. retira del rol `ADMINISTRADOR` los accesos universitarios heredados de Facultades/Direcciones, Campos amplios y Carreras/Áreas;
-5. mantiene `SEGURIDAD-USUARIOS` en `ADMINISTRADOR`, porque la administración del gimnasio sí necesita gestionar cuentas operativas;
-6. sincroniza las funciones del usuario bootstrap con el nuevo rol de `SUPERADMINISTRADOR` y limpia de los usuarios ADMINISTRADOR los accesos técnicos retirados.
+## Supervisor de Ventas V1
 
-Permisos retirados de `ADMINISTRADOR` en esta primera separación:
+Migración agregada:
 
-- `SEGURIDAD-MENUS`;
-- `SEGURIDAD-SUBMENUS`;
-- `SEGURIDAD-ROLES`;
-- `SEGURIDAD-PAGINAS`;
-- `SEGURIDAD-PERMISOS-USUARIOS`;
-- `INTEGRACIONES-CONFIG`;
-- `INSTITUCIONAL-UNIDADES`;
-- `INSTITUCIONAL-CAMPOS-AMPLIOS`;
-- `INSTITUCIONAL-CARRERAS-AREAS`.
+`2026_09_15_020000_configure_sales_supervisor_permissions.php`
 
-`INSTITUCIONAL-SEDES` permanece disponible para ADMINISTRADOR.
+La matriz base del rol `SUPERVISOR DE VENTAS` se limita a:
+
+- `DASHBOARD`;
+- `GIMNASIO-DEPORTISTAS` para consulta/gestión comercial de clientes;
+- `GIMNASIO-MEMBRESIAS` para seguimiento y operación de membresías;
+- `VENTAS-CAJAS`;
+- `VENTAS-VENTAS`;
+- `VENTAS-PAGOS`;
+- `VENTAS-COMPROBANTES`;
+- `REPORTES-DISPONIBLES`;
+- `REPORTES-HISTORIAL`.
+
+No recibe Seguridad, configuración técnica, Integraciones, Entrenamiento ni Inventario. La migración reconstruye la matriz del rol desde permisos existentes del ADMINISTRADOR y sincroniza automáticamente a cualquier usuario que ya tenga el rol.
+
+### Alcance pendiente
+
+La restricción por sedes asignadas todavía no se considera cerrada en esta fase. Debe integrarse con la asignación operativa de usuarios de la Fase 4 para que un Supervisor de Ventas no consulte información de sedes fuera de su ámbito.
+
+La separación actual de permisos es por módulo. Más adelante, donde el backend aún agrupa lectura y escritura bajo un mismo código, se evaluará dividir acciones especiales o CRUD si el flujo exige que el supervisor pueda consultar sin modificar determinadas configuraciones.
 
 ## Usuarios de referencia
 
-- La cuenta bootstrap `admin@revive.local` queda destinada a `SUPERADMINISTRADOR`.
-- Andrea Amen debe quedar como `ADMINISTRADOR` del gimnasio una vez validada la matriz base.
+- `admin@revive.local` queda como `SUPERADMINISTRADOR`.
+- Andrea Amen queda como `ADMINISTRADOR` activo del gimnasio.
 
 ## Checklist Fase 3
 
@@ -220,11 +225,11 @@ Permisos retirados de `ADMINISTRADOR` en esta primera separación:
 | Pantalla Permisos de usuarios | ✅ Abre detalle de accesos |
 | Mostrar error real de API | ✅ Implementado |
 | Manejo de usuarios sin rol | ✅ Corregido |
-| SUPERADMINISTRADOR hereda control global | 🟡 Migración creada, pendiente ejecutar/probar |
-| ADMINISTRADOR sin seguridad técnica | 🟡 Migración creada, pendiente ejecutar/probar |
-| ADMINISTRADOR sin módulos universitarios | 🟡 Migración creada, pendiente ejecutar/probar |
-| ADMINISTRADOR conserva Usuarios y Sedes | 🟡 Pendiente validar visualmente |
-| SUPERVISOR DE VENTAS | 🔴 Siguiente bloque de matriz |
+| SUPERADMINISTRADOR hereda control global | ✅ Validado visualmente |
+| ADMINISTRADOR sin seguridad técnica | ✅ Aplicado |
+| ADMINISTRADOR sin módulos universitarios | ✅ Aplicado |
+| Andrea Amen como ADMINISTRADOR | ✅ Validado |
+| SUPERVISOR DE VENTAS | 🟡 Matriz V1 creada; pendiente ejecutar/probar |
 | CAJERO | 🔴 Pendiente revisar |
 | RECEPCIONISTA | 🔴 Pendiente revisar |
 | ENTRENADOR | 🔴 Pendiente revisar |
@@ -234,11 +239,11 @@ Permisos retirados de `ADMINISTRADOR` en esta primera separación:
 
 ## Próxima validación
 
-1. Ejecutar la migración de separación de permisos.
-2. Cerrar sesión y volver a ingresar con `admin@revive.local` para confirmar que aparece como SUPERADMINISTRADOR y conserva la configuración técnica.
-3. Abrir Andrea Amen, asignar `ADMINISTRADOR` y confirmar que hereda la operación del gimnasio sin Menús, Submenús, Roles, Páginas del sistema, Permisos de usuarios ni Configuración de APIs.
-4. Confirmar que en ADMINISTRADOR solo queda `Sedes` dentro de Estructura operativa.
-5. Continuar con la matriz de `SUPERVISOR DE VENTAS`.
+1. Ejecutar `php artisan migrate` para aplicar la matriz de SUPERVISOR DE VENTAS.
+2. Abrir `Seguridad > Roles > SUPERVISOR DE VENTAS` o asignar temporalmente el rol a un usuario de prueba para verificar los accesos heredados.
+3. Confirmar que no aparezcan Seguridad, Integraciones, Entrenamiento ni Inventario.
+4. Confirmar Dashboard, Clientes, Membresías, Ventas y Reportes.
+5. Continuar con la matriz de CAJERO y RECEPCIONISTA.
 
 ## Nota de arquitectura
 

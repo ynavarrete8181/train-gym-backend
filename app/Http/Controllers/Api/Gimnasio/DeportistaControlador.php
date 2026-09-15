@@ -200,10 +200,30 @@ class DeportistaControlador extends Controller
             ->where('seguridad.cpu_userrole.role', 'DEPORTISTA');
 
         return [
-            'codigo' => (clone $base)->whereNotNull('codigo_deportista')->distinct()->orderBy('codigo_deportista')->pluck('codigo_deportista')->values(),
-            'nombres' => (clone $base)->whereNotNull('seguridad.users.name')->distinct()->orderBy('seguridad.users.name')->pluck('seguridad.users.name')->values(),
-            'telefono' => (clone $base)->whereNotNull('telefono')->distinct()->orderBy('telefono')->pluck('telefono')->values(),
-            'sede' => (clone $base)->whereNotNull('institucional.sedes.nombre')->distinct()->orderBy('institucional.sedes.nombre')->pluck('institucional.sedes.nombre')->values(),
+            'codigo' => (clone $base)
+                ->whereNotNull('gimnasio.deportistas.codigo_deportista')
+                ->distinct()
+                ->orderBy('gimnasio.deportistas.codigo_deportista')
+                ->pluck('gimnasio.deportistas.codigo_deportista')
+                ->values(),
+            'nombres' => (clone $base)
+                ->whereNotNull('seguridad.users.name')
+                ->distinct()
+                ->orderBy('seguridad.users.name')
+                ->pluck('seguridad.users.name')
+                ->values(),
+            'telefono' => (clone $base)
+                ->whereNotNull('gimnasio.deportistas.telefono')
+                ->distinct()
+                ->orderBy('gimnasio.deportistas.telefono')
+                ->pluck('gimnasio.deportistas.telefono')
+                ->values(),
+            'sede' => (clone $base)
+                ->whereNotNull('institucional.sedes.nombre')
+                ->distinct()
+                ->orderBy('institucional.sedes.nombre')
+                ->pluck('institucional.sedes.nombre')
+                ->values(),
         ];
     }
 }

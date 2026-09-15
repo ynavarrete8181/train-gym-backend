@@ -13,7 +13,6 @@ class ClienteCatalogoControlador extends Controller
         $usuarios = DB::table('seguridad.users')
             ->join('seguridad.cpu_userrole', 'seguridad.cpu_userrole.id_userrole', '=', 'seguridad.users.usr_tipo')
             ->where('seguridad.cpu_userrole.role', 'DEPORTISTA')
-            ->where('seguridad.users.activo', true)
             ->whereNotExists(function ($query): void {
                 $query->selectRaw('1')
                     ->from('gimnasio.deportistas')
@@ -27,6 +26,7 @@ class ClienteCatalogoControlador extends Controller
                 'seguridad.users.apellidos',
                 'seguridad.users.email',
                 'seguridad.users.cedula',
+                'seguridad.users.usr_estado',
             ])
             ->get();
 

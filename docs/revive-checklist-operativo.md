@@ -28,7 +28,7 @@ Estados:
 | --- | --- | --- | --- |
 | 1 | Sedes | 🟡 | Sedes y configuración operativa correctas |
 | 2 | Roles | 🟡 | Jerarquía Revive V1 registrada y operativa |
-| 3 | Permisos | ⏳ | Matriz CRUD y acciones especiales por rol |
+| 3 | Permisos | 🟡 | Matriz CRUD y acciones especiales por rol |
 | 4 | Usuarios | ⏳ | Persona + usuario + rol + sede |
 | 5 | Coaches | ⏳ | Perfil, especialidad, sede y disponibilidad |
 | 6 | Deportistas | ⏳ | Ficha maestra del socio y relación con procesos deportivos |
@@ -156,8 +156,8 @@ La migración registra `SUPERADMINISTRADOR` y `SUPERVISOR DE VENTAS` como roles 
 | --- | --- |
 | Inventario de roles existentes | ✅ |
 | Definición jerárquica Revive V1 | ✅ |
-| SUPERADMINISTRADOR | 🟡 Migración creada, pendiente ejecutar/probar |
-| SUPERVISOR DE VENTAS | 🟡 Migración creada, pendiente ejecutar/probar |
+| SUPERADMINISTRADOR | ✅ Visible y activo en pantalla Roles |
+| SUPERVISOR DE VENTAS | ✅ Visible y activo en pantalla Roles |
 | ADMINISTRADOR | ✅ Se conserva como administrador del gimnasio |
 | CAJERO | ✅ Existente |
 | RECEPCIONISTA | ✅ Existente |
@@ -165,14 +165,56 @@ La migración registra `SUPERADMINISTRADOR` y `SUPERVISOR DE VENTAS` como roles 
 | DEPORTISTA | ✅ Existente |
 | Permisos por rol | 🔴 Fase 3 |
 | Alcance por sede | 🔴 Fases 3-4 |
-| Prueba alta/edición/estado en pantalla Roles | 🟡 Pendiente prueba local |
+
+---
+
+# Fase 3 - Permisos
+
+## Inicio de revisión
+
+Se inició la revisión desde `Seguridad > Permisos de usuarios`, separando dos conceptos:
+
+- permisos heredados por rol;
+- excepciones de permisos asignadas a un usuario concreto.
+
+La intención es que la mayor parte de la autorización quede definida por rol y que la administración por usuario se utilice solo para excepciones justificadas.
+
+## Incidencia detectada al abrir accesos
+
+Al presionar el botón de administración de permisos de un usuario, la pantalla ejecuta en paralelo:
+
+1. consulta de funciones disponibles;
+2. consulta de funciones heredadas del rol;
+3. consulta de funciones actuales del usuario.
+
+La pantalla ocultaba cualquier error real de API y mostraba siempre `No se pudieron cargar los accesos del usuario.`. Se actualizó `PermisosUsuariosPage.jsx` para priorizar mensajes de validación, `mensaje`, `message` o el error HTTP disponible, tanto al abrir accesos como al cambiar de rol o guardar.
+
+Esto permite identificar el fallo real antes de modificar la matriz de permisos.
+
+## Checklist Fase 3
+
+| Control | Estado |
+| --- | --- |
+| Separación permisos por rol / por usuario | ✅ Definida |
+| Pantalla Permisos de usuarios | 🟡 En diagnóstico |
+| Mostrar error real de API | ✅ Implementado en frontend |
+| Accesos ADMINISTRADOR | 🟡 Pendiente repetir prueba |
+| Accesos SUPERADMINISTRADOR | 🔴 Pendiente definir |
+| Accesos SUPERVISOR DE VENTAS | 🔴 Pendiente definir |
+| Accesos CAJERO | 🔴 Pendiente revisar |
+| Accesos RECEPCIONISTA | 🔴 Pendiente revisar |
+| Accesos ENTRENADOR | 🔴 Pendiente revisar |
+| Accesos DEPORTISTA | 🔴 Pendiente revisar |
+| Matriz CRUD + acciones especiales | 🔴 Pendiente |
+| Restricción por sede | 🔴 Pendiente fases 3-4 |
 
 ## Próxima validación
 
-1. Ejecutar `php artisan migrate`.
-2. Verificar que aparezcan `SUPERADMINISTRADOR` y `SUPERVISOR DE VENTAS` en Seguridad > Roles.
-3. Comprobar edición y activación/inactivación.
-4. Iniciar Fase 3 con la matriz de permisos Revive V1.
+1. Actualizar `train-gym-web` desde `dev-revive`.
+2. Abrir nuevamente el escudo de `Administrador Revive`.
+3. Capturar el mensaje real que devuelva la API.
+4. Corregir la causa raíz.
+5. Construir la matriz definitiva de permisos Revive V1.
 
 ## Nota de arquitectura
 

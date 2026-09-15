@@ -3,11 +3,42 @@
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
+
+Artisan::command('revive:reset-passwords-prueba', function (): int {
+    if (! app()->environment(['local', 'testing'])) {
+        $this->error('Este comando solo puede ejecutarse en entornos local o testing.');
+        return 1;
+    }
+
+    $total = DB::table('seguridad.users')->count();
+
+    if ($total === 0) {
+        $this->info('No existen usuarios para actualizar.');
+        return 0;
+    }
+
+    DB::transaction(function (): void {
+        DB::table('seguridad.users')->update([
+            'password' => Hash::make('123456'),
+            'updated_at' => now(),
+        ]);
+
+        // Obliga a iniciar sesión nuevamente con la contraseña de prueba.
+        DB::table('seguridad.tokens_acceso')->delete();
+    });
+
+    $this->warn("Contraseña de prueba aplicada a {$total} usuario(s).");
+    $this->info('Clave temporal de pruebas: 123456');
+    $this->info('Todos los tokens de acceso fueron invalidados.');
+
+    return 0;
+})->purpose('Restablece temporalmente la contraseña de todos los usuarios a 123456 solo en local/testing.');
 
 Artisan::command('revive:limpiar-usuarios-prueba-carga', function (): int {
     if (DB::getDriverName() !== 'pgsql') {

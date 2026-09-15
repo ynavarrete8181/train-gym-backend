@@ -34,6 +34,14 @@ class EntrenadorServicio
         return $entrenador;
     }
 
+    public function obtenerPorUsuario(int $usuarioId): ?object
+    {
+        return DB::table('gimnasio.entrenadores')
+            ->where('usuario_id', $usuarioId)
+            ->where('estado', 'ACTIVO')
+            ->first();
+    }
+
     /**
      * Horarios (bloques configurados en Servicios y Agenda) ya asignados a este entrenador.
      */

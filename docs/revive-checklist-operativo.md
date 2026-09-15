@@ -206,6 +206,15 @@ La matriz base del rol `SUPERVISOR DE VENTAS` se limita a:
 
 No recibe Seguridad, configuración técnica, Integraciones, Entrenamiento ni Inventario. La migración reconstruye la matriz del rol desde permisos existentes del ADMINISTRADOR y sincroniza automáticamente a cualquier usuario que ya tenga el rol.
 
+### Validación con usuario real
+
+Karol Cajero fue asignada temporalmente/operativamente como `SUPERVISOR DE VENTAS` y se validó que el menú restringe correctamente Seguridad, Integraciones, Entrenamiento e Inventario. En la prueba aparecieron Dashboard, Clientes, Ventas y Reportes.
+
+Se detectaron dos ajustes adicionales:
+
+1. `GIMNASIO-MEMBRESIAS` estaba autorizado pero oculto del menú por diseño histórico (`id_usermenu = null`). Se agregó la migración `2026_09_15_021000_expose_memberships_for_sales_supervisor.php` para mostrar Membresías únicamente al rol SUPERVISOR DE VENTAS, sin alterar el comportamiento de otros roles.
+2. El Dashboard mostraba indicadores técnicos heredados (`Usuarios`, `Roles`, `Menús`, `Funciones`). Se ajustó el frontend para presentar tarjetas iniciales según el rol. SUPERVISOR DE VENTAS verá `Ventas del día`, `Pagos registrados`, `Membresías vendidas` y `Cajas`. Los valores continúan pendientes de integración con métricas reales.
+
 ### Alcance pendiente
 
 La restricción por sedes asignadas todavía no se considera cerrada en esta fase. Debe integrarse con la asignación operativa de usuarios de la Fase 4 para que un Supervisor de Ventas no consulte información de sedes fuera de su ámbito.
@@ -216,6 +225,7 @@ La separación actual de permisos es por módulo. Más adelante, donde el backen
 
 - `admin@revive.local` queda como `SUPERADMINISTRADOR`.
 - Andrea Amen queda como `ADMINISTRADOR` activo del gimnasio.
+- Karol Cajero queda como usuario de validación para `SUPERVISOR DE VENTAS`.
 
 ## Checklist Fase 3
 
@@ -229,7 +239,9 @@ La separación actual de permisos es por módulo. Más adelante, donde el backen
 | ADMINISTRADOR sin seguridad técnica | ✅ Aplicado |
 | ADMINISTRADOR sin módulos universitarios | ✅ Aplicado |
 | Andrea Amen como ADMINISTRADOR | ✅ Validado |
-| SUPERVISOR DE VENTAS | 🟡 Matriz V1 creada; pendiente ejecutar/probar |
+| SUPERVISOR DE VENTAS restringe módulos técnicos | ✅ Validado visualmente con Karol |
+| Membresías visible para SUPERVISOR DE VENTAS | 🟡 Migración creada; pendiente ejecutar/probar |
+| Dashboard comercial por rol | 🟡 Frontend ajustado; pendiente probar |
 | CAJERO | 🔴 Pendiente revisar |
 | RECEPCIONISTA | 🔴 Pendiente revisar |
 | ENTRENADOR | 🔴 Pendiente revisar |
@@ -239,11 +251,10 @@ La separación actual de permisos es por módulo. Más adelante, donde el backen
 
 ## Próxima validación
 
-1. Ejecutar `php artisan migrate` para aplicar la matriz de SUPERVISOR DE VENTAS.
-2. Abrir `Seguridad > Roles > SUPERVISOR DE VENTAS` o asignar temporalmente el rol a un usuario de prueba para verificar los accesos heredados.
-3. Confirmar que no aparezcan Seguridad, Integraciones, Entrenamiento ni Inventario.
-4. Confirmar Dashboard, Clientes, Membresías, Ventas y Reportes.
-5. Continuar con la matriz de CAJERO y RECEPCIONISTA.
+1. Ejecutar la nueva migración para exponer Membresías al SUPERVISOR DE VENTAS.
+2. Actualizar el frontend y comprobar que el Dashboard de Karol muestra tarjetas comerciales, no técnicas.
+3. Confirmar que el sidebar de Karol muestre Dashboard, Clientes, Membresías, Ventas y Reportes.
+4. Continuar con la matriz de CAJERO y RECEPCIONISTA.
 
 ## Nota de arquitectura
 

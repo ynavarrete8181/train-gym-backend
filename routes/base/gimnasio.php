@@ -5,22 +5,29 @@ use App\Http\Controllers\Api\Gimnasio\MembresiaControlador;
 use App\Http\Controllers\Api\Gimnasio\PlanControlador;
 use App\Http\Controllers\Api\Gimnasio\EntrenadorControlador;
 use App\Http\Controllers\Api\Gimnasio\AsignacionEntrenadorClienteControlador;
+use App\Http\Controllers\Api\Gimnasio\ClienteCatalogoControlador;
 use App\Http\Controllers\Api\Gimnasio\ServicioAgendaControlador;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
-    
-    // Planes
+
+    // Planes: la ficha de Clientes puede consultar el catálogo, pero solo GIMNASIO-PLANES lo administra.
+    Route::get('planes', [PlanControlador::class, 'index'])
+        ->middleware('base.permiso:GIMNASIO-PLANES,GIMNASIO-DEPORTISTAS')
+        ->name('gimnasio.planes.index');
+    Route::get('planes/{id}', [PlanControlador::class, 'show'])
+        ->middleware('base.permiso:GIMNASIO-PLANES,GIMNASIO-DEPORTISTAS')
+        ->name('gimnasio.planes.show');
     Route::middleware(['base.permiso:GIMNASIO-PLANES'])->group(function (): void {
-        Route::get('planes', [PlanControlador::class, 'index'])->name('gimnasio.planes.index');
         Route::post('planes', [PlanControlador::class, 'store'])->name('gimnasio.planes.store');
-        Route::get('planes/{id}', [PlanControlador::class, 'show'])->name('gimnasio.planes.show');
         Route::put('planes/{id}', [PlanControlador::class, 'update'])->name('gimnasio.planes.update');
         Route::delete('planes/{id}', [PlanControlador::class, 'destroy'])->name('gimnasio.planes.destroy');
     });
 
-    // Deportistas
+    // Clientes / deportistas
     Route::middleware(['base.permiso:GIMNASIO-DEPORTISTAS'])->group(function (): void {
+        Route::get('clientes/usuarios-disponibles', [ClienteCatalogoControlador::class, 'usuariosDeportistasDisponibles'])
+            ->name('gimnasio.clientes.usuarios-disponibles');
         Route::get('clientes', [DeportistaControlador::class, 'index'])->name('gimnasio.clientes.index');
         Route::post('clientes', [DeportistaControlador::class, 'store'])->name('gimnasio.clientes.store');
         Route::get('clientes/{id}', [DeportistaControlador::class, 'show'])->name('gimnasio.clientes.show');
@@ -40,20 +47,28 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::delete('membresias/{id}', [MembresiaControlador::class, 'destroy'])->name('gimnasio.membresias.destroy');
     });
 
-    // Entrenadores
+    // Entrenadores: Clientes puede consultar asignación/horario sin adquirir permisos de administración.
+    Route::get('entrenadores', [EntrenadorControlador::class, 'index'])
+        ->middleware('base.permiso:GIMNASIO-ENTRENADORES,GIMNASIO-DEPORTISTAS')
+        ->name('gimnasio.entrenadores.index');
+    Route::get('entrenadores/{id}/turnos', [EntrenadorControlador::class, 'turnos'])
+        ->middleware('base.permiso:GIMNASIO-ENTRENADORES,GIMNASIO-DEPORTISTAS')
+        ->name('gimnasio.entrenadores.turnos.index');
+    Route::get('entrenadores/{id}/horarios-disponibles', [EntrenadorControlador::class, 'horariosDisponibles'])
+        ->middleware('base.permiso:GIMNASIO-ENTRENADORES,GIMNASIO-DEPORTISTAS')
+        ->name('gimnasio.entrenadores.horarios-disponibles');
     Route::middleware(['base.permiso:GIMNASIO-ENTRENADORES'])->group(function (): void {
-        Route::get('entrenadores', [EntrenadorControlador::class, 'index'])->name('gimnasio.entrenadores.index');
         Route::post('entrenadores', [EntrenadorControlador::class, 'store'])->name('gimnasio.entrenadores.store');
         Route::put('entrenadores/{id}', [EntrenadorControlador::class, 'update'])->name('gimnasio.entrenadores.update');
-        Route::get('entrenadores/{id}/turnos', [EntrenadorControlador::class, 'turnos'])->name('gimnasio.entrenadores.turnos.index');
-        Route::get('entrenadores/{id}/horarios-disponibles', [EntrenadorControlador::class, 'horariosDisponibles'])->name('gimnasio.entrenadores.horarios-disponibles');
         Route::post('entrenadores/{id}/turnos', [EntrenadorControlador::class, 'asignarHorario'])->name('gimnasio.entrenadores.turnos.store');
         Route::delete('entrenadores/{id}/turnos/{turnoId}', [EntrenadorControlador::class, 'eliminarTurno'])->name('gimnasio.entrenadores.turnos.destroy');
     });
 
-    // Asignaciones entrenador - cliente
-    Route::middleware(['base.permiso:GIMNASIO-ENTRENADORES,GIMNASIO-DEPORTISTAS'])->group(function (): void {
-        Route::get('asignaciones-entrenador', [AsignacionEntrenadorClienteControlador::class, 'index'])->name('gimnasio.asignaciones-entrenador.index');
+    // Asignaciones entrenador - cliente: consulta desde la ficha, escritura solo para quien administra entrenadores.
+    Route::get('asignaciones-entrenador', [AsignacionEntrenadorClienteControlador::class, 'index'])
+        ->middleware('base.permiso:GIMNASIO-ENTRENADORES,GIMNASIO-DEPORTISTAS')
+        ->name('gimnasio.asignaciones-entrenador.index');
+    Route::middleware(['base.permiso:GIMNASIO-ENTRENADORES'])->group(function (): void {
         Route::post('asignaciones-entrenador', [AsignacionEntrenadorClienteControlador::class, 'store'])->name('gimnasio.asignaciones-entrenador.store');
         Route::patch('asignaciones-entrenador/{id}/finalizar', [AsignacionEntrenadorClienteControlador::class, 'finalizar'])->name('gimnasio.asignaciones-entrenador.finalizar');
     });

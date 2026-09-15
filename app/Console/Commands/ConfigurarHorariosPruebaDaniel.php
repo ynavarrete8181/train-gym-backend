@@ -2,7 +2,6 @@
 
 namespace App\Console\Commands;
 
-use App\Services\Gimnasio\EntrenadorServicio;
 use App\Services\Gimnasio\ServicioAgendaServicio;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -12,7 +11,7 @@ class ConfigurarHorariosPruebaDaniel extends Command
     protected $signature = 'revive:configurar-horarios-prueba-daniel';
     protected $description = 'Configura horarios de prueba para Daniel Palma usando Servicios y Agenda, solo en local/testing.';
 
-    public function handle(ServicioAgendaServicio $agenda, EntrenadorServicio $entrenadores): int
+    public function handle(ServicioAgendaServicio $agenda): int
     {
         if (! app()->environment(['local', 'testing'])) {
             $this->error('Este comando solo puede ejecutarse en entornos local o testing.');
@@ -65,7 +64,7 @@ class ConfigurarHorariosPruebaDaniel extends Command
 
         $configuraciones = [
             [
-                'nombre' => 'Daniel - Tarde 18:00',
+                'nombre' => 'Tarde 18:00',
                 'servicio' => $servicioMusculacion,
                 'dias' => ['LUNES', 'MIERCOLES', 'VIERNES'],
                 'hora_inicio' => '18:00',
@@ -73,7 +72,7 @@ class ConfigurarHorariosPruebaDaniel extends Command
                 'capacidad' => 12,
             ],
             [
-                'nombre' => 'Daniel - Noche 19:00',
+                'nombre' => 'Noche 19:00',
                 'servicio' => $servicioFuncional,
                 'dias' => ['MARTES', 'JUEVES'],
                 'hora_inicio' => '19:00',
@@ -92,7 +91,7 @@ class ConfigurarHorariosPruebaDaniel extends Command
                 ->where('servicio_id', $servicio->id)
                 ->first();
 
-            $bloque = $agenda->guardarHorarioBloque(
+            $agenda->guardarHorarioBloque(
                 [
                     'nombre' => $config['nombre'],
                     'servicio_id' => $servicio->id,
@@ -106,28 +105,35 @@ class ConfigurarHorariosPruebaDaniel extends Command
                 $bloqueExistente?->id,
             );
 
-            $bloqueId = (int) ($bloque->id ?? DB::table('gimnasio.horario_bloques')
+            $bloquePersistido = DB::table('gimnasio.horario_bloques')
                 ->where('nombre', $config['nombre'])
                 ->where('servicio_id', $servicio->id)
-                ->value('id'));
-
-            $yaAsignado = DB::table('gimnasio.horario_entrenadores')
-                ->where('entrenador_id', $entrenador->id)
-                ->where('horario_bloque_id', $bloqueId)
                 ->where('activo', true)
-                ->exists();
+                ->first();
 
-            if (! $yaAsignado) {
-                $entrenadores->asignarHorario((int) $entrenador->id, $bloqueId);
+            if (! $bloquePersistido) {
+                throw new \RuntimeException("No se pudo confirmar el bloque activo {$config['nombre']} para {$servicio->nombre}.");
             }
 
+            DB::table('gimnasio.horario_entrenadores')->updateOrInsert(
+                [
+                    'entrenador_id' => (int) $entrenador->id,
+                    'horario_bloque_id' => (int) $bloquePersistido->id,
+                ],
+                [
+                    'activo' => true,
+                    'updated_at' => now(),
+                    'created_at' => now(),
+                ],
+            );
+
             $dias = implode(', ', $config['dias']);
-            $this->line("• {$config['nombre']} | {$servicio->nombre} | {$dias} | {$config['hora_inicio']}-{$config['hora_fin']} | cupo {$config['capacidad']}");
+            $this->line("• {$config['nombre']} | {$servicio->nombre} | {$sede->nombre} | {$dias} | {$config['hora_inicio']}-{$config['hora_fin']} | cupo {$config['capacidad']}");
         }
 
         $this->newLine();
-        $this->info('Horarios de prueba de Daniel configurados correctamente.');
-        $this->info('Revísalos en Servicios y Agenda y luego en Clientes > Entrenador y horario.');
+        $this->info('Horarios de prueba configurados y asignados a Daniel correctamente.');
+        $this->info('Revísalos en Servicios y Agenda > Horarios y luego en Clientes > Entrenador y horario.');
 
         return self::SUCCESS;
     }

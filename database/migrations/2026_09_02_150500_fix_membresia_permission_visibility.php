@@ -9,22 +9,29 @@ use Illuminate\Support\Facades\DB;
  * completo las filas GIMNASIO-MEMBRESIAS de cpu_userrolefunction/cpu_userfunction
  * no solo quitaba el enlace del menú, también le quitaba el PERMISO a la API
  * (AutorizarFuncionBase / PermisoService revisan esas mismas filas por
- * id_menu + activo, sin importar el menú al que estén asociadas). Eso habría
- * roto la pestaña "Membresía" de la ficha del cliente, que depende de ese
- * mismo permiso.
+ * id_menu + activo, sin importar el menú al que estén asociadas).
  *
- * La corrección: en vez de borrar, se restauran/actualizan esas filas con
- * id_usermenu = NULL. MenuService arma el menú con un INNER JOIN contra
- * cpu_usermenu por id_usermenu, así que una fila sin id_usermenu no aparece
- * en el sidebar — pero PermisoService sigue autorizando la API porque solo
- * mira id_menu + activo. Resultado: el enlace queda oculto, el permiso
- * se mantiene intacto. Esta migración es segura sin importar si la anterior
- * ya se corrió (recrea las filas) o no (las actualiza).
+ * La corrección: el permiso se conserva con id_usermenu = NULL. Para que esto
+ * sea compatible con instalaciones creadas con la estructura base original,
+ * primero se permite NULL en id_usermenu de las tablas de permisos por rol y
+ * por usuario. MenuService arma el menú mediante la relación con cpu_usermenu,
+ * así que una fila sin id_usermenu no aparece en el sidebar, mientras que la
+ * autorización de API sigue encontrando id_menu + activo.
+ *
+ * Esta migración es idempotente respecto a los datos: recrea las filas si la
+ * migración anterior las eliminó o las actualiza si todavía existen.
  */
 return new class extends Migration
 {
     public function up(): void
     {
+        // Los permisos pueden existir sin entrada visible en el menú lateral.
+        // PostgreSQL permite ejecutar DROP NOT NULL repetidamente sin afectar
+        // los datos existentes, por lo que esto también es seguro en bases
+        // donde la columna ya hubiera sido flexibilizada manualmente.
+        DB::statement('ALTER TABLE seguridad.cpu_userrolefunction ALTER COLUMN id_usermenu DROP NOT NULL');
+        DB::statement('ALTER TABLE seguridad.cpu_userfunction ALTER COLUMN id_usermenu DROP NOT NULL');
+
         $now = Carbon::now();
 
         $roles = DB::table('seguridad.cpu_userrolefunction')
@@ -69,8 +76,8 @@ return new class extends Migration
 
     public function down(): void
     {
-        // No-op: no hay una forma segura de "deshacer" esto sin volver a
-        // romper el permiso. Si se necesita revertir al comportamiento
-        // anterior, usar la migración 2026_09_02_150000 (down) directamente.
+        // No se restaura NOT NULL: existen permisos válidos que deliberadamente
+        // no deben pertenecer a un menú visible. Revertir esa nulabilidad podría
+        // invalidar esas filas y volver a acoplar permisos con navegación.
     }
 };

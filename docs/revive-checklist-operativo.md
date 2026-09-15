@@ -90,6 +90,12 @@ No se agregó todavía un `supervisor_id`: esa relación se definirá al cerrar 
 
 Durante la primera prueba de edición se detectó que una sede no debía bloquear el guardado cuando los nuevos datos de contacto u horario estaban vacíos. Se corrigió la validación para que los campos opcionales acepten `null`, y el frontend normaliza cadenas vacías a `null` antes de enviar el payload. Los flags operativos continúan siendo booleanos cuando vienen informados.
 
+## Incidencia de cadena de migraciones
+
+Al ejecutar la migración de Sedes se detectó un bloqueo previo en `2026_09_02_150500_fix_membresia_permission_visibility.php`. Esa migración conserva el permiso `GIMNASIO-MEMBRESIAS` sin mostrar un submenú independiente, usando `id_usermenu = null`, pero las tablas `seguridad.cpu_userrolefunction` y `seguridad.cpu_userfunction` mantenían `id_usermenu` como `NOT NULL`.
+
+Se corrigió la migración para permitir `NULL` en `id_usermenu` antes de restaurar los permisos ocultos. Esto desacopla correctamente autorización y navegación: un permiso puede seguir activo para la API sin generar una entrada visible en el menú lateral.
+
 ## Checklist Fase 1
 
 | Control | Estado |
@@ -104,24 +110,27 @@ Durante la primera prueba de edición se detectó que una sede no debía bloquea
 | Datos operativos V1 | 🟡 Implementados, en prueba local |
 | Formulario operativo V1 | 🟡 Implementado, en prueba local |
 | Campos opcionales nulos | ✅ Corregido en frontend y backend |
+| Cadena de migraciones | 🟡 Corregida, pendiente reejecutar localmente |
 | Relación con planes/precios | ✅ Existente |
 | Relación con membresías | ✅ Existente |
 | Relación con servicios/horarios | ✅ Existente |
 | Relación con supervisor | 🔴 Se define en fases 2-4 |
 | Menús universitarios heredados | 🔴 Pendiente análisis de dependencias antes de ocultar/retirar |
 | Build frontend | 🔴 Pendiente ejecución local |
-| Migración backend | 🟡 Ejecutada en entorno local, pendiente confirmar persistencia CRUD |
+| Migración backend | 🟡 Pendiente confirmar ejecución completa |
 | Prueba CRUD real con las 3 sedes | 🟡 Iniciada con Revive Centro |
 
 ## Próxima validación
 
-1. Actualizar backend y frontend con la corrección de campos `null`.
-2. Guardar Revive Centro dejando vacíos los datos opcionales.
-3. Recargar y confirmar persistencia.
-4. Completar luego los datos reales de las tres sedes.
-5. Verificar búsqueda, estado y auditoría.
-6. Ejecutar build del frontend.
-7. Marcar Fase 1 como terminada o registrar correcciones.
+1. Actualizar el backend con la corrección de la migración de membresías.
+2. Ejecutar nuevamente `php artisan migrate` hasta completar la cadena pendiente.
+3. Confirmar que `2026_09_14_220000_expand_institucional_sedes_for_revive` quede en estado `Ran`.
+4. Guardar Revive Centro dejando vacíos los datos opcionales.
+5. Recargar y confirmar persistencia.
+6. Completar luego los datos reales de las tres sedes.
+7. Verificar búsqueda, estado y auditoría.
+8. Ejecutar build del frontend.
+9. Marcar Fase 1 como terminada o registrar correcciones.
 
 ## Nota de arquitectura
 

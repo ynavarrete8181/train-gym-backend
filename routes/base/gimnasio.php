@@ -20,12 +20,12 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         ->middleware('base.permiso:ENTRENADOR-MI-AGENDA')
         ->name('gimnasio.mi-entrenamiento.agenda');
 
-    // Planes: la ficha de Clientes puede consultar el catálogo, pero solo GIMNASIO-PLANES lo administra.
+    // Planes: Clientes y Membresías pueden consultar el catálogo; solo GIMNASIO-PLANES lo administra.
     Route::get('planes', [PlanControlador::class, 'index'])
-        ->middleware('base.permiso:GIMNASIO-PLANES,GIMNASIO-DEPORTISTAS')
+        ->middleware('base.permiso:GIMNASIO-PLANES,GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
         ->name('gimnasio.planes.index');
     Route::get('planes/{id}', [PlanControlador::class, 'show'])
-        ->middleware('base.permiso:GIMNASIO-PLANES,GIMNASIO-DEPORTISTAS')
+        ->middleware('base.permiso:GIMNASIO-PLANES,GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
         ->name('gimnasio.planes.show');
     Route::middleware(['base.permiso:GIMNASIO-PLANES'])->group(function (): void {
         Route::post('planes', [PlanControlador::class, 'store'])->name('gimnasio.planes.store');
@@ -33,19 +33,28 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::delete('planes/{id}', [PlanControlador::class, 'destroy'])->name('gimnasio.planes.destroy');
     });
 
-    // Clientes / deportistas
+    // Clientes / deportistas: Membresías solo necesita lectura del catálogo de clientes.
+    Route::get('clientes', [DeportistaControlador::class, 'index'])
+        ->middleware('base.permiso:GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
+        ->name('gimnasio.clientes.index');
+    Route::get('clientes/{id}', [DeportistaControlador::class, 'show'])
+        ->middleware('base.permiso:GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
+        ->name('gimnasio.clientes.show');
+    Route::get('deportistas', [DeportistaControlador::class, 'index'])
+        ->middleware('base.permiso:GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
+        ->name('gimnasio.deportistas.index');
+    Route::get('deportistas/{id}', [DeportistaControlador::class, 'show'])
+        ->middleware('base.permiso:GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
+        ->name('gimnasio.deportistas.show');
+
     Route::middleware(['base.permiso:GIMNASIO-DEPORTISTAS'])->group(function (): void {
         Route::get('clientes/capacidades', [ClienteCatalogoControlador::class, 'capacidades'])
             ->name('gimnasio.clientes.capacidades');
         Route::get('clientes/usuarios-disponibles', [ClienteCatalogoControlador::class, 'usuariosDeportistasDisponibles'])
             ->name('gimnasio.clientes.usuarios-disponibles');
-        Route::get('clientes', [DeportistaControlador::class, 'index'])->name('gimnasio.clientes.index');
         Route::post('clientes', [DeportistaControlador::class, 'store'])->name('gimnasio.clientes.store');
-        Route::get('clientes/{id}', [DeportistaControlador::class, 'show'])->name('gimnasio.clientes.show');
         Route::put('clientes/{id}', [DeportistaControlador::class, 'update'])->name('gimnasio.clientes.update');
-        Route::get('deportistas', [DeportistaControlador::class, 'index'])->name('gimnasio.deportistas.index');
         Route::post('deportistas', [DeportistaControlador::class, 'store'])->name('gimnasio.deportistas.store');
-        Route::get('deportistas/{id}', [DeportistaControlador::class, 'show'])->name('gimnasio.deportistas.show');
         Route::put('deportistas/{id}', [DeportistaControlador::class, 'update'])->name('gimnasio.deportistas.update');
     });
 

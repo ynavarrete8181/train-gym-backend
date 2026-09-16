@@ -3,17 +3,20 @@
 namespace App\Http\Controllers\Api\Ventas;
 
 use App\Http\Controllers\Controller;
+use App\Services\Ventas\TurnoCajaServicio;
 use App\Services\Ventas\VentaFiltroServicio;
 use App\Services\Ventas\VentaServicio;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class VentaControlador extends Controller
 {
     public function __construct(
         private readonly VentaServicio $ventas,
         private readonly VentaFiltroServicio $filtros,
+        private readonly TurnoCajaServicio $turnos,
     ) {
     }
 
@@ -100,6 +103,18 @@ class VentaControlador extends Controller
             'detalle.total_linea' => 'nullable|numeric|min:0',
         ]);
 
+        $turno = $this->turnos->turnoAbiertoUsuario($request->user()?->id);
+        if ($turno) {
+            if (! empty($datos['caja_id']) && (int) $datos['caja_id'] !== (int) $turno->caja_id) {
+                throw ValidationException::withMessages([
+                    'caja_id' => 'La venta debe registrarse en la caja del turno actualmente abierto.',
+                ]);
+            }
+
+            $datos['caja_id'] = (int) $turno->caja_id;
+            $datos['turno_caja_id'] = (int) $turno->id;
+        }
+
         return ApiResponse::exito(
             'Venta guardada correctamente.',
             (array) $this->ventas->guardarVenta($datos, $id, $request->user()?->id),
@@ -125,6 +140,22 @@ class VentaControlador extends Controller
             'referencia' => 'nullable|string|max:120',
             'observaciones' => 'nullable|string',
         ]);
+
+        $turno = $this->turnos->turnoAbiertoUsuario($request->user()?->id);
+        if (! $turno) {
+            throw ValidationException::withMessages([
+                'turno_caja_id' => 'Debes abrir un turno de caja antes de registrar un pago.',
+            ]);
+        }
+
+        if (! empty($datos['caja_id']) && (int) $datos['caja_id'] !== (int) $turno->caja_id) {
+            throw ValidationException::withMessages([
+                'caja_id' => 'El pago debe registrarse en la caja del turno actualmente abierto.',
+            ]);
+        }
+
+        $datos['caja_id'] = (int) $turno->caja_id;
+        $datos['turno_caja_id'] = (int) $turno->id;
 
         return ApiResponse::exito(
             'Pago registrado correctamente.',

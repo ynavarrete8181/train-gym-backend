@@ -84,13 +84,16 @@ Los estados reales del flujo se normalizan en el catálogo:
 - `RES_CANCELADA` -> `CANCELADA`.
 - `RES_NO_ASISTIO` -> `NO_ASISTIO`.
 
+Los estados heredados `PENDIENTE` y `CONFIRMADA` de la primera propuesta se desactivan para no aceptar valores ajenos al flujo real.
+
 El controlador valida contra la entidad `RESERVA`, asigna `estado_id` y expone nombre/color/código en consultas.
 
 ## Frontend
 
 - `Configuración > Estados` administra el catálogo con el patrón visual del Sistema Base.
 - `Ventas` y `Pagos` consumen los estados retornados por la API en lugar de arreglos locales.
-- `Membresías` y `Reservas` conservan temporalmente sus valores internos en el formulario; el backend ya es la autoridad y persiste el ID. Pendiente retirar los últimos arreglos locales tras validar la migración en entorno local.
+- `Membresías` consume el catálogo central tanto en creación contextual como en edición; muestra `nombre` pero envía `valor_interno`.
+- `Reservas` conserva temporalmente el arreglo visual de sus cuatro valores reales; el backend ya es la autoridad y persiste el `estado_id`. Se retira después de validar la migración local.
 
 ## Reglas de arquitectura
 
@@ -107,5 +110,5 @@ El controlador valida contra la entidad `RESERVA`, asigna `estado_id` y expone n
 - probar venta pendiente -> pago parcial -> pagada;
 - comprobar activación automática de membresía;
 - probar los cuatro estados de Reservas;
-- retirar hardcodes visuales restantes en Membresías y Reservas;
+- retirar el último hardcode visual de estados en Reservas;
 - evaluar en una fase posterior Comprobantes y otros dominios con estados propios.

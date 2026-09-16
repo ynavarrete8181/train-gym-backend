@@ -37,7 +37,21 @@ Características:
 - un usuario puede tener uno o varios contextos;
 - el primer contexto se marca como principal;
 - la reasignación reemplaza la colección anterior;
-- los contextos se construyen desde sede + unidad + carrera/área cuando corresponde.
+- un contexto puede representar toda una sede, un área operativa de una sede o una línea específica dentro del área.
+
+### Jerarquía de alcance
+
+Desde esta fase se admiten tres niveles:
+
+1. `SEDE`: `id_sede` informado, `id_unidad = NULL`, `id_carrera_area = NULL`.
+2. `ÁREA`: `id_sede + id_unidad`, con `id_carrera_area = NULL`.
+3. `LÍNEA`: `id_sede + id_unidad + id_carrera_area`.
+
+Área y línea son refinamientos opcionales. No se debe crear un área artificial únicamente para poder asignar personal a una sede.
+
+La migración `2026_09_16_130000_allow_site_level_user_contexts.php` hace nullable `institucional.contextos.id_unidad` y crea un contexto general por cada sede activa.
+
+`App\Services\Institucional\ContextoOperativoService` asegura esos contextos, los expone al formulario de Usuarios y valida que no existan alcances redundantes. Por ejemplo, no se permite combinar `Toda Revive Home` con `Entrenamiento / Revive Home` para el mismo usuario, porque el primer contexto ya incluye al segundo.
 
 ### Roles que requieren asignación operativa
 
@@ -68,6 +82,8 @@ El backend normaliza estos roles dejando `contextos = []`.
 - cambio del propio rol desde Usuarios;
 - inactivación de la propia cuenta con la sesión abierta;
 - contextos requeridos según el rol;
+- existencia y estado activo de los contextos;
+- jerarquías de contexto redundantes;
 - unicidad de cédula y correo;
 - contraseña segura en creación;
 - permisos administrativos no permitidos para DEPORTISTA/RESPONSABLE.
@@ -101,6 +117,16 @@ La migración es de normalización de datos; el `down()` no intenta reconstruir 
 - se conserva el Stepper `Información del usuario` -> `Permisos y confirmación`;
 - se utilizan componentes comunes de contraseña, botones, confirmaciones y estilos.
 
+`ContextosUsuarioSelector` permite desde esta fase:
+
+- seleccionar únicamente una sede y añadirla como alcance completo;
+- opcionalmente refinar por área operativa;
+- opcionalmente refinar por línea de servicio;
+- marcar una asignación como principal;
+- añadir varias sedes sin mezclar alcances redundantes dentro de una misma sede.
+
+Los servicios y horarios concretos de un ENTRENADOR no se definen aquí. Continúan gestionándose en `Servicios y Agenda`, evitando mezclar alcance operativo con agenda deportiva.
+
 ## Hallazgo sobre el listado local
 
 En una validación visual del entorno local se observó una columna `Asignación` con valores como `Revive Centro`, `Recepción | Revive Centro` y `General`. La versión de `UsuariosTable.jsx` visible en GitHub al momento de esta revisión no contenía esa columna, lo que indica una diferencia entre el working tree/local y la rama remota.
@@ -114,11 +140,14 @@ No se debe sobrescribir esa mejora visual sin reconciliar primero la versión lo
 3. RESPONSABLE tampoco debe recibir contexto operativo; su alcance se resolverá mediante la relación Responsable <-> Deportista.
 4. SUPERADMINISTRADOR es global y no debe quedar artificialmente limitado por una sede.
 5. ADMINISTRADOR, SUPERVISOR, CAJERO, RECEPCIONISTA y ENTRENADOR sí deben poder restringirse posteriormente por sus contextos asignados.
+6. Asignar `Toda la sede` implica alcance sobre sus áreas/líneas; no se deben guardar asignaciones redundantes debajo de ese mismo alcance.
 
 ## Pendientes para cerrar Fase 4
 
-- ejecutar la migración de normalización y validar datos locales;
-- probar creación de un usuario de personal con contexto obligatorio;
+- ejecutar las migraciones de normalización y contexto de sede;
+- probar creación de un usuario de personal asignado solo a `Revive Home`;
+- probar un usuario con varias sedes y una principal;
+- probar refinamiento opcional `Revive Xpadel -> Entrenamiento -> Entrenamiento Deportivo`;
 - probar creación/edición de SUPERADMINISTRADOR sin contexto;
 - probar DEPORTISTA y RESPONSABLE sin contexto y sin permisos web;
 - validar cambio de rol de personal a DEPORTISTA/RESPONSABLE y limpieza de contextos/permisos;

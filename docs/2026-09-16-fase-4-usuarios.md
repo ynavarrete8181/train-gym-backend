@@ -24,6 +24,7 @@ El sistema sigue trabajando con un rol principal por usuario. Los permisos indiv
 2. Si cambia el rol principal, reconstruye los permisos efectivos desde el nuevo rol.
 3. `guardarFuncionesUsuario()` permite guardar la selección efectiva del usuario.
 4. La sincronización emite `MENU_ACTUALIZADO` después del commit para refrescar navegación en tiempo real.
+5. `DEPORTISTA` y `RESPONSABLE` quedan blindados en `UsuarioController`: cualquier lista de funciones administrativas enviada para esos roles se normaliza a vacío antes de persistir.
 
 ## Asignación operativa
 
@@ -68,9 +69,26 @@ El backend normaliza estos roles dejando `contextos = []`.
 - inactivación de la propia cuenta con la sesión abierta;
 - contextos requeridos según el rol;
 - unicidad de cédula y correo;
-- contraseña segura en creación.
+- contraseña segura en creación;
+- permisos administrativos no permitidos para DEPORTISTA/RESPONSABLE.
 
 El flujo de creación ya no intenta validar un `$usuario` inexistente antes de crear el registro.
+
+También se agregó la protección de autoinactivación al endpoint de cambio de estado y la protección de cambio de rol/estado al endpoint general de actualización.
+
+## Normalización de datos existentes
+
+Migración:
+
+`2026_09_16_130000_normalize_user_operational_assignments.php`
+
+Acciones:
+
+- elimina asignaciones `institucional.usuario_contexto` heredadas para SUPERADMINISTRADOR, DEPORTISTA y RESPONSABLE;
+- elimina funciones administrativas heredadas en `seguridad.cpu_userfunction` para DEPORTISTA y RESPONSABLE;
+- no modifica membresías, ventas, reservas, horarios, entrenadores ni relaciones comerciales.
+
+La migración es de normalización de datos; el `down()` no intenta reconstruir relaciones heredadas que ya se consideran incorrectas para el modelo Revive.
 
 ## Frontend
 
@@ -99,11 +117,11 @@ No se debe sobrescribir esa mejora visual sin reconciliar primero la versión lo
 
 ## Pendientes para cerrar Fase 4
 
-- reconciliar la columna `Asignación` del entorno local con el componente remoto;
+- ejecutar la migración de normalización y validar datos locales;
 - probar creación de un usuario de personal con contexto obligatorio;
 - probar creación/edición de SUPERADMINISTRADOR sin contexto;
 - probar DEPORTISTA y RESPONSABLE sin contexto y sin permisos web;
-- validar cambio de rol de personal a DEPORTISTA/RESPONSABLE y limpieza de contextos;
+- validar cambio de rol de personal a DEPORTISTA/RESPONSABLE y limpieza de contextos/permisos;
 - validar cambio de rol entre roles internos y resincronización de permisos;
 - validar que un usuario no pueda cambiar su propio rol ni inactivarse;
 - definir y aplicar el filtrado real por `usuario_contexto` en los módulos que deban restringirse por sede;

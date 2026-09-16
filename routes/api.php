@@ -14,6 +14,7 @@ Route::prefix('base')->group(function (): void {
     require __DIR__.'/base/institucional.php';
     require __DIR__.'/base/notificaciones.php';
     require __DIR__.'/base/integraciones.php';
+    require __DIR__.'/base/configuracion.php';
     require __DIR__.'/base/gimnasio.php';
     require __DIR__.'/base/entrenamiento.php';
     require __DIR__.'/base/inventario.php';

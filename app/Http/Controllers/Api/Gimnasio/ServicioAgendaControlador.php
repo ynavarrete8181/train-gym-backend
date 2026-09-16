@@ -8,6 +8,7 @@ use App\Support\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class ServicioAgendaControlador extends Controller
 {
@@ -62,7 +63,7 @@ class ServicioAgendaControlador extends Controller
     public function guardarHorario(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'nombre' => 'nullable|string|max:150',
+            'nombre' => 'required|string|max:150',
             'servicio_id' => 'required|exists:pgsql.gimnasio.servicios,id',
             'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
             'sede_ids' => 'nullable|array|min:1',
@@ -75,6 +76,13 @@ class ServicioAgendaControlador extends Controller
             'capacidad' => 'required|integer|min:1|max:500',
             'activo' => 'boolean',
         ]);
+
+        $servicio = DB::table('gimnasio.servicios')->where('id', $datos['servicio_id'])->first();
+        if ($servicio && (int) $datos['capacidad'] > (int) $servicio->capacidad_base) {
+            throw ValidationException::withMessages([
+                'capacidad' => "La capacidad del horario no puede superar el cupo base del servicio ({$servicio->capacidad_base}).",
+            ]);
+        }
 
         $sedeIds = $datos['sede_ids'] ?? (isset($datos['sede_id']) ? [$datos['sede_id']] : []);
         $diasSemana = $datos['dias_semana'] ?? (isset($datos['dia_semana']) ? [$datos['dia_semana']] : []);

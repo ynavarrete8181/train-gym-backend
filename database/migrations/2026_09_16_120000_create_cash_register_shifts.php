@@ -38,7 +38,7 @@ return new class extends Migration
             DB::statement('ALTER TABLE ventas.turnos_caja ADD CONSTRAINT turnos_caja_cerrado_por_fk FOREIGN KEY (cerrado_por) REFERENCES seguridad.users(id)');
         }
 
-        $menuVentas = DB::table('seguridad.cpu_usermenu')->where('nombre', 'Ventas')->first();
+        $menuVentas = DB::table('seguridad.cpu_usermenu')->where('menu', 'Ventas')->first();
         $base = DB::table('seguridad.cpu_userrolefunction')->where('id_menu', 'VENTAS-CAJAS')->orderBy('id_userrole')->first();
 
         if ($menuVentas && $base) {

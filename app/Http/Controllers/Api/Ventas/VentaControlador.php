@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Ventas;
 
 use App\Http\Controllers\Controller;
+use App\Services\Ventas\VentaFiltroServicio;
 use App\Services\Ventas\VentaServicio;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
@@ -10,8 +11,10 @@ use Illuminate\Validation\Rule;
 
 class VentaControlador extends Controller
 {
-    public function __construct(private readonly VentaServicio $ventas)
-    {
+    public function __construct(
+        private readonly VentaServicio $ventas,
+        private readonly VentaFiltroServicio $filtros,
+    ) {
     }
 
     public function cajas(Request $request)
@@ -138,7 +141,7 @@ class VentaControlador extends Controller
             'por_pagina' => $paginador->perPage(),
             'total' => $paginador->total(),
             'ultima_pagina' => $paginador->lastPage(),
-            'opciones_filtro' => $this->ventas->opcionesFiltro($usuarioId),
+            'opciones_filtro' => $this->filtros->opciones($usuarioId),
             'catalogos' => $this->ventas->catalogos($usuarioId),
         ]);
     }

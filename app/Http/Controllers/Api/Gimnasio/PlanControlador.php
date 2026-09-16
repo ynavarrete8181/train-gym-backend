@@ -47,20 +47,7 @@ class PlanControlador extends Controller
 
     public function store(Request $request)
     {
-        $validados = $request->validate([
-            'codigo' => 'required|string|max:50|unique:pgsql.gimnasio.planes,codigo',
-            'nombre' => 'required|string|max:150',
-            'descripcion' => 'nullable|string',
-            'tipo_duracion' => 'required|string|max:20|in:DIAS,MESES,ANIOS',
-            'duracion' => 'required|integer|min:1',
-            'precio_base' => 'required|numeric|min:0',
-            'tarifa_inscripcion' => 'nullable|numeric|min:0',
-            'activo' => 'boolean',
-            'precios_sede' => 'nullable|array',
-            'precios_sede.*.sede_id' => 'required|exists:pgsql.institucional.sedes,id_sede',
-            'precios_sede.*.precio' => 'required|numeric|min:0',
-        ]);
-
+        $validados = $this->validar($request);
         $plan = $this->planServicio->crear($validados);
 
         return ApiResponse::exito('Plan creado correctamente.', (array) $plan, [], 201);
@@ -92,20 +79,7 @@ class PlanControlador extends Controller
             return response()->json(['mensaje' => 'Plan no encontrado'], 404);
         }
 
-        $validados = $request->validate([
-            'codigo' => 'required|string|max:50|unique:pgsql.gimnasio.planes,codigo,' . $id,
-            'nombre' => 'required|string|max:150',
-            'descripcion' => 'nullable|string',
-            'tipo_duracion' => 'required|string|max:20|in:DIAS,MESES,ANIOS',
-            'duracion' => 'required|integer|min:1',
-            'precio_base' => 'required|numeric|min:0',
-            'tarifa_inscripcion' => 'nullable|numeric|min:0',
-            'activo' => 'boolean',
-            'precios_sede' => 'nullable|array',
-            'precios_sede.*.sede_id' => 'required|exists:pgsql.institucional.sedes,id_sede',
-            'precios_sede.*.precio' => 'required|numeric|min:0',
-        ]);
-
+        $validados = $this->validar($request, (int) $id);
         $planActualizado = $this->planServicio->actualizar($id, $validados);
 
         return ApiResponse::exito('Plan actualizado correctamente.', (array) $planActualizado);
@@ -125,5 +99,27 @@ class PlanControlador extends Controller
 
         DB::table('gimnasio.planes')->where('id', $id)->delete();
         return ApiResponse::exito('Plan eliminado exitosamente.');
+    }
+
+    private function validar(Request $request, ?int $id = null): array
+    {
+        return $request->validate([
+            'codigo' => 'required|string|max:50|unique:pgsql.gimnasio.planes,codigo' . ($id ? ',' . $id : ''),
+            'nombre' => 'required|string|max:150',
+            'descripcion' => 'nullable|string',
+            'tipo_duracion' => 'required|string|max:20|in:DIAS,MESES,ANIOS',
+            'duracion' => 'required|integer|min:1',
+            'precio_base' => 'required|numeric|min:0',
+            'tarifa_inscripcion' => 'nullable|numeric|min:0',
+            'tipo_producto' => 'required|string|in:MEMBRESIA,PASE_DIARIO,PAQUETE_VISITAS,PAQUETE_SESIONES',
+            'tipo_cobro' => 'required|string|in:PAGO_UNICO,RECURRENTE',
+            'generar_venta' => 'boolean',
+            'requiere_pago' => 'boolean',
+            'renovable' => 'boolean',
+            'activo' => 'boolean',
+            'precios_sede' => 'nullable|array',
+            'precios_sede.*.sede_id' => 'required|exists:pgsql.institucional.sedes,id_sede',
+            'precios_sede.*.precio' => 'required|numeric|min:0',
+        ]);
     }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Gimnasio;
 
 use App\Http\Controllers\Controller;
 use App\Services\Gimnasio\MembresiaServicio;
+use App\Services\Ventas\VentaServicio;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -11,11 +12,10 @@ use Illuminate\Validation\ValidationException;
 
 class MembresiaControlador extends Controller
 {
-    protected MembresiaServicio $membresiaServicio;
-
-    public function __construct(MembresiaServicio $membresiaServicio)
-    {
-        $this->membresiaServicio = $membresiaServicio;
+    public function __construct(
+        protected MembresiaServicio $membresiaServicio,
+        protected VentaServicio $ventaServicio,
+    ) {
     }
 
     public function index(Request $request)
@@ -39,6 +39,8 @@ class MembresiaControlador extends Controller
                 'seguridad.users.name as deportista_nombre',
                 'seguridad.users.email as deportista_email',
                 'gimnasio.planes.nombre as plan_nombre',
+                'gimnasio.planes.tipo_producto',
+                'gimnasio.planes.tipo_cobro',
                 'institucional.sedes.nombre as sede_nombre'
             );
 
@@ -81,44 +83,75 @@ class MembresiaControlador extends Controller
             'deportista_id' => 'required|exists:pgsql.gimnasio.deportistas,id',
             'plan_id' => 'required|exists:pgsql.gimnasio.planes,id',
             'sede_id' => 'required|exists:pgsql.institucional.sedes,id_sede',
-            'codigo_contrato' => 'required|string|max:60|unique:pgsql.gimnasio.membresias',
             'fecha_inicio' => 'required|date',
-            'fecha_fin' => 'required|date|after_or_equal:fecha_inicio',
-            'estado' => 'required|string|in:PENDIENTE_PAGO,ACTIVA,VENCIDA,CONGELADA,CANCELADA',
             'dias_gracia' => 'integer|min:0',
-            'renovacion_automatica' => 'boolean'
+            'renovacion_automatica' => 'boolean',
+            'generar_venta' => 'boolean',
         ]);
 
         $this->validarDeportistaActual((int) $validados['deportista_id']);
+        $generarVenta = (bool) ($validados['generar_venta'] ?? false);
+        unset($validados['generar_venta']);
 
-        $membresia = $this->membresiaServicio->crear($validados);
+        [$membresia, $venta] = DB::transaction(function () use ($validados, $generarVenta, $request): array {
+            $membresia = $this->membresiaServicio->crear($validados);
+            $venta = null;
+            $plan = DB::table('gimnasio.planes')->where('id', $membresia->plan_id)->first();
 
-        return ApiResponse::exito('Membresía creada correctamente.', (array) $membresia, [], 201);
+            if ($generarVenta && ($plan->generar_venta ?? true)) {
+                $venta = $this->ventaServicio->guardarVenta([
+                    'cliente_id' => $membresia->deportista_id,
+                    'membresia_id' => $membresia->id,
+                    'caja_id' => null,
+                    'tipo_venta' => 'MEMBRESIA',
+                    'concepto' => $plan->nombre . ' - ' . $membresia->codigo_contrato,
+                    'subtotal' => $membresia->precio_aplicado,
+                    'descuento' => 0,
+                    'impuesto' => 0,
+                    'total' => $membresia->precio_aplicado,
+                    'estado' => 'PENDIENTE',
+                    'observaciones' => 'Venta generada automáticamente desde Membresías.',
+                    'detalle' => [
+                        'descripcion' => $plan->nombre,
+                        'cantidad' => 1,
+                        'precio_unitario' => $membresia->precio_aplicado,
+                        'total_linea' => $membresia->precio_aplicado,
+                    ],
+                ], null, $request->user()?->id);
+            }
+
+            return [$membresia, $venta];
+        });
+
+        $respuesta = (array) $membresia;
+        if ($venta) {
+            $respuesta['venta_id'] = $venta->id;
+            $respuesta['venta_numero'] = $venta->numero;
+        }
+
+        return ApiResponse::exito(
+            $venta ? 'Membresía creada y venta generada correctamente.' : 'Membresía creada correctamente.',
+            $respuesta,
+            [],
+            201
+        );
     }
 
     public function show($id)
     {
         $membresia = $this->membresiaServicio->obtenerMembresiaConRelaciones($id);
-
-        if (!$membresia) {
-            return response()->json(['mensaje' => 'Membresía no encontrada'], 404);
-        }
-
+        if (!$membresia) return response()->json(['mensaje' => 'Membresía no encontrada'], 404);
         return ApiResponse::exito('Membresía consultada.', (array) $membresia);
     }
 
     public function update(Request $request, $id)
     {
         $membresia = DB::table('gimnasio.membresias')->where('id', $id)->first();
-
-        if (!$membresia) {
-            return response()->json(['mensaje' => 'Membresía no encontrada'], 404);
-        }
+        if (!$membresia) return response()->json(['mensaje' => 'Membresía no encontrada'], 404);
 
         $validados = $request->validate([
             'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
             'fecha_inicio' => 'required|date',
-            'fecha_fin' => 'required|date|after_or_equal:fecha_inicio',
             'estado' => 'required|string|in:PENDIENTE_PAGO,ACTIVA,VENCIDA,CONGELADA,CANCELADA',
             'dias_gracia' => 'integer|min:0',
             'renovacion_automatica' => 'boolean',
@@ -128,36 +161,24 @@ class MembresiaControlador extends Controller
 
         if ($membresia->sede_id === null) {
             if (empty($validados['sede_id'])) {
-                throw ValidationException::withMessages([
-                    'sede_id' => 'Debes seleccionar una sede para completar esta membresía histórica.',
-                ]);
+                throw ValidationException::withMessages(['sede_id' => 'Debes seleccionar una sede para completar esta membresía histórica.']);
             }
         } else {
-            if (array_key_exists('sede_id', $validados)
-                && (int) $validados['sede_id'] !== (int) $membresia->sede_id) {
-                throw ValidationException::withMessages([
-                    'sede_id' => 'La sede de una membresía ya registrada no puede modificarse.',
-                ]);
+            if (array_key_exists('sede_id', $validados) && (int) $validados['sede_id'] !== (int) $membresia->sede_id) {
+                throw ValidationException::withMessages(['sede_id' => 'La sede de una membresía ya registrada no puede modificarse.']);
             }
-
             unset($validados['sede_id']);
         }
 
         $membresiaActualizada = $this->membresiaServicio->actualizar($id, $validados);
-
         return ApiResponse::exito('Membresía actualizada correctamente.', (array) $membresiaActualizada);
     }
 
     public function destroy($id)
     {
         $membresia = DB::table('gimnasio.membresias')->where('id', $id)->first();
-
-        if (!$membresia) {
-            return response()->json(['mensaje' => 'Membresía no encontrada'], 404);
-        }
-
+        if (!$membresia) return response()->json(['mensaje' => 'Membresía no encontrada'], 404);
         $this->membresiaServicio->eliminar((int) $id);
-
         return ApiResponse::exito('Membresía eliminada correctamente.');
     }
 
@@ -170,29 +191,16 @@ class MembresiaControlador extends Controller
             ->value('seguridad.cpu_userrole.role');
 
         if ($rol !== 'DEPORTISTA') {
-            throw ValidationException::withMessages([
-                'deportista_id' => 'La membresía solo puede asignarse a un cliente con rol Deportista.',
-            ]);
+            throw ValidationException::withMessages(['deportista_id' => 'La membresía solo puede asignarse a un cliente con rol Deportista.']);
         }
     }
 
     private function aplicarFiltro($query, string $columna, mixed $valor): void
     {
-        if (empty($valor)) {
-            return;
-        }
-
+        if (empty($valor)) return;
         $valores = is_array($valor) ? array_filter($valor) : [$valor];
-
-        if (empty($valores)) {
-            return;
-        }
-
-        if (is_array($valor)) {
-            $query->whereIn($columna, $valores);
-            return;
-        }
-
+        if (empty($valores)) return;
+        if (is_array($valor)) { $query->whereIn($columna, $valores); return; }
         $texto = mb_strtolower($valor);
         $query->whereRaw("LOWER({$columna}) LIKE ?", ["%{$texto}%"]);
     }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Ventas\TurnoCajaControlador;
 use App\Http\Controllers\Api\Ventas\VentaControlador;
 use Illuminate\Support\Facades\Route;
 
@@ -8,6 +9,13 @@ Route::middleware(['base.auth'])->prefix('ventas')->group(function (): void {
         Route::get('cajas', [VentaControlador::class, 'cajas'])->name('ventas.cajas.index');
         Route::post('cajas', [VentaControlador::class, 'guardarCaja'])->name('ventas.cajas.store');
         Route::put('cajas/{id}', [VentaControlador::class, 'guardarCaja'])->name('ventas.cajas.update');
+    });
+
+    Route::middleware(['base.permiso:VENTAS-TURNOS-CAJA'])->group(function (): void {
+        Route::get('turnos-caja', [TurnoCajaControlador::class, 'index'])->name('ventas.turnos-caja.index');
+        Route::get('turnos-caja/actual', [TurnoCajaControlador::class, 'actual'])->name('ventas.turnos-caja.actual');
+        Route::post('turnos-caja/abrir', [TurnoCajaControlador::class, 'abrir'])->name('ventas.turnos-caja.abrir');
+        Route::post('turnos-caja/{id}/cerrar', [TurnoCajaControlador::class, 'cerrar'])->name('ventas.turnos-caja.cerrar');
     });
 
     Route::middleware(['base.permiso:VENTAS-VENTAS'])->group(function (): void {

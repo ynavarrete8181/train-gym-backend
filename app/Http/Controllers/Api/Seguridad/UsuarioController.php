@@ -51,6 +51,7 @@ class UsuarioController extends Controller
 
         $this->validarRol((int) $datos['usr_tipo']);
         $datos['contextos'] = $this->normalizarContextosSegunRol((int) $datos['usr_tipo'], $datos['contextos'] ?? []);
+        $datos['funciones'] = $this->normalizarFuncionesSegunRol((int) $datos['usr_tipo'], $datos['funciones'] ?? []);
 
         $usuario = DB::transaction(function () use ($datos, $request) {
             $usuario = $this->usuarioService->crear($datos);
@@ -90,13 +91,12 @@ class UsuarioController extends Controller
         $this->validarRol((int) $datos['usr_tipo']);
         $this->validarCambioPropio($request, $usuario, (int) $datos['usr_tipo'], (int) $datos['usr_estado']);
         $datos['contextos'] = $this->normalizarContextosSegunRol((int) $datos['usr_tipo'], $datos['contextos'] ?? []);
+        $datos['funciones'] = $this->normalizarFuncionesSegunRol((int) $datos['usr_tipo'], $datos['funciones'] ?? []);
 
         $usuarioActualizado = DB::transaction(function () use ($usuario, $datos) {
             $actualizado = $this->usuarioService->actualizar($usuario, $datos);
             $this->estructuraService->asignarUsuario($usuario->id, $datos['contextos']);
-            if (array_key_exists('funciones', $datos)) {
-                $this->usuarioService->guardarFuncionesUsuario($usuario->id, (int) $datos['usr_tipo'], $datos['funciones']);
-            }
+            $this->usuarioService->guardarFuncionesUsuario($usuario->id, (int) $datos['usr_tipo'], $datos['funciones']);
 
             return $actualizado;
         });
@@ -137,7 +137,8 @@ class UsuarioController extends Controller
             'funciones.*' => ['string', 'max:120'],
         ]);
 
-        $this->usuarioService->guardarFuncionesUsuario($usuario->id, (int) $usuario->usr_tipo, $datos['funciones']);
+        $funciones = $this->normalizarFuncionesSegunRol((int) $usuario->usr_tipo, $datos['funciones']);
+        $this->usuarioService->guardarFuncionesUsuario($usuario->id, (int) $usuario->usr_tipo, $funciones);
 
         return ApiResponse::exito('Funciones del usuario actualizadas correctamente.');
     }
@@ -152,14 +153,19 @@ class UsuarioController extends Controller
 
         $this->validarRol((int) $datos['usr_tipo']);
         $this->validarCambioPropio($request, $usuario, (int) $datos['usr_tipo']);
-        $this->usuarioService->actualizarAccesos($usuario, (int) $datos['usr_tipo'], $datos['funciones']);
+        $funciones = $this->normalizarFuncionesSegunRol((int) $datos['usr_tipo'], $datos['funciones']);
+        $this->usuarioService->actualizarAccesos($usuario, (int) $datos['usr_tipo'], $funciones);
 
         return ApiResponse::exito('Rol y permisos del usuario actualizados correctamente.');
     }
 
     public function sincronizarFuncionesRol(User $usuario): JsonResponse
     {
-        $this->usuarioService->sincronizarFuncionesDesdeRol($usuario->id, (int) $usuario->usr_tipo);
+        if ($this->rolEsAppSinPermisosWeb((int) $usuario->usr_tipo)) {
+            $this->usuarioService->guardarFuncionesUsuario($usuario->id, (int) $usuario->usr_tipo, []);
+        } else {
+            $this->usuarioService->sincronizarFuncionesDesdeRol($usuario->id, (int) $usuario->usr_tipo);
+        }
 
         return ApiResponse::exito('Funciones sincronizadas desde el rol correctamente.');
     }
@@ -214,5 +220,21 @@ class UsuarioController extends Controller
         }
 
         return array_values(array_unique(array_map('intval', $contextos)));
+    }
+
+    private function normalizarFuncionesSegunRol(int $idRol, array $funciones): array
+    {
+        return $this->rolEsAppSinPermisosWeb($idRol)
+            ? []
+            : array_values(array_unique($funciones));
+    }
+
+    private function rolEsAppSinPermisosWeb(int $idRol): bool
+    {
+        $rol = DB::table('seguridad.cpu_userrole')
+            ->where('id_userrole', $idRol)
+            ->value('role');
+
+        return in_array($rol, ['DEPORTISTA', 'RESPONSABLE'], true);
     }
 }

@@ -133,6 +133,8 @@ class EntrenadorServicio
             ]);
         }
 
+        $this->validarSolapamientoHorario($entrenadorId, $horarioBloqueId);
+
         if ($existente) {
             DB::table('gimnasio.horario_entrenadores')
                 ->where('id', $existente->id)
@@ -174,6 +176,49 @@ class EntrenadorServicio
             ->where('horario_bloque_id', $horarioBloqueId)
             ->delete();
         $this->auditar('gimnasio', 'ELIMINAR', 'gimnasio.horario_entrenadores', $entrenadorId, null, null, 'Horario quitado del entrenador.');
+    }
+
+    private function validarSolapamientoHorario(int $entrenadorId, int $horarioBloqueId): void
+    {
+        $detallesNuevos = DB::table('gimnasio.horarios_servicio')
+            ->where('horario_bloque_id', $horarioBloqueId)
+            ->where('activo', true)
+            ->get(['dia_semana', 'hora_inicio', 'hora_fin']);
+
+        if ($detallesNuevos->isEmpty()) {
+            throw ValidationException::withMessages([
+                'horario_bloque_id' => 'El horario seleccionado no tiene días y horas activos configurados.',
+            ]);
+        }
+
+        foreach ($detallesNuevos as $nuevo) {
+            $conflicto = DB::table('gimnasio.horario_entrenadores as he')
+                ->join('gimnasio.horario_bloques as hb', 'hb.id', '=', 'he.horario_bloque_id')
+                ->join('gimnasio.horarios_servicio as hs', function ($join): void {
+                    $join->on('hs.horario_bloque_id', '=', 'hb.id')
+                        ->where('hs.activo', true);
+                })
+                ->leftJoin('institucional.sedes as sd', 'sd.id_sede', '=', 'hs.sede_id')
+                ->where('he.entrenador_id', $entrenadorId)
+                ->where('he.activo', true)
+                ->where('hb.activo', true)
+                ->where('hb.id', '!=', $horarioBloqueId)
+                ->where('hs.dia_semana', $nuevo->dia_semana)
+                ->where('hs.hora_inicio', '<', $nuevo->hora_fin)
+                ->where('hs.hora_fin', '>', $nuevo->hora_inicio)
+                ->select('hb.nombre', 'hs.dia_semana', 'hs.hora_inicio', 'hs.hora_fin', 'sd.nombre as sede_nombre')
+                ->first();
+
+            if ($conflicto) {
+                $inicio = substr((string) $conflicto->hora_inicio, 0, 5);
+                $fin = substr((string) $conflicto->hora_fin, 0, 5);
+                $sede = $conflicto->sede_nombre ?: 'sede no especificada';
+
+                throw ValidationException::withMessages([
+                    'horario_bloque_id' => "El entrenador ya tiene el horario '{$conflicto->nombre}' el {$conflicto->dia_semana} de {$inicio} a {$fin} en {$sede}. No se pueden asignar horarios superpuestos.",
+                ]);
+            }
+        }
     }
 
     private function mapearDias($items)

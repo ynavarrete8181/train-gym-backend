@@ -3,11 +3,16 @@
 namespace App\Services\Ventas;
 
 use App\Services\Concerns\RegistraAuditoria;
+use App\Services\Configuracion\EstadoCatalogoServicio;
 use Illuminate\Support\Facades\DB;
 
 class VentaServicio
 {
     use RegistraAuditoria;
+
+    public function __construct(private readonly EstadoCatalogoServicio $estados)
+    {
+    }
 
     public function listarCajas(array $filtros)
     {
@@ -33,9 +38,19 @@ class VentaServicio
             ->leftJoin('gimnasio.deportistas', 'ventas.ventas.cliente_id', '=', 'gimnasio.deportistas.id')
             ->leftJoin('seguridad.users as cliente_user', 'gimnasio.deportistas.usuario_id', '=', 'cliente_user.id')
             ->leftJoin('ventas.cajas', 'ventas.ventas.caja_id', '=', 'ventas.cajas.id')
-            ->select('ventas.ventas.*', 'cliente_user.name as cliente_nombre', 'gimnasio.deportistas.codigo_deportista', 'ventas.cajas.nombre as caja_nombre');
+            ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'ventas.ventas.estado_id', '=', 'estado_cfg.id')
+            ->select(
+                'ventas.ventas.*',
+                'cliente_user.name as cliente_nombre',
+                'gimnasio.deportistas.codigo_deportista',
+                'ventas.cajas.nombre as caja_nombre',
+                'estado_cfg.codigo as estado_codigo',
+                'estado_cfg.valor_interno as estado_valor',
+                'estado_cfg.nombre as estado_nombre',
+                'estado_cfg.color as estado_color'
+            );
 
-        $this->buscar($query, $filtros['busqueda'] ?? null, ['ventas.ventas.numero', 'ventas.ventas.concepto', 'ventas.ventas.tipo_venta', 'cliente_user.name']);
+        $this->buscar($query, $filtros['busqueda'] ?? null, ['ventas.ventas.numero', 'ventas.ventas.concepto', 'ventas.ventas.tipo_venta', 'cliente_user.name', 'estado_cfg.nombre']);
         $this->filtrarTexto($query, 'ventas.ventas.numero', $filtros['numero'] ?? null);
         $this->filtrarTexto($query, 'cliente_user.name', $filtros['cliente'] ?? null);
         $this->filtrarTexto($query, 'ventas.ventas.tipo_venta', $filtros['tipo'] ?? null);
@@ -50,6 +65,7 @@ class VentaServicio
             $detalle = $datos['detalle'] ?? [];
             unset($datos['detalle']);
 
+            $datos = $this->estados->aplicar($datos, 'VENTA');
             $datos['usuario_id'] = $datos['usuario_id'] ?? $usuarioId;
             $datos['numero'] = $datos['numero'] ?? $this->secuencia('VENTA');
             $datos['subtotal'] = $this->numero($datos['subtotal'] ?? $datos['total'] ?? 0);
@@ -93,9 +109,19 @@ class VentaServicio
         $query = DB::table('ventas.pagos')
             ->join('ventas.ventas', 'ventas.pagos.venta_id', '=', 'ventas.ventas.id')
             ->leftJoin('ventas.cajas', 'ventas.pagos.caja_id', '=', 'ventas.cajas.id')
-            ->select('ventas.pagos.*', 'ventas.ventas.numero as venta_numero', 'ventas.ventas.concepto as venta_concepto', 'ventas.cajas.nombre as caja_nombre');
+            ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'ventas.pagos.estado_id', '=', 'estado_cfg.id')
+            ->select(
+                'ventas.pagos.*',
+                'ventas.ventas.numero as venta_numero',
+                'ventas.ventas.concepto as venta_concepto',
+                'ventas.cajas.nombre as caja_nombre',
+                'estado_cfg.codigo as estado_codigo',
+                'estado_cfg.valor_interno as estado_valor',
+                'estado_cfg.nombre as estado_nombre',
+                'estado_cfg.color as estado_color'
+            );
 
-        $this->buscar($query, $filtros['busqueda'] ?? null, ['ventas.pagos.numero_comprobante', 'ventas.ventas.numero', 'ventas.pagos.metodo_pago', 'ventas.pagos.referencia']);
+        $this->buscar($query, $filtros['busqueda'] ?? null, ['ventas.pagos.numero_comprobante', 'ventas.ventas.numero', 'ventas.pagos.metodo_pago', 'ventas.pagos.referencia', 'estado_cfg.nombre']);
         $this->filtrarTexto($query, 'ventas.pagos.numero_comprobante', $filtros['comprobante'] ?? null);
         $this->filtrarTexto($query, 'ventas.pagos.metodo_pago', $filtros['metodo'] ?? null);
         $this->filtrarTexto($query, 'ventas.pagos.estado', $filtros['estado'] ?? null);
@@ -106,6 +132,7 @@ class VentaServicio
     public function guardarPago(array $datos, ?int $usuarioId = null): object
     {
         return DB::transaction(function () use ($datos, $usuarioId): object {
+            $datos = $this->estados->aplicar($datos, 'PAGO');
             $datos['usuario_id'] = $usuarioId;
             $datos['numero_comprobante'] = $datos['numero_comprobante'] ?? $this->secuencia('PAGO');
             $pagoId = $this->guardarRetornandoId('ventas.pagos', $datos, null);
@@ -146,10 +173,12 @@ class VentaServicio
                 ->leftJoin('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
                 ->orderBy('seguridad.users.name')
                 ->get(['gimnasio.deportistas.id', 'gimnasio.deportistas.codigo_deportista', 'seguridad.users.name as nombre']),
-            'membresias' => DB::table('gimnasio.membresias')->orderByDesc('created_at')->limit(100)->get(['id', 'codigo_contrato', 'estado', 'precio_aplicado']),
+            'membresias' => DB::table('gimnasio.membresias')->orderByDesc('created_at')->limit(100)->get(['id', 'codigo_contrato', 'estado', 'estado_id', 'precio_aplicado']),
             'productos' => DB::table('inventario.productos')->where('activo', true)->orderBy('nombre')->get(['id', 'codigo', 'nombre', 'precio_venta']),
             'sedes' => DB::table('institucional.sedes')->where('activo', true)->orderBy('nombre')->get(['id_sede as id', 'nombre']),
             'ventas_pendientes' => DB::table('ventas.ventas')->whereIn('estado', ['PENDIENTE', 'PARCIAL'])->orderByDesc('fecha_venta')->get(['id', 'numero', 'concepto', 'total']),
+            'estados_venta' => $this->estadosEntidad('VENTA'),
+            'estados_pago' => $this->estadosEntidad('PAGO'),
         ];
     }
 
@@ -161,17 +190,27 @@ class VentaServicio
             'numero' => DB::table('ventas.ventas')->distinct()->orderBy('numero')->pluck('numero')->values(),
             'tipo' => DB::table('ventas.ventas')->distinct()->orderBy('tipo_venta')->pluck('tipo_venta')->values(),
             'metodo' => DB::table('ventas.pagos')->distinct()->orderBy('metodo_pago')->pluck('metodo_pago')->values(),
+            'estado_venta' => $this->estadosEntidad('VENTA')->pluck('valor_interno')->values(),
+            'estado_pago' => $this->estadosEntidad('PAGO')->pluck('valor_interno')->values(),
         ];
     }
 
     private function obtenerVenta(int $id): object
     {
-        return DB::table('ventas.ventas')->where('id', $id)->first();
+        return DB::table('ventas.ventas')
+            ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'ventas.ventas.estado_id', '=', 'estado_cfg.id')
+            ->select('ventas.ventas.*', 'estado_cfg.codigo as estado_codigo', 'estado_cfg.nombre as estado_nombre', 'estado_cfg.color as estado_color')
+            ->where('ventas.ventas.id', $id)
+            ->first();
     }
 
     private function obtenerPago(int $id): object
     {
-        return DB::table('ventas.pagos')->where('id', $id)->first();
+        return DB::table('ventas.pagos')
+            ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'ventas.pagos.estado_id', '=', 'estado_cfg.id')
+            ->select('ventas.pagos.*', 'estado_cfg.codigo as estado_codigo', 'estado_cfg.nombre as estado_nombre', 'estado_cfg.color as estado_color')
+            ->where('ventas.pagos.id', $id)
+            ->first();
     }
 
     private function actualizarEstadoVenta(int $ventaId): void
@@ -179,14 +218,24 @@ class VentaServicio
         $venta = DB::table('ventas.ventas')->where('id', $ventaId)->first();
         $pagado = (float) DB::table('ventas.pagos')->where('venta_id', $ventaId)->where('estado', 'CONFIRMADO')->sum('monto');
         $estado = $pagado <= 0 ? 'PENDIENTE' : ($pagado >= (float) $venta->total ? 'PAGADA' : 'PARCIAL');
+        $estadoVentaId = $this->estados->idPorValor('VENTA', $estado);
 
-        DB::table('ventas.ventas')->where('id', $ventaId)->update(['estado' => $estado, 'updated_at' => now()]);
+        DB::table('ventas.ventas')->where('id', $ventaId)->update([
+            'estado' => $estado,
+            'estado_id' => $estadoVentaId,
+            'updated_at' => now(),
+        ]);
 
         if ($estado === 'PAGADA' && $venta->membresia_id) {
+            $estadoMembresiaId = $this->estados->idPorValor('MEMBRESIA', 'ACTIVA');
             DB::table('gimnasio.membresias')
                 ->where('id', $venta->membresia_id)
                 ->where('estado', 'PENDIENTE_PAGO')
-                ->update(['estado' => 'ACTIVA', 'updated_at' => now()]);
+                ->update([
+                    'estado' => 'ACTIVA',
+                    'estado_id' => $estadoMembresiaId,
+                    'updated_at' => now(),
+                ]);
         }
     }
 
@@ -208,6 +257,15 @@ class VentaServicio
         $nuevoId = DB::table($tabla)->insertGetId($datos);
         $this->auditar('ventas', 'CREAR', $tabla, $nuevoId, null, DB::table($tabla)->where('id', $nuevoId)->first());
         return $nuevoId;
+    }
+
+    private function estadosEntidad(string $entidad)
+    {
+        return DB::table('configuracion.estados_catalogo')
+            ->where('entidad', $entidad)
+            ->where('activo', true)
+            ->orderBy('orden')
+            ->get(['id', 'codigo', 'valor_interno', 'nombre', 'color', 'es_inicial', 'es_final']);
     }
 
     private function secuencia(string $prefijo): string

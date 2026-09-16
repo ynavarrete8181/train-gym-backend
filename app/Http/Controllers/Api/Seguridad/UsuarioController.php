@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Seguridad;
 use App\Http\Controllers\Controller;
 use App\Models\Institucional\Contexto;
 use App\Models\User;
+use App\Services\Institucional\ContextoOperativoService;
 use App\Services\Institucional\EstructuraInstitucionalService;
 use App\Services\Notificaciones\NotificacionUsuarioService;
 use App\Services\Seguridad\UsuarioService;
@@ -18,7 +19,12 @@ use Illuminate\Validation\ValidationException;
 
 class UsuarioController extends Controller
 {
-    public function __construct(private readonly UsuarioService $usuarioService, private readonly EstructuraInstitucionalService $estructuraService, private readonly NotificacionUsuarioService $notificacionService) {}
+    public function __construct(
+        private readonly UsuarioService $usuarioService,
+        private readonly EstructuraInstitucionalService $estructuraService,
+        private readonly NotificacionUsuarioService $notificacionService,
+        private readonly ContextoOperativoService $contextoOperativoService,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -35,6 +41,8 @@ class UsuarioController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        $this->contextoOperativoService->asegurarContextosSede();
+
         $datos = $request->validate([
             'nombres' => ['required', 'string', 'max:120'],
             'apellidos' => ['required', 'string', 'max:120'],
@@ -51,6 +59,7 @@ class UsuarioController extends Controller
 
         $this->validarRol((int) $datos['usr_tipo']);
         $datos['contextos'] = $this->normalizarContextosSegunRol((int) $datos['usr_tipo'], $datos['contextos'] ?? []);
+        $datos['contextos'] = $this->contextoOperativoService->validarContextos($datos['contextos']);
         $datos['funciones'] = $this->normalizarFuncionesSegunRol((int) $datos['usr_tipo'], $datos['funciones'] ?? []);
 
         $usuario = DB::transaction(function () use ($datos, $request) {
@@ -75,6 +84,8 @@ class UsuarioController extends Controller
 
     public function update(Request $request, User $usuario): JsonResponse
     {
+        $this->contextoOperativoService->asegurarContextosSede();
+
         $datos = $request->validate([
             'nombres' => ['required', 'string', 'max:120'],
             'apellidos' => ['required', 'string', 'max:120'],
@@ -91,6 +102,7 @@ class UsuarioController extends Controller
         $this->validarRol((int) $datos['usr_tipo']);
         $this->validarCambioPropio($request, $usuario, (int) $datos['usr_tipo'], (int) $datos['usr_estado']);
         $datos['contextos'] = $this->normalizarContextosSegunRol((int) $datos['usr_tipo'], $datos['contextos'] ?? []);
+        $datos['contextos'] = $this->contextoOperativoService->validarContextos($datos['contextos']);
         $datos['funciones'] = $this->normalizarFuncionesSegunRol((int) $datos['usr_tipo'], $datos['funciones'] ?? []);
 
         $usuarioActualizado = DB::transaction(function () use ($usuario, $datos) {

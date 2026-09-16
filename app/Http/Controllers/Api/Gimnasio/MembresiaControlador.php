@@ -7,6 +7,7 @@ use App\Services\Gimnasio\MembresiaServicio;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class MembresiaControlador extends Controller
 {
@@ -40,7 +41,7 @@ class MembresiaControlador extends Controller
                 'gimnasio.planes.nombre as plan_nombre',
                 'institucional.sedes.nombre as sede_nombre'
             );
-            
+
         if ($request->has('deportista_id')) {
             $consulta->where('gimnasio.membresias.deportista_id', $request->deportista_id);
         }
@@ -60,7 +61,7 @@ class MembresiaControlador extends Controller
         $this->aplicarFiltro($consulta, 'seguridad.users.name', $cliente);
         $this->aplicarFiltro($consulta, 'gimnasio.planes.nombre', $plan);
         $this->aplicarFiltro($consulta, 'gimnasio.membresias.estado', $estado);
-        
+
         $membresias = $consulta
             ->orderBy('gimnasio.membresias.created_at', 'desc')
             ->paginate($porPagina, ['*'], 'page', $pagina);
@@ -88,6 +89,8 @@ class MembresiaControlador extends Controller
             'renovacion_automatica' => 'boolean'
         ]);
 
+        $this->validarDeportistaActual((int) $validados['deportista_id']);
+
         $membresia = $this->membresiaServicio->crear($validados);
 
         return ApiResponse::exito('Membresía creada correctamente.', (array) $membresia, [], 201);
@@ -96,7 +99,7 @@ class MembresiaControlador extends Controller
     public function show($id)
     {
         $membresia = $this->membresiaServicio->obtenerMembresiaConRelaciones($id);
-        
+
         if (!$membresia) {
             return response()->json(['mensaje' => 'Membresía no encontrada'], 404);
         }
@@ -107,7 +110,7 @@ class MembresiaControlador extends Controller
     public function update(Request $request, $id)
     {
         $membresia = DB::table('gimnasio.membresias')->where('id', $id)->first();
-        
+
         if (!$membresia) {
             return response()->json(['mensaje' => 'Membresía no encontrada'], 404);
         }
@@ -138,6 +141,21 @@ class MembresiaControlador extends Controller
         $this->membresiaServicio->eliminar((int) $id);
 
         return ApiResponse::exito('Membresía eliminada correctamente.');
+    }
+
+    private function validarDeportistaActual(int $deportistaId): void
+    {
+        $rol = DB::table('gimnasio.deportistas')
+            ->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
+            ->join('seguridad.cpu_userrole', 'seguridad.cpu_userrole.id_userrole', '=', 'seguridad.users.usr_tipo')
+            ->where('gimnasio.deportistas.id', $deportistaId)
+            ->value('seguridad.cpu_userrole.role');
+
+        if ($rol !== 'DEPORTISTA') {
+            throw ValidationException::withMessages([
+                'deportista_id' => 'La membresía solo puede asignarse a un cliente con rol Deportista.',
+            ]);
+        }
     }
 
     private function aplicarFiltro($query, string $columna, mixed $valor): void

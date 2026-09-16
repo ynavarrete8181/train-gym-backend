@@ -13,15 +13,9 @@ class EstadoCatalogoControlador extends Controller
 {
     public function index(Request $request)
     {
+        $porPagina = (int) $request->input('per_page', 5);
+        $pagina = (int) $request->input('page', 1);
         $query = DB::table('configuracion.estados_catalogo');
-
-        if ($request->filled('entidad')) {
-            $query->where('entidad', strtoupper((string) $request->entidad));
-        }
-
-        if ($request->has('activo') && $request->activo !== '') {
-            $query->where('activo', filter_var($request->activo, FILTER_VALIDATE_BOOLEAN));
-        }
 
         if ($request->filled('busqueda')) {
             $texto = mb_strtolower((string) $request->busqueda);
@@ -29,14 +23,34 @@ class EstadoCatalogoControlador extends Controller
                 $q->whereRaw('LOWER(codigo) LIKE ?', ["%{$texto}%"])
                     ->orWhereRaw('LOWER(valor_interno) LIKE ?', ["%{$texto}%"])
                     ->orWhereRaw('LOWER(entidad) LIKE ?', ["%{$texto}%"])
-                    ->orWhereRaw('LOWER(nombre) LIKE ?', ["%{$texto}%"]);
+                    ->orWhereRaw('LOWER(nombre) LIKE ?', ["%{$texto}%"])
+                    ->orWhereRaw('LOWER(color) LIKE ?', ["%{$texto}%"]);
             });
         }
 
-        $items = $query->orderBy('entidad')->orderBy('orden')->orderBy('nombre')->get();
-        $entidades = DB::table('configuracion.estados_catalogo')->distinct()->orderBy('entidad')->pluck('entidad')->values();
+        $this->aplicarFiltroTexto($query, 'codigo', $request->input('codigo'));
+        $this->aplicarFiltroTexto($query, 'entidad', $request->input('entidad'));
+        $this->aplicarFiltroTexto($query, 'valor_interno', $request->input('valor_interno'));
+        $this->aplicarFiltroTexto($query, 'nombre', $request->input('nombre'));
+        $this->aplicarFiltroTexto($query, 'color', $request->input('color'));
+        $this->aplicarFiltroBooleano($query, 'es_inicial', $request->input('inicial'));
+        $this->aplicarFiltroBooleano($query, 'es_final', $request->input('final'));
+        $this->aplicarFiltroBooleano($query, 'protegido_sistema', $request->input('protegido'));
+        $this->aplicarFiltroBooleano($query, 'activo', $request->input('estado'));
 
-        return ApiResponse::exito('Estados consultados.', $items, ['entidades' => $entidades]);
+        $paginado = $query
+            ->orderBy('entidad')
+            ->orderBy('orden')
+            ->orderBy('nombre')
+            ->paginate($porPagina, ['*'], 'page', $pagina);
+
+        return ApiResponse::exito('Estados consultados.', $paginado->items(), [
+            'pagina_actual' => $paginado->currentPage(),
+            'por_pagina' => $paginado->perPage(),
+            'total' => $paginado->total(),
+            'ultima_pagina' => $paginado->lastPage(),
+            'opciones_filtro' => $this->opcionesFiltro(),
+        ]);
     }
 
     public function store(Request $request)
@@ -126,5 +140,54 @@ class EstadoCatalogoControlador extends Controller
                 'valor_interno' => 'Ya existe un estado con ese valor interno para la entidad seleccionada.',
             ]);
         }
+    }
+
+    private function aplicarFiltroTexto($query, string $columna, mixed $valor): void
+    {
+        if ($valor === null || $valor === '' || $valor === []) {
+            return;
+        }
+
+        if (is_array($valor)) {
+            $valores = array_values(array_filter(array_map('strval', $valor), fn ($item) => $item !== ''));
+            if ($valores !== []) {
+                $query->whereIn($columna, $valores);
+            }
+            return;
+        }
+
+        $texto = mb_strtolower((string) $valor);
+        $query->whereRaw("LOWER({$columna}) LIKE ?", ["%{$texto}%"]);
+    }
+
+    private function aplicarFiltroBooleano($query, string $columna, mixed $valor): void
+    {
+        if ($valor === null || $valor === '' || $valor === []) {
+            return;
+        }
+
+        $valores = is_array($valor) ? $valor : [$valor];
+        $booleanos = collect($valores)
+            ->map(fn ($item) => filter_var($item, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE))
+            ->filter(fn ($item) => $item !== null)
+            ->values()
+            ->all();
+
+        if ($booleanos !== []) {
+            $query->whereIn($columna, $booleanos);
+        }
+    }
+
+    private function opcionesFiltro(): array
+    {
+        $base = DB::table('configuracion.estados_catalogo');
+
+        return [
+            'codigo' => (clone $base)->distinct()->orderBy('codigo')->pluck('codigo')->values(),
+            'entidad' => (clone $base)->distinct()->orderBy('entidad')->pluck('entidad')->values(),
+            'valor_interno' => (clone $base)->distinct()->orderBy('valor_interno')->pluck('valor_interno')->values(),
+            'nombre' => (clone $base)->distinct()->orderBy('nombre')->pluck('nombre')->values(),
+            'color' => (clone $base)->distinct()->orderBy('color')->pluck('color')->values(),
+        ];
     }
 }

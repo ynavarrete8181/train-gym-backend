@@ -14,15 +14,46 @@ class VentaControlador extends Controller
     {
     }
 
-    public function cajas(Request $request) { return $this->respuesta('Cajas consultadas.', $this->ventas->listarCajas($request->all())); }
-    public function ventas(Request $request) { return $this->respuesta('Ventas consultadas.', $this->ventas->listarVentas($request->all())); }
-    public function pagos(Request $request) { return $this->respuesta('Pagos consultados.', $this->ventas->listarPagos($request->all())); }
-    public function comprobantes(Request $request) { return $this->respuesta('Comprobantes consultados.', $this->ventas->listarComprobantes($request->all())); }
+    public function cajas(Request $request)
+    {
+        return $this->respuesta(
+            'Cajas consultadas.',
+            $this->ventas->listarCajas($request->all(), $request->user()?->id),
+            $request->user()?->id,
+        );
+    }
+
+    public function ventas(Request $request)
+    {
+        return $this->respuesta(
+            'Ventas consultadas.',
+            $this->ventas->listarVentas($request->all(), $request->user()?->id),
+            $request->user()?->id,
+        );
+    }
+
+    public function pagos(Request $request)
+    {
+        return $this->respuesta(
+            'Pagos consultados.',
+            $this->ventas->listarPagos($request->all(), $request->user()?->id),
+            $request->user()?->id,
+        );
+    }
+
+    public function comprobantes(Request $request)
+    {
+        return $this->respuesta(
+            'Comprobantes consultados.',
+            $this->ventas->listarComprobantes($request->all(), $request->user()?->id),
+            $request->user()?->id,
+        );
+    }
 
     public function guardarCaja(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
+            'sede_id' => 'required|exists:pgsql.institucional.sedes,id_sede',
             'codigo' => ['required', 'string', 'max:40', Rule::unique('ventas.cajas', 'codigo')->ignore($id)],
             'nombre' => 'required|string|max:120',
             'descripcion' => 'nullable|string',
@@ -30,7 +61,12 @@ class VentaControlador extends Controller
             'activa' => 'boolean',
         ]);
 
-        return ApiResponse::exito('Caja guardada correctamente.', (array) $this->ventas->guardarCaja($datos, $id), [], $id ? 200 : 201);
+        return ApiResponse::exito(
+            'Caja guardada correctamente.',
+            (array) $this->ventas->guardarCaja($datos, $id, $request->user()?->id),
+            [],
+            $id ? 200 : 201,
+        );
     }
 
     public function guardarVenta(Request $request, ?int $id = null)
@@ -61,7 +97,12 @@ class VentaControlador extends Controller
             'detalle.total_linea' => 'nullable|numeric|min:0',
         ]);
 
-        return ApiResponse::exito('Venta guardada correctamente.', (array) $this->ventas->guardarVenta($datos, $id, $request->user()?->id), [], $id ? 200 : 201);
+        return ApiResponse::exito(
+            'Venta guardada correctamente.',
+            (array) $this->ventas->guardarVenta($datos, $id, $request->user()?->id),
+            [],
+            $id ? 200 : 201,
+        );
     }
 
     public function guardarPago(Request $request)
@@ -82,18 +123,23 @@ class VentaControlador extends Controller
             'observaciones' => 'nullable|string',
         ]);
 
-        return ApiResponse::exito('Pago registrado correctamente.', (array) $this->ventas->guardarPago($datos, $request->user()?->id), [], 201);
+        return ApiResponse::exito(
+            'Pago registrado correctamente.',
+            (array) $this->ventas->guardarPago($datos, $request->user()?->id),
+            [],
+            201,
+        );
     }
 
-    private function respuesta(string $mensaje, $paginador)
+    private function respuesta(string $mensaje, $paginador, ?int $usuarioId)
     {
         return ApiResponse::exito($mensaje, $paginador->items(), [
             'pagina_actual' => $paginador->currentPage(),
             'por_pagina' => $paginador->perPage(),
             'total' => $paginador->total(),
             'ultima_pagina' => $paginador->lastPage(),
-            'opciones_filtro' => $this->ventas->opcionesFiltro(),
-            'catalogos' => $this->ventas->catalogos(),
+            'opciones_filtro' => $this->ventas->opcionesFiltro($usuarioId),
+            'catalogos' => $this->ventas->catalogos($usuarioId),
         ]);
     }
 }

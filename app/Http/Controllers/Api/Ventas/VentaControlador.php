@@ -46,7 +46,12 @@ class VentaControlador extends Controller
             'descuento' => 'nullable|numeric|min:0',
             'impuesto' => 'nullable|numeric|min:0',
             'total' => 'required|numeric|min:0.01',
-            'estado' => 'required|string|in:PENDIENTE,PARCIAL,PAGADA,ANULADA',
+            'estado' => [
+                'required',
+                'string',
+                Rule::exists('configuracion.estados_catalogo', 'valor_interno')
+                    ->where(fn ($q) => $q->where('entidad', 'VENTA')->where('activo', true)),
+            ],
             'observaciones' => 'nullable|string',
             'detalle' => 'nullable|array',
             'detalle.producto_id' => 'nullable|exists:pgsql.inventario.productos,id',
@@ -67,7 +72,12 @@ class VentaControlador extends Controller
             'numero_comprobante' => 'nullable|string|max:60|unique:pgsql.ventas.pagos,numero_comprobante',
             'metodo_pago' => 'required|string|in:EFECTIVO,TARJETA,TRANSFERENCIA,DEPOSITO,OTRO',
             'monto' => 'required|numeric|min:0.01',
-            'estado' => 'required|string|in:CONFIRMADO,ANULADO',
+            'estado' => [
+                'required',
+                'string',
+                Rule::exists('configuracion.estados_catalogo', 'valor_interno')
+                    ->where(fn ($q) => $q->where('entidad', 'PAGO')->where('activo', true)),
+            ],
             'referencia' => 'nullable|string|max:120',
             'observaciones' => 'nullable|string',
         ]);

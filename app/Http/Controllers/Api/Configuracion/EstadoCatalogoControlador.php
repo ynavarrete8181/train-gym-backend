@@ -27,6 +27,7 @@ class EstadoCatalogoControlador extends Controller
             $texto = mb_strtolower((string) $request->busqueda);
             $query->where(function ($q) use ($texto): void {
                 $q->whereRaw('LOWER(codigo) LIKE ?', ["%{$texto}%"])
+                    ->orWhereRaw('LOWER(valor_interno) LIKE ?', ["%{$texto}%"])
                     ->orWhereRaw('LOWER(entidad) LIKE ?', ["%{$texto}%"])
                     ->orWhereRaw('LOWER(nombre) LIKE ?', ["%{$texto}%"]);
             });
@@ -43,6 +44,8 @@ class EstadoCatalogoControlador extends Controller
         $datos = $this->validar($request);
         $datos['codigo'] = strtoupper($datos['codigo']);
         $datos['entidad'] = strtoupper($datos['entidad']);
+        $datos['valor_interno'] = strtoupper($datos['valor_interno']);
+        $this->validarValorUnico($datos['entidad'], $datos['valor_interno']);
         $datos['protegido_sistema'] = false;
         $datos['created_at'] = now();
         $datos['updated_at'] = now();
@@ -60,11 +63,13 @@ class EstadoCatalogoControlador extends Controller
 
         $datos = $this->validar($request, $id);
         $datos['entidad'] = strtoupper($datos['entidad']);
+        $datos['valor_interno'] = strtoupper($datos['valor_interno']);
 
         if ($actual->protegido_sistema) {
-            unset($datos['codigo'], $datos['entidad']);
+            unset($datos['codigo'], $datos['entidad'], $datos['valor_interno']);
         } else {
             $datos['codigo'] = strtoupper($datos['codigo']);
+            $this->validarValorUnico($datos['entidad'], $datos['valor_interno'], $id);
         }
 
         $datos['updated_at'] = now();
@@ -95,6 +100,7 @@ class EstadoCatalogoControlador extends Controller
         return $request->validate([
             'codigo' => ['required', 'string', 'max:80', Rule::unique('configuracion.estados_catalogo', 'codigo')->ignore($id)],
             'entidad' => 'required|string|max:60',
+            'valor_interno' => 'required|string|max:80',
             'nombre' => 'required|string|max:120',
             'descripcion' => 'nullable|string|max:255',
             'color' => 'required|string|in:default,info,success,warning,error',
@@ -103,5 +109,22 @@ class EstadoCatalogoControlador extends Controller
             'es_inicial' => 'boolean',
             'es_final' => 'boolean',
         ]);
+    }
+
+    private function validarValorUnico(string $entidad, string $valorInterno, ?int $ignorarId = null): void
+    {
+        $query = DB::table('configuracion.estados_catalogo')
+            ->where('entidad', $entidad)
+            ->where('valor_interno', $valorInterno);
+
+        if ($ignorarId) {
+            $query->where('id', '<>', $ignorarId);
+        }
+
+        if ($query->exists()) {
+            throw ValidationException::withMessages([
+                'valor_interno' => 'Ya existe un estado con ese valor interno para la entidad seleccionada.',
+            ]);
+        }
     }
 }

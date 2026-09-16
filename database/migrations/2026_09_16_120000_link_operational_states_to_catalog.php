@@ -69,6 +69,11 @@ return new class extends Migration
 
     private function asegurarEstadosReserva(): void
     {
+        DB::table('configuracion.estados_catalogo')
+            ->where('entidad', 'RESERVA')
+            ->whereIn('valor_interno', ['PENDIENTE', 'CONFIRMADA'])
+            ->update(['activo' => false, 'updated_at' => now()]);
+
         $estados = [
             ['RES_RESERVADA', 'RESERVADA', 'Reservada', 'Reserva registrada y vigente.', 'info', 1, true, false],
             ['RES_ASISTIO', 'ASISTIO', 'Asistió', 'El cliente asistió a la reserva.', 'success', 2, false, true],

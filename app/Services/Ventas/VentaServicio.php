@@ -4,22 +4,27 @@ namespace App\Services\Ventas;
 
 use App\Services\Concerns\RegistraAuditoria;
 use App\Services\Configuracion\EstadoCatalogoServicio;
+use App\Services\Seguridad\AlcanceOperativoService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class VentaServicio
 {
     use RegistraAuditoria;
 
-    public function __construct(private readonly EstadoCatalogoServicio $estados)
-    {
+    public function __construct(
+        private readonly EstadoCatalogoServicio $estados,
+        private readonly AlcanceOperativoService $alcance,
+    ) {
     }
 
-    public function listarCajas(array $filtros)
+    public function listarCajas(array $filtros, ?int $usuarioId = null)
     {
         $query = DB::table('ventas.cajas')
             ->leftJoin('institucional.sedes', 'ventas.cajas.sede_id', '=', 'institucional.sedes.id_sede')
             ->select('ventas.cajas.*', 'institucional.sedes.nombre as sede_nombre');
 
+        $this->alcance->aplicarSedes($query, 'ventas.cajas.sede_id', $usuarioId, 'maneja_caja');
         $this->buscar($query, $filtros['busqueda'] ?? null, ['ventas.cajas.codigo', 'ventas.cajas.nombre', 'institucional.sedes.nombre']);
         $this->filtrarTexto($query, 'ventas.cajas.nombre', $filtros['nombre'] ?? null);
         $this->filtrarBooleano($query, 'ventas.cajas.activa', $filtros['estado'] ?? null);
@@ -27,29 +32,35 @@ class VentaServicio
         return $query->orderBy('ventas.cajas.nombre')->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
     }
 
-    public function guardarCaja(array $datos, ?int $id = null): object
+    public function guardarCaja(array $datos, ?int $id = null, ?int $usuarioId = null): object
     {
+        $this->alcance->validarSede($usuarioId, isset($datos['sede_id']) ? (int) $datos['sede_id'] : null, 'maneja_caja');
         return $this->guardar('ventas.cajas', $datos, $id);
     }
 
-    public function listarVentas(array $filtros)
+    public function listarVentas(array $filtros, ?int $usuarioId = null)
     {
         $query = DB::table('ventas.ventas')
             ->leftJoin('gimnasio.deportistas', 'ventas.ventas.cliente_id', '=', 'gimnasio.deportistas.id')
             ->leftJoin('seguridad.users as cliente_user', 'gimnasio.deportistas.usuario_id', '=', 'cliente_user.id')
             ->leftJoin('ventas.cajas', 'ventas.ventas.caja_id', '=', 'ventas.cajas.id')
+            ->leftJoin('gimnasio.membresias as membresia_sede', 'ventas.ventas.membresia_id', '=', 'membresia_sede.id')
+            ->leftJoin('institucional.sedes as sede_operacion', DB::raw('COALESCE(ventas.cajas.sede_id, membresia_sede.sede_id)'), '=', 'sede_operacion.id_sede')
             ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'ventas.ventas.estado_id', '=', 'estado_cfg.id')
             ->select(
                 'ventas.ventas.*',
                 'cliente_user.name as cliente_nombre',
                 'gimnasio.deportistas.codigo_deportista',
                 'ventas.cajas.nombre as caja_nombre',
+                DB::raw('COALESCE(ventas.cajas.sede_id, membresia_sede.sede_id) as sede_id'),
+                'sede_operacion.nombre as sede_nombre',
                 'estado_cfg.codigo as estado_codigo',
                 'estado_cfg.valor_interno as estado_valor',
                 'estado_cfg.nombre as estado_nombre',
                 'estado_cfg.color as estado_color'
             );
 
+        $this->aplicarAlcanceVenta($query, $usuarioId);
         $this->buscar($query, $filtros['busqueda'] ?? null, ['ventas.ventas.numero', 'ventas.ventas.concepto', 'ventas.ventas.tipo_venta', 'cliente_user.name', 'estado_cfg.nombre']);
         $this->filtrarTexto($query, 'ventas.ventas.numero', $filtros['numero'] ?? null);
         $this->filtrarTexto($query, 'cliente_user.name', $filtros['cliente'] ?? null);
@@ -64,6 +75,21 @@ class VentaServicio
         return DB::transaction(function () use ($datos, $id, $usuarioId): object {
             $detalle = $datos['detalle'] ?? [];
             unset($datos['detalle']);
+
+            $existente = $id ? DB::table('ventas.ventas')->where('id', $id)->first() : null;
+            $cajaId = array_key_exists('caja_id', $datos) ? $datos['caja_id'] : $existente?->caja_id;
+            $membresiaId = array_key_exists('membresia_id', $datos) ? $datos['membresia_id'] : $existente?->membresia_id;
+            $sedeCaja = $this->alcance->sedeDeCaja($cajaId ? (int) $cajaId : null);
+            $sedeMembresia = $this->alcance->sedeDeMembresia($membresiaId ? (int) $membresiaId : null);
+
+            if ($sedeCaja && $sedeMembresia && $sedeCaja !== $sedeMembresia) {
+                throw ValidationException::withMessages([
+                    'caja_id' => 'La caja y la membresía pertenecen a sedes diferentes.',
+                ]);
+            }
+
+            $sedeOperacion = $sedeCaja ?: $sedeMembresia;
+            $this->alcance->validarSede($usuarioId, $sedeOperacion, 'maneja_caja');
 
             $datos = $this->estados->aplicar($datos, 'VENTA');
             $datos['usuario_id'] = $datos['usuario_id'] ?? $usuarioId;
@@ -104,10 +130,12 @@ class VentaServicio
         });
     }
 
-    public function listarPagos(array $filtros)
+    public function listarPagos(array $filtros, ?int $usuarioId = null)
     {
         $query = DB::table('ventas.pagos')
             ->join('ventas.ventas', 'ventas.pagos.venta_id', '=', 'ventas.ventas.id')
+            ->leftJoin('ventas.cajas as caja_venta', 'ventas.ventas.caja_id', '=', 'caja_venta.id')
+            ->leftJoin('gimnasio.membresias as membresia_sede', 'ventas.ventas.membresia_id', '=', 'membresia_sede.id')
             ->leftJoin('ventas.cajas', 'ventas.pagos.caja_id', '=', 'ventas.cajas.id')
             ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'ventas.pagos.estado_id', '=', 'estado_cfg.id')
             ->select(
@@ -115,12 +143,14 @@ class VentaServicio
                 'ventas.ventas.numero as venta_numero',
                 'ventas.ventas.concepto as venta_concepto',
                 'ventas.cajas.nombre as caja_nombre',
+                DB::raw('COALESCE(caja_venta.sede_id, membresia_sede.sede_id) as sede_id'),
                 'estado_cfg.codigo as estado_codigo',
                 'estado_cfg.valor_interno as estado_valor',
                 'estado_cfg.nombre as estado_nombre',
                 'estado_cfg.color as estado_color'
             );
 
+        $this->aplicarAlcanceVenta($query, $usuarioId, 'caja_venta.sede_id');
         $this->buscar($query, $filtros['busqueda'] ?? null, ['ventas.pagos.numero_comprobante', 'ventas.ventas.numero', 'ventas.pagos.metodo_pago', 'ventas.pagos.referencia', 'estado_cfg.nombre']);
         $this->filtrarTexto($query, 'ventas.pagos.numero_comprobante', $filtros['comprobante'] ?? null);
         $this->filtrarTexto($query, 'ventas.pagos.metodo_pago', $filtros['metodo'] ?? null);
@@ -132,6 +162,19 @@ class VentaServicio
     public function guardarPago(array $datos, ?int $usuarioId = null): object
     {
         return DB::transaction(function () use ($datos, $usuarioId): object {
+            $sedeVenta = $this->alcance->sedeDeVenta((int) $datos['venta_id']);
+            $this->alcance->validarSede($usuarioId, $sedeVenta, 'maneja_caja');
+
+            $sedeCajaPago = $this->alcance->sedeDeCaja(! empty($datos['caja_id']) ? (int) $datos['caja_id'] : null);
+            if ($sedeCajaPago && $sedeVenta && $sedeCajaPago !== $sedeVenta) {
+                throw ValidationException::withMessages([
+                    'caja_id' => 'El pago debe registrarse en una caja de la misma sede de la venta.',
+                ]);
+            }
+            if ($sedeCajaPago) {
+                $this->alcance->validarSede($usuarioId, $sedeCajaPago, 'maneja_caja');
+            }
+
             $datos = $this->estados->aplicar($datos, 'PAGO');
             $datos['usuario_id'] = $usuarioId;
             $datos['numero_comprobante'] = $datos['numero_comprobante'] ?? $this->secuencia('PAGO');
@@ -150,14 +193,23 @@ class VentaServicio
         });
     }
 
-    public function listarComprobantes(array $filtros)
+    public function listarComprobantes(array $filtros, ?int $usuarioId = null)
     {
         $query = DB::table('ventas.comprobantes')
             ->join('ventas.ventas', 'ventas.comprobantes.venta_id', '=', 'ventas.ventas.id')
+            ->leftJoin('ventas.cajas as caja_venta', 'ventas.ventas.caja_id', '=', 'caja_venta.id')
+            ->leftJoin('gimnasio.membresias as membresia_sede', 'ventas.ventas.membresia_id', '=', 'membresia_sede.id')
             ->leftJoin('gimnasio.deportistas', 'ventas.ventas.cliente_id', '=', 'gimnasio.deportistas.id')
             ->leftJoin('seguridad.users as cliente_user', 'gimnasio.deportistas.usuario_id', '=', 'cliente_user.id')
-            ->select('ventas.comprobantes.*', 'ventas.ventas.numero as venta_numero', 'ventas.ventas.concepto', 'cliente_user.name as cliente_nombre');
+            ->select(
+                'ventas.comprobantes.*',
+                'ventas.ventas.numero as venta_numero',
+                'ventas.ventas.concepto',
+                'cliente_user.name as cliente_nombre',
+                DB::raw('COALESCE(caja_venta.sede_id, membresia_sede.sede_id) as sede_id')
+            );
 
+        $this->aplicarAlcanceVenta($query, $usuarioId, 'caja_venta.sede_id');
         $this->buscar($query, $filtros['busqueda'] ?? null, ['ventas.comprobantes.numero', 'ventas.ventas.numero', 'ventas.ventas.concepto', 'cliente_user.name']);
         $this->filtrarTexto($query, 'ventas.comprobantes.numero', $filtros['numero'] ?? null);
         $this->filtrarTexto($query, 'ventas.comprobantes.estado', $filtros['estado'] ?? null);
@@ -165,34 +217,70 @@ class VentaServicio
         return $query->orderByDesc('ventas.comprobantes.created_at')->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
     }
 
-    public function catalogos(): array
+    public function catalogos(?int $usuarioId = null): array
     {
+        $sedes = $this->alcance->sedesPermitidas($usuarioId, 'maneja_caja');
+
         return [
-            'cajas' => DB::table('ventas.cajas')->where('activa', true)->orderBy('nombre')->get(['id', 'nombre', 'codigo']),
+            'cajas' => DB::table('ventas.cajas')->where('activa', true)->whereIn('sede_id', $sedes)->orderBy('nombre')->get(['id', 'nombre', 'codigo', 'sede_id']),
             'clientes' => DB::table('gimnasio.deportistas')
                 ->leftJoin('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
                 ->orderBy('seguridad.users.name')
                 ->get(['gimnasio.deportistas.id', 'gimnasio.deportistas.codigo_deportista', 'seguridad.users.name as nombre']),
-            'membresias' => DB::table('gimnasio.membresias')->orderByDesc('created_at')->limit(100)->get(['id', 'codigo_contrato', 'estado', 'estado_id', 'precio_aplicado']),
+            'membresias' => DB::table('gimnasio.membresias')->whereIn('sede_id', $sedes)->orderByDesc('created_at')->limit(100)->get(['id', 'codigo_contrato', 'estado', 'estado_id', 'precio_aplicado', 'sede_id']),
             'productos' => DB::table('inventario.productos')->where('activo', true)->orderBy('nombre')->get(['id', 'codigo', 'nombre', 'precio_venta']),
-            'sedes' => DB::table('institucional.sedes')->where('activo', true)->orderBy('nombre')->get(['id_sede as id', 'nombre']),
-            'ventas_pendientes' => DB::table('ventas.ventas')->whereIn('estado', ['PENDIENTE', 'PARCIAL'])->orderByDesc('fecha_venta')->get(['id', 'numero', 'concepto', 'total']),
+            'sedes' => DB::table('institucional.sedes')->where('activo', true)->whereIn('id_sede', $sedes)->orderBy('nombre')->get(['id_sede as id', 'nombre']),
+            'ventas_pendientes' => $this->ventasPendientesCatalogo($sedes),
             'estados_venta' => $this->estadosEntidad('VENTA'),
             'estados_pago' => $this->estadosEntidad('PAGO'),
         ];
     }
 
-    public function opcionesFiltro(): array
+    public function opcionesFiltro(?int $usuarioId = null): array
     {
+        $sedes = $this->alcance->sedesPermitidas($usuarioId, 'maneja_caja');
+        $cajas = DB::table('ventas.cajas')->whereIn('sede_id', $sedes);
+        $ventas = DB::table('ventas.ventas as v')
+            ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
+            ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
+            ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes);
+        $pagos = DB::table('ventas.pagos as p')
+            ->join('ventas.ventas as v', 'v.id', '=', 'p.venta_id')
+            ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
+            ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
+            ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes);
+
         return [
-            'caja' => DB::table('ventas.cajas')->distinct()->orderBy('nombre')->pluck('nombre')->values(),
+            'caja' => $cajas->distinct()->orderBy('nombre')->pluck('nombre')->values(),
             'cliente' => DB::table('seguridad.users')->distinct()->orderBy('name')->pluck('name')->values(),
-            'numero' => DB::table('ventas.ventas')->distinct()->orderBy('numero')->pluck('numero')->values(),
-            'tipo' => DB::table('ventas.ventas')->distinct()->orderBy('tipo_venta')->pluck('tipo_venta')->values(),
-            'metodo' => DB::table('ventas.pagos')->distinct()->orderBy('metodo_pago')->pluck('metodo_pago')->values(),
+            'numero' => $ventas->distinct()->orderBy('numero')->pluck('numero')->values(),
+            'tipo' => (clone $ventas)->distinct()->orderBy('tipo_venta')->pluck('tipo_venta')->values(),
+            'metodo' => $pagos->distinct()->orderBy('metodo_pago')->pluck('metodo_pago')->values(),
             'estado_venta' => $this->estadosEntidad('VENTA')->pluck('valor_interno')->values(),
             'estado_pago' => $this->estadosEntidad('PAGO')->pluck('valor_interno')->values(),
         ];
+    }
+
+    private function ventasPendientesCatalogo(array $sedes)
+    {
+        return DB::table('ventas.ventas as v')
+            ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
+            ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
+            ->whereIn('v.estado', ['PENDIENTE', 'PARCIAL'])
+            ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes)
+            ->orderByDesc('v.fecha_venta')
+            ->get(['v.id', 'v.numero', 'v.concepto', 'v.total']);
+    }
+
+    private function aplicarAlcanceVenta($query, ?int $usuarioId, string $columnaCaja = 'ventas.cajas.sede_id'): void
+    {
+        $sedes = $this->alcance->sedesPermitidas($usuarioId, 'maneja_caja');
+        if (empty($sedes)) {
+            $query->whereRaw('1 = 0');
+            return;
+        }
+
+        $query->whereIn(DB::raw("COALESCE({$columnaCaja}, membresia_sede.sede_id)"), $sedes);
     }
 
     private function obtenerVenta(int $id): object

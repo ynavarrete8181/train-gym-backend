@@ -146,7 +146,7 @@ class VentaServicio
                 ->leftJoin('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
                 ->orderBy('seguridad.users.name')
                 ->get(['gimnasio.deportistas.id', 'gimnasio.deportistas.codigo_deportista', 'seguridad.users.name as nombre']),
-            'membresias' => DB::table('gimnasio.membresias')->orderByDesc('created_at')->limit(100)->get(['id', 'codigo_contrato', 'estado', 'total']),
+            'membresias' => DB::table('gimnasio.membresias')->orderByDesc('created_at')->limit(100)->get(['id', 'codigo_contrato', 'estado', 'precio_aplicado']),
             'productos' => DB::table('inventario.productos')->where('activo', true)->orderBy('nombre')->get(['id', 'codigo', 'nombre', 'precio_venta']),
             'sedes' => DB::table('institucional.sedes')->where('activo', true)->orderBy('nombre')->get(['id_sede as id', 'nombre']),
             'ventas_pendientes' => DB::table('ventas.ventas')->whereIn('estado', ['PENDIENTE', 'PARCIAL'])->orderByDesc('fecha_venta')->get(['id', 'numero', 'concepto', 'total']),
@@ -179,7 +179,15 @@ class VentaServicio
         $venta = DB::table('ventas.ventas')->where('id', $ventaId)->first();
         $pagado = (float) DB::table('ventas.pagos')->where('venta_id', $ventaId)->where('estado', 'CONFIRMADO')->sum('monto');
         $estado = $pagado <= 0 ? 'PENDIENTE' : ($pagado >= (float) $venta->total ? 'PAGADA' : 'PARCIAL');
+
         DB::table('ventas.ventas')->where('id', $ventaId)->update(['estado' => $estado, 'updated_at' => now()]);
+
+        if ($estado === 'PAGADA' && $venta->membresia_id) {
+            DB::table('gimnasio.membresias')
+                ->where('id', $venta->membresia_id)
+                ->where('estado', 'PENDIENTE_PAGO')
+                ->update(['estado' => 'ACTIVA', 'updated_at' => now()]);
+        }
     }
 
     private function guardar(string $tabla, array $datos, ?int $id): object

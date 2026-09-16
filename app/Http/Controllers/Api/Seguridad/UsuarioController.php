@@ -50,12 +50,11 @@ class UsuarioController extends Controller
         ]);
 
         $this->validarRol((int) $datos['usr_tipo']);
-        $this->validarCambioPropio($request, $usuario, (int) $datos['usr_tipo'], (int) $datos['usr_estado']);
-        $this->validarContextosSegunRol((int) $datos['usr_tipo'], $datos['contextos'] ?? []);
+        $datos['contextos'] = $this->normalizarContextosSegunRol((int) $datos['usr_tipo'], $datos['contextos'] ?? []);
 
         $usuario = DB::transaction(function () use ($datos, $request) {
             $usuario = $this->usuarioService->crear($datos);
-            $this->estructuraService->asignarUsuario($usuario->id, $datos['contextos'] ?? []);
+            $this->estructuraService->asignarUsuario($usuario->id, $datos['contextos']);
             $this->notificacionService->registrarPendiente($usuario, $request->user()?->id);
 
             return $usuario;
@@ -89,11 +88,12 @@ class UsuarioController extends Controller
         ]);
 
         $this->validarRol((int) $datos['usr_tipo']);
-        $this->validarContextosSegunRol((int) $datos['usr_tipo'], $datos['contextos'] ?? []);
+        $this->validarCambioPropio($request, $usuario, (int) $datos['usr_tipo'], (int) $datos['usr_estado']);
+        $datos['contextos'] = $this->normalizarContextosSegunRol((int) $datos['usr_tipo'], $datos['contextos'] ?? []);
 
         $usuarioActualizado = DB::transaction(function () use ($usuario, $datos) {
             $actualizado = $this->usuarioService->actualizar($usuario, $datos);
-            $this->estructuraService->asignarUsuario($usuario->id, $datos['contextos'] ?? []);
+            $this->estructuraService->asignarUsuario($usuario->id, $datos['contextos']);
             if (array_key_exists('funciones', $datos)) {
                 $this->usuarioService->guardarFuncionesUsuario($usuario->id, (int) $datos['usr_tipo'], $datos['funciones']);
             }
@@ -110,6 +110,7 @@ class UsuarioController extends Controller
             'usr_estado' => ['required', 'integer', Rule::in([1, 0])],
         ]);
 
+        $this->validarCambioPropio($request, $usuario, (int) $usuario->usr_tipo, (int) $datos['usr_estado']);
         $usuarioActualizado = $this->usuarioService->cambiarEstado($usuario, (int) $datos['usr_estado']);
 
         return ApiResponse::exito('Estado actualizado correctamente.', $usuarioActualizado);
@@ -196,24 +197,22 @@ class UsuarioController extends Controller
         }
     }
 
-    private function validarContextosSegunRol(int $idRol, array $contextos): void
+    private function normalizarContextosSegunRol(int $idRol, array $contextos): array
     {
-        if ($this->rolEsDeportista($idRol)) {
-            return;
+        $rol = DB::table('seguridad.cpu_userrole')
+            ->where('id_userrole', $idRol)
+            ->value('role');
+
+        if (in_array($rol, ['SUPERADMINISTRADOR', 'DEPORTISTA', 'RESPONSABLE'], true)) {
+            return [];
         }
 
         if (empty($contextos)) {
             throw ValidationException::withMessages([
-                'contextos' => 'Selecciona una asignación operativa.',
+                'contextos' => 'Selecciona al menos una asignación operativa para este rol.',
             ]);
         }
-    }
 
-    private function rolEsDeportista(int $idRol): bool
-    {
-        return DB::table('seguridad.cpu_userrole')
-            ->where('id_userrole', $idRol)
-            ->where('role', 'DEPORTISTA')
-            ->exists();
+        return array_values(array_unique(array_map('intval', $contextos)));
     }
 }

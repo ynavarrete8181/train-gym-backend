@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Gimnasio;
 
 use App\Http\Controllers\Controller;
+use App\Services\Configuracion\EstadoCatalogoServicio;
 use App\Services\Gimnasio\ServicioAgendaServicio;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
@@ -12,8 +13,10 @@ use Illuminate\Validation\ValidationException;
 
 class ServicioAgendaControlador extends Controller
 {
-    public function __construct(private readonly ServicioAgendaServicio $servicioAgenda)
-    {
+    public function __construct(
+        private readonly ServicioAgendaServicio $servicioAgenda,
+        private readonly EstadoCatalogoServicio $estados,
+    ) {
     }
 
     public function categorias(Request $request)
@@ -142,6 +145,20 @@ class ServicioAgendaControlador extends Controller
     public function reservasDia(Request $request)
     {
         $resultado = $this->servicioAgenda->listarReservasDia($request->all());
+        $estados = DB::table('configuracion.estados_catalogo')
+            ->where('entidad', 'RESERVA')
+            ->get()
+            ->keyBy('id');
+
+        $resultado->getCollection()->transform(function ($reserva) use ($estados) {
+            $estado = $reserva->estado_id ? $estados->get($reserva->estado_id) : null;
+            $reserva->estado_codigo = $estado?->codigo;
+            $reserva->estado_valor = $estado?->valor_interno ?? $reserva->estado;
+            $reserva->estado_nombre = $estado?->nombre ?? $reserva->estado;
+            $reserva->estado_color = $estado?->color;
+            return $reserva;
+        });
+
         return $this->respuestaPaginada('Reservas consultadas.', $resultado, $this->metaFiltros());
     }
 
@@ -155,9 +172,16 @@ class ServicioAgendaControlador extends Controller
             'fecha' => 'required|date',
             'hora_inicio' => 'required|date_format:H:i',
             'hora_fin' => 'required|date_format:H:i|after:hora_inicio',
-            'estado' => 'required|string|in:RESERVADA,ASISTIO,CANCELADA,NO_ASISTIO',
+            'estado' => [
+                'required',
+                'string',
+                Rule::exists('configuracion.estados_catalogo', 'valor_interno')
+                    ->where(fn ($q) => $q->where('entidad', 'RESERVA')->where('activo', true)),
+            ],
             'observaciones' => 'nullable|string',
         ]);
+
+        $datos = $this->estados->aplicar($datos, 'RESERVA');
 
         return ApiResponse::exito('Reserva guardada correctamente.', (array) $this->servicioAgenda->guardarReservaDia($datos, $id), [], $id ? 200 : 201);
     }
@@ -181,8 +205,15 @@ class ServicioAgendaControlador extends Controller
                 'servicio' => DB::table('gimnasio.servicios')->distinct()->orderBy('nombre')->pluck('nombre')->values(),
                 'sede' => DB::table('institucional.sedes')->distinct()->orderBy('nombre')->pluck('nombre')->values(),
                 'cliente' => DB::table('gimnasio.deportistas')->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')->distinct()->orderBy('seguridad.users.name')->pluck('seguridad.users.name')->values(),
+                'estado_reserva' => DB::table('configuracion.estados_catalogo')->where('entidad', 'RESERVA')->where('activo', true)->orderBy('orden')->pluck('valor_interno')->values(),
             ],
-            'catalogos' => $this->servicioAgenda->opcionesFiltro(),
+            'catalogos' => array_merge($this->servicioAgenda->opcionesFiltro(), [
+                'estados_reserva' => DB::table('configuracion.estados_catalogo')
+                    ->where('entidad', 'RESERVA')
+                    ->where('activo', true)
+                    ->orderBy('orden')
+                    ->get(['id', 'codigo', 'valor_interno', 'nombre', 'color', 'es_inicial', 'es_final']),
+            ]),
         ];
     }
 }

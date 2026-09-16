@@ -116,6 +116,7 @@ class MembresiaControlador extends Controller
         }
 
         $validados = $request->validate([
+            'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
             'fecha_inicio' => 'required|date',
             'fecha_fin' => 'required|date|after_or_equal:fecha_inicio',
             'estado' => 'required|string|in:PENDIENTE_PAGO,ACTIVA,VENCIDA,CONGELADA,CANCELADA',
@@ -124,6 +125,23 @@ class MembresiaControlador extends Controller
             'fecha_congelacion_inicio' => 'nullable|date',
             'fecha_congelacion_fin' => 'nullable|date|after_or_equal:fecha_congelacion_inicio',
         ]);
+
+        if ($membresia->sede_id === null) {
+            if (empty($validados['sede_id'])) {
+                throw ValidationException::withMessages([
+                    'sede_id' => 'Debes seleccionar una sede para completar esta membresía histórica.',
+                ]);
+            }
+        } else {
+            if (array_key_exists('sede_id', $validados)
+                && (int) $validados['sede_id'] !== (int) $membresia->sede_id) {
+                throw ValidationException::withMessages([
+                    'sede_id' => 'La sede de una membresía ya registrada no puede modificarse.',
+                ]);
+            }
+
+            unset($validados['sede_id']);
+        }
 
         $membresiaActualizada = $this->membresiaServicio->actualizar($id, $validados);
 

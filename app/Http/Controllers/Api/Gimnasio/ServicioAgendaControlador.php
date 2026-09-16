@@ -66,7 +66,7 @@ class ServicioAgendaControlador extends Controller
             'nombre' => 'required|string|max:150',
             'servicio_id' => 'required|exists:pgsql.gimnasio.servicios,id',
             'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
-            'sede_ids' => 'nullable|array|min:1',
+            'sede_ids' => 'nullable|array|min:1|max:1',
             'sede_ids.*' => 'required|distinct|exists:pgsql.institucional.sedes,id_sede',
             'dia_semana' => 'nullable|string|in:LUNES,MARTES,MIERCOLES,JUEVES,VIERNES,SABADO,DOMINGO',
             'dias_semana' => 'nullable|array|min:1',
@@ -88,7 +88,13 @@ class ServicioAgendaControlador extends Controller
         $diasSemana = $datos['dias_semana'] ?? (isset($datos['dia_semana']) ? [$datos['dia_semana']] : []);
 
         if (empty($sedeIds) || empty($diasSemana)) {
-            return ApiResponse::error('Selecciona al menos una sede y un día para guardar el horario.', [], 422);
+            return ApiResponse::error('Selecciona una sede y al menos un día para guardar el horario.', [], 422);
+        }
+
+        if (count(array_unique(array_map('intval', $sedeIds))) !== 1) {
+            throw ValidationException::withMessages([
+                'sede_ids' => 'Cada bloque de horario debe pertenecer a una sola sede. Crea otro bloque para una sede diferente.',
+            ]);
         }
 
         unset($datos['sede_id'], $datos['sede_ids'], $datos['dia_semana'], $datos['dias_semana']);

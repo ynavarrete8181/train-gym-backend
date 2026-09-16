@@ -5,9 +5,9 @@ use App\Http\Controllers\Api\Institucional\EstructuraInstitucionalController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['base.auth'])->prefix('institucional')->group(function () {
-    // La ficha de Clientes requiere consultar sedes. La escritura institucional conserva sus permisos propios.
+    // Clientes y Membresías requieren consultar sedes. La escritura institucional conserva sus permisos propios.
     Route::get('/estructura', [EstructuraInstitucionalController::class, 'index'])
-        ->middleware('base.permiso:INSTITUCIONAL-SEDES,INSTITUCIONAL-UNIDADES,INSTITUCIONAL-CARRERAS-AREAS,INSTITUCIONAL-CAMPOS-AMPLIOS,GIMNASIO-DEPORTISTAS');
+        ->middleware('base.permiso:INSTITUCIONAL-SEDES,INSTITUCIONAL-UNIDADES,INSTITUCIONAL-CARRERAS-AREAS,INSTITUCIONAL-CAMPOS-AMPLIOS,GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS');
 
     Route::middleware('base.permiso:INSTITUCIONAL-SEDES,INSTITUCIONAL-UNIDADES,INSTITUCIONAL-CARRERAS-AREAS,INSTITUCIONAL-CAMPOS-AMPLIOS')->group(function (): void {
         Route::post('/sedes', [EstructuraInstitucionalController::class, 'sede']);

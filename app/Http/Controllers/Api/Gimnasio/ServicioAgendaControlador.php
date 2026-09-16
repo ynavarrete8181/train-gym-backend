@@ -97,8 +97,27 @@ class ServicioAgendaControlador extends Controller
             ]);
         }
 
+        $sedeId = (int) $sedeIds[0];
+        foreach ($diasSemana as $dia) {
+            $duplicado = DB::table('gimnasio.horarios_servicio')
+                ->where('servicio_id', (int) $datos['servicio_id'])
+                ->where('sede_id', $sedeId)
+                ->where('dia_semana', $dia)
+                ->where('hora_inicio', $datos['hora_inicio'])
+                ->where('hora_fin', $datos['hora_fin'])
+                ->where('activo', true)
+                ->when($id, fn ($q) => $q->where('horario_bloque_id', '!=', $id))
+                ->exists();
+
+            if ($duplicado) {
+                throw ValidationException::withMessages([
+                    'dias_semana' => "Ya existe este servicio en la sede seleccionada el {$dia} de {$datos['hora_inicio']} a {$datos['hora_fin']}.",
+                ]);
+            }
+        }
+
         unset($datos['sede_id'], $datos['sede_ids'], $datos['dia_semana'], $datos['dias_semana']);
-        $horario = $this->servicioAgenda->guardarHorarioBloque($datos, $sedeIds, $diasSemana, $id);
+        $horario = $this->servicioAgenda->guardarHorarioBloque($datos, [$sedeId], $diasSemana, $id);
 
         return ApiResponse::exito('Horario guardado correctamente.', (array) $horario, [], $id ? 200 : 201);
     }
@@ -166,5 +185,4 @@ class ServicioAgendaControlador extends Controller
             'catalogos' => $this->servicioAgenda->opcionesFiltro(),
         ];
     }
-
 }

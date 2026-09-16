@@ -10,10 +10,21 @@ class AuditoriaServicio
 {
     /**
      * Escribe un evento de auditoría (creación/actualización/eliminación de un dato).
-     * Nunca debe romper la operación principal: cualquier fallo se registra en el log técnico y se ignora.
+     * Nunca debe romper la operación principal.
+     *
+     * En PostgreSQL, una sentencia fallida deja abortada la transacción completa aunque
+     * la excepción sea capturada. Por eso, si la operación de negocio está dentro de una
+     * transacción, la auditoría se difiere hasta después del commit.
      */
     public function registrar(array $datos): void
     {
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit(function () use ($datos): void {
+                $this->registrar($datos);
+            });
+            return;
+        }
+
         try {
             $usuario = auth()->user();
             $request = request();
@@ -69,11 +80,9 @@ class AuditoriaServicio
         if (! empty($filtros['busqueda'])) {
             $texto = mb_strtolower($filtros['busqueda']);
             $query->where(function ($q) use ($texto): void {
-                $q->orWhereRaw('LOWER(modulo) LIKE ?', ["%{$texto}%"])
-                    ->orWhereRaw('LOWER(tabla) LIKE ?', ["%{$texto}%"])
-                    ->orWhereRaw('LOWER(accion) LIKE ?', ["%{$texto}%"])
-                    ->orWhereRaw('LOWER(usuario_nombre) LIKE ?', ["%{$texto}%"])
-                    ->orWhereRaw('LOWER(descripcion) LIKE ?', ["%{$texto}%"]);
+                foreach (['modulo', 'tabla', 'accion', 'usuario_nombre', 'descripcion'] as $campo) {
+                    $q->orWhereRaw("LOWER({$campo}) LIKE ?", ["%{$texto}%"]);
+                }
             });
         }
 

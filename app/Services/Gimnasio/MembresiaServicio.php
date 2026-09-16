@@ -3,6 +3,7 @@
 namespace App\Services\Gimnasio;
 
 use App\Services\Concerns\RegistraAuditoria;
+use App\Services\Configuracion\EstadoCatalogoServicio;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -10,6 +11,10 @@ use Illuminate\Support\Str;
 class MembresiaServicio
 {
     use RegistraAuditoria;
+
+    public function __construct(private readonly EstadoCatalogoServicio $estados)
+    {
+    }
 
     public function crear(array $datos)
     {
@@ -19,6 +24,7 @@ class MembresiaServicio
         $datos['codigo_contrato'] = 'TMP-' . Str::uuid();
         $datos['fecha_fin'] = $this->calcularFechaFin($datos['fecha_inicio'], $plan->tipo_duracion, (int) $plan->duracion);
         $datos['estado'] = ($plan->requiere_pago ?? true) ? 'PENDIENTE_PAGO' : 'ACTIVA';
+        $datos = $this->estados->aplicar($datos, 'MEMBRESIA');
         $datos['created_at'] = now();
         $datos['updated_at'] = now();
 
@@ -44,6 +50,10 @@ class MembresiaServicio
             $datos['fecha_fin'] = $this->calcularFechaFin($datos['fecha_inicio'], $plan->tipo_duracion, (int) $plan->duracion);
         }
 
+        if (array_key_exists('estado', $datos)) {
+            $datos = $this->estados->aplicar($datos, 'MEMBRESIA');
+        }
+
         $datos['updated_at'] = now();
         DB::table('gimnasio.membresias')->where('id', $id)->update($datos);
 
@@ -66,6 +76,7 @@ class MembresiaServicio
             ->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
             ->join('gimnasio.planes', 'gimnasio.membresias.plan_id', '=', 'gimnasio.planes.id')
             ->leftJoin('institucional.sedes', 'gimnasio.membresias.sede_id', '=', 'institucional.sedes.id_sede')
+            ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'gimnasio.membresias.estado_id', '=', 'estado_cfg.id')
             ->select(
                 'gimnasio.membresias.*',
                 'gimnasio.deportistas.codigo_deportista',
@@ -77,7 +88,11 @@ class MembresiaServicio
                 'gimnasio.planes.generar_venta',
                 'gimnasio.planes.requiere_pago',
                 'gimnasio.planes.renovable',
-                'institucional.sedes.nombre as sede_nombre'
+                'institucional.sedes.nombre as sede_nombre',
+                'estado_cfg.codigo as estado_codigo',
+                'estado_cfg.valor_interno as estado_valor',
+                'estado_cfg.nombre as estado_nombre',
+                'estado_cfg.color as estado_color'
             )
             ->where('gimnasio.membresias.id', $id)
             ->first();

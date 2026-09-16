@@ -8,6 +8,7 @@ use App\Services\Ventas\VentaServicio;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class MembresiaControlador extends Controller
@@ -20,7 +21,7 @@ class MembresiaControlador extends Controller
 
     public function index(Request $request)
     {
-        $porPagina = $request->input('per_page', 15);
+        $porPagina = $request->input('per_page', 5);
         $pagina = $request->input('page', 1);
         $busqueda = $request->input('busqueda');
         $codigo = $request->input('codigo');
@@ -33,6 +34,7 @@ class MembresiaControlador extends Controller
             ->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
             ->join('gimnasio.planes', 'gimnasio.membresias.plan_id', '=', 'gimnasio.planes.id')
             ->leftJoin('institucional.sedes', 'gimnasio.membresias.sede_id', '=', 'institucional.sedes.id_sede')
+            ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'gimnasio.membresias.estado_id', '=', 'estado_cfg.id')
             ->select(
                 'gimnasio.membresias.*',
                 'gimnasio.deportistas.codigo_deportista',
@@ -41,7 +43,11 @@ class MembresiaControlador extends Controller
                 'gimnasio.planes.nombre as plan_nombre',
                 'gimnasio.planes.tipo_producto',
                 'gimnasio.planes.tipo_cobro',
-                'institucional.sedes.nombre as sede_nombre'
+                'institucional.sedes.nombre as sede_nombre',
+                'estado_cfg.codigo as estado_codigo',
+                'estado_cfg.valor_interno as estado_valor',
+                'estado_cfg.nombre as estado_nombre',
+                'estado_cfg.color as estado_color'
             );
 
         if ($request->has('deportista_id')) {
@@ -55,7 +61,8 @@ class MembresiaControlador extends Controller
                   ->orWhereRaw('LOWER(seguridad.users.name) LIKE ?', ["%{$busqueda}%"])
                   ->orWhereRaw('LOWER(seguridad.users.email) LIKE ?', ["%{$busqueda}%"])
                   ->orWhereRaw('LOWER(gimnasio.deportistas.codigo_deportista) LIKE ?', ["%{$busqueda}%"])
-                  ->orWhereRaw('LOWER(gimnasio.planes.nombre) LIKE ?', ["%{$busqueda}%"]);
+                  ->orWhereRaw('LOWER(gimnasio.planes.nombre) LIKE ?', ["%{$busqueda}%"])
+                  ->orWhereRaw('LOWER(COALESCE(estado_cfg.nombre, gimnasio.membresias.estado)) LIKE ?', ["%{$busqueda}%"]);
             });
         }
 
@@ -74,6 +81,7 @@ class MembresiaControlador extends Controller
             'total' => $membresias->total(),
             'ultima_pagina' => $membresias->lastPage(),
             'opciones_filtro' => $this->opcionesFiltro(),
+            'estados' => $this->estadosMembresia(),
         ]);
     }
 
@@ -152,7 +160,12 @@ class MembresiaControlador extends Controller
         $validados = $request->validate([
             'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
             'fecha_inicio' => 'required|date',
-            'estado' => 'required|string|in:PENDIENTE_PAGO,ACTIVA,VENCIDA,CONGELADA,CANCELADA',
+            'estado' => [
+                'required',
+                'string',
+                Rule::exists('configuracion.estados_catalogo', 'valor_interno')
+                    ->where(fn ($q) => $q->where('entidad', 'MEMBRESIA')->where('activo', true)),
+            ],
             'dias_gracia' => 'integer|min:0',
             'renovacion_automatica' => 'boolean',
             'fecha_congelacion_inicio' => 'nullable|date',
@@ -217,6 +230,16 @@ class MembresiaControlador extends Controller
             'codigo' => (clone $base)->whereNotNull('codigo_contrato')->distinct()->orderBy('codigo_contrato')->pluck('codigo_contrato')->values(),
             'cliente' => (clone $base)->whereNotNull('seguridad.users.name')->distinct()->orderBy('seguridad.users.name')->pluck('seguridad.users.name')->values(),
             'plan' => (clone $base)->whereNotNull('gimnasio.planes.nombre')->distinct()->orderBy('gimnasio.planes.nombre')->pluck('gimnasio.planes.nombre')->values(),
+            'estado' => $this->estadosMembresia()->pluck('valor_interno')->values(),
         ];
+    }
+
+    private function estadosMembresia()
+    {
+        return DB::table('configuracion.estados_catalogo')
+            ->where('entidad', 'MEMBRESIA')
+            ->where('activo', true)
+            ->orderBy('orden')
+            ->get(['id', 'codigo', 'valor_interno', 'nombre', 'color', 'es_inicial', 'es_final']);
     }
 }

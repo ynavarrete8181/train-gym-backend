@@ -73,18 +73,20 @@ class VentaPosServicio
 
         $planes = $this->planesPorSede($sedeId);
 
-        $productos = DB::table('inventario.productos')
-            ->where('activo', true)
-            ->orderBy('nombre')
-            ->get([
-                'id',
-                'codigo',
-                'nombre',
-                'descripcion',
-                'precio_venta as precio',
-                'stock_actual',
-                'controla_stock',
-            ]);
+        $productos = Schema::connection('pgsql')->hasTable('inventario.productos')
+            ? DB::table('inventario.productos')
+                ->where('activo', true)
+                ->orderBy('nombre')
+                ->get([
+                    'id',
+                    'codigo',
+                    'nombre',
+                    'descripcion',
+                    'precio_venta as precio',
+                    'stock_actual',
+                    'controla_stock',
+                ])
+            : collect();
 
         return [
             'turno' => $turno,
@@ -164,6 +166,10 @@ class VentaPosServicio
 
     private function planesPorSede(int $sedeId)
     {
+        if (! Schema::connection('pgsql')->hasTable('gimnasio.planes')) {
+            return collect();
+        }
+
         $query = DB::table('gimnasio.planes as p')->where('p.activo', true);
         $precio = 'p.precio_base as precio';
 
@@ -176,19 +182,27 @@ class VentaPosServicio
             $precio = DB::raw('COALESCE(pp.precio, p.precio_base) as precio');
         }
 
+        $columnas = [
+            'p.id',
+            'p.codigo',
+            'p.nombre',
+            'p.descripcion',
+            'p.tipo_duracion',
+            'p.duracion',
+            $precio,
+            'p.tarifa_inscripcion',
+        ];
+
+        $columnas[] = Schema::connection('pgsql')->hasColumn('gimnasio.planes', 'tipo_producto')
+            ? 'p.tipo_producto'
+            : DB::raw("'MEMBRESIA'::varchar as tipo_producto");
+
+        $columnas[] = Schema::connection('pgsql')->hasColumn('gimnasio.planes', 'tipo_cobro')
+            ? 'p.tipo_cobro'
+            : DB::raw("'PAGO_UNICO'::varchar as tipo_cobro");
+
         return $query
-            ->select(
-                'p.id',
-                'p.codigo',
-                'p.nombre',
-                'p.descripcion',
-                'p.tipo_producto',
-                'p.tipo_cobro',
-                'p.tipo_duracion',
-                'p.duracion',
-                $precio,
-                'p.tarifa_inscripcion'
-            )
+            ->select($columnas)
             ->orderBy('p.nombre')
             ->get();
     }

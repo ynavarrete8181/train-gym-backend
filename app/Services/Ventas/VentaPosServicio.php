@@ -3,6 +3,7 @@
 namespace App\Services\Ventas;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class VentaPosServicio
@@ -17,13 +18,7 @@ class VentaPosServicio
     {
         $turno = $this->turnos->turnoAbiertoUsuario($usuarioId);
         if (! $turno) {
-            return [
-                'turno' => null,
-                'clientes' => [],
-                'servicios' => [],
-                'planes' => [],
-                'productos' => [],
-            ];
+            return $this->contextoVacio();
         }
 
         $sedeId = (int) $turno->sede_id;
@@ -41,58 +36,55 @@ class VentaPosServicio
                 'u.email',
             ]);
 
-        $servicios = DB::table('gimnasio.servicios as s')
+        $serviciosQuery = DB::table('gimnasio.servicios as s')
             ->join('gimnasio.horarios_servicio as h', function ($join) use ($sedeId): void {
                 $join->on('h.servicio_id', '=', 's.id')
                     ->where('h.sede_id', '=', $sedeId)
                     ->where('h.activo', '=', true);
             })
-            ->leftJoin('gimnasio.servicio_precios_sede as ps', function ($join) use ($sedeId): void {
+            ->leftJoin('gimnasio.categorias_servicio as c', 'c.id', '=', 's.categoria_id')
+            ->where('s.activo', true);
+
+        $columnasServicios = [
+            's.id',
+            's.nombre',
+            's.descripcion',
+            's.duracion_minutos',
+            's.requiere_reserva',
+            'c.nombre as categoria',
+        ];
+
+        if (Schema::connection('pgsql')->hasTable('gimnasio.servicio_precios_sede')) {
+            $serviciosQuery->leftJoin('gimnasio.servicio_precios_sede as ps', function ($join) use ($sedeId): void {
                 $join->on('ps.servicio_id', '=', 's.id')
                     ->where('ps.sede_id', '=', $sedeId)
                     ->where('ps.activo', '=', true);
-            })
-            ->leftJoin('gimnasio.categorias_servicio as c', 'c.id', '=', 's.categoria_id')
-            ->where('s.activo', true)
-            ->select(
-                's.id',
-                's.nombre',
-                's.descripcion',
-                's.duracion_minutos',
-                's.requiere_reserva',
-                'c.nombre as categoria',
-                'ps.precio'
-            )
+            });
+            $columnasServicios[] = 'ps.precio';
+        } else {
+            $columnasServicios[] = DB::raw('NULL::numeric as precio');
+        }
+
+        $servicios = $serviciosQuery
+            ->select($columnasServicios)
             ->distinct()
             ->orderBy('s.nombre')
             ->get();
 
-        $planes = DB::table('gimnasio.planes as p')
-            ->leftJoin('gimnasio.plan_precios_sede as pp', function ($join) use ($sedeId): void {
-                $join->on('pp.plan_id', '=', 'p.id')
-                    ->where('pp.sede_id', '=', $sedeId)
-                    ->where('pp.activo', '=', true);
-            })
-            ->where('p.activo', true)
-            ->select(
-                'p.id',
-                'p.codigo',
-                'p.nombre',
-                'p.descripcion',
-                'p.tipo_producto',
-                'p.tipo_cobro',
-                'p.tipo_duracion',
-                'p.duracion',
-                DB::raw('COALESCE(pp.precio, p.precio_base) as precio'),
-                'p.tarifa_inscripcion'
-            )
-            ->orderBy('p.nombre')
-            ->get();
+        $planes = $this->planesPorSede($sedeId);
 
         $productos = DB::table('inventario.productos')
             ->where('activo', true)
             ->orderBy('nombre')
-            ->get(['id', 'codigo', 'nombre', 'descripcion', 'precio_venta as precio', 'stock_actual', 'controla_stock']);
+            ->get([
+                'id',
+                'codigo',
+                'nombre',
+                'descripcion',
+                'precio_venta as precio',
+                'stock_actual',
+                'controla_stock',
+            ]);
 
         return [
             'turno' => $turno,
@@ -161,9 +153,55 @@ class VentaPosServicio
                 'updated_at' => $ahora,
             ])->all());
 
-            $venta->detalles = DB::table('ventas.venta_detalles')->where('venta_id', $venta->id)->orderBy('id')->get();
+            $venta->detalles = DB::table('ventas.venta_detalles')
+                ->where('venta_id', $venta->id)
+                ->orderBy('id')
+                ->get();
+
             return $venta;
         });
+    }
+
+    private function planesPorSede(int $sedeId)
+    {
+        $query = DB::table('gimnasio.planes as p')->where('p.activo', true);
+        $precio = 'p.precio_base as precio';
+
+        if (Schema::connection('pgsql')->hasTable('gimnasio.plan_precios_sede')) {
+            $query->leftJoin('gimnasio.plan_precios_sede as pp', function ($join) use ($sedeId): void {
+                $join->on('pp.plan_id', '=', 'p.id')
+                    ->where('pp.sede_id', '=', $sedeId)
+                    ->where('pp.activo', '=', true);
+            });
+            $precio = DB::raw('COALESCE(pp.precio, p.precio_base) as precio');
+        }
+
+        return $query
+            ->select(
+                'p.id',
+                'p.codigo',
+                'p.nombre',
+                'p.descripcion',
+                'p.tipo_producto',
+                'p.tipo_cobro',
+                'p.tipo_duracion',
+                'p.duracion',
+                $precio,
+                'p.tarifa_inscripcion'
+            )
+            ->orderBy('p.nombre')
+            ->get();
+    }
+
+    private function contextoVacio(): array
+    {
+        return [
+            'turno' => null,
+            'clientes' => [],
+            'servicios' => [],
+            'planes' => [],
+            'productos' => [],
+        ];
     }
 
     private function tipoVentaGeneral(array $detalles): string

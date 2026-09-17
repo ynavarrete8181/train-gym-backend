@@ -79,6 +79,8 @@ class VentaPosServicio
                 'p.codigo',
                 'p.nombre',
                 'p.descripcion',
+                'p.tipo_producto',
+                'p.tipo_cobro',
                 'p.tipo_duracion',
                 'p.duracion',
                 DB::raw('COALESCE(pp.precio, p.precio_base) as precio'),

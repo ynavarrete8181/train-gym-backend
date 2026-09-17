@@ -106,9 +106,9 @@ class CajaServicio
 
     private function codigoSede(object $sede): string
     {
-        $base = property_exists($sede, 'codigo') && ! empty($sede->codigo)
-            ? (string) $sede->codigo
-            : (string) $sede->nombre;
+        // El código legible de la caja debe derivarse del nombre visible de la sede,
+        // no del código interno institucional (por ejemplo 0002).
+        $base = (string) ($sede->nombre ?? '');
 
         $base = strtoupper(Str::ascii($base));
         $base = preg_replace('/^SEDE[\s_-]+/', '', $base) ?: $base;

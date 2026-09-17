@@ -57,7 +57,7 @@ return new class extends Migration
                         'id_userrole' => $rolId,
                         'id_usermenu' => $menuVentas->id_usermenu,
                         'nombre' => 'Turnos de caja',
-                        'icono' => 'fa-solid fa-clock-rotate-left',
+                        'icono' => 'schedule',
                         'accion' => '/ventas/turnos-caja',
                         'id_menu' => 'VENTAS-TURNOS-CAJA',
                         'activo' => true,

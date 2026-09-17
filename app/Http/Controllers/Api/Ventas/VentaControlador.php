@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Ventas\CajaServicio;
 use App\Services\Ventas\TurnoCajaServicio;
 use App\Services\Ventas\VentaFiltroServicio;
+use App\Services\Ventas\VentaPosServicio;
 use App\Services\Ventas\VentaServicio;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
@@ -19,6 +20,7 @@ class VentaControlador extends Controller
         private readonly VentaFiltroServicio $filtros,
         private readonly TurnoCajaServicio $turnos,
         private readonly CajaServicio $cajas,
+        private readonly VentaPosServicio $pos,
     ) {
     }
 
@@ -37,6 +39,39 @@ class VentaControlador extends Controller
             'Ventas consultadas.',
             $this->ventas->listarVentas($request->all(), $request->user()?->id),
             $request->user()?->id,
+        );
+    }
+
+    public function contextoPos(Request $request)
+    {
+        return ApiResponse::exito(
+            'Contexto POS consultado.',
+            $this->pos->contexto((int) $request->user()->id),
+        );
+    }
+
+    public function guardarVentaPos(Request $request)
+    {
+        $datos = $request->validate([
+            'cliente_id' => 'nullable|exists:pgsql.gimnasio.deportistas,id',
+            'descuento' => 'nullable|numeric|min:0',
+            'impuesto' => 'nullable|numeric|min:0',
+            'observaciones' => 'nullable|string|max:1000',
+            'detalles' => 'required|array|min:1',
+            'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO',
+            'detalles.*.referencia_id' => 'nullable|integer',
+            'detalles.*.producto_id' => 'nullable|exists:pgsql.inventario.productos,id',
+            'detalles.*.descripcion' => 'required|string|max:180',
+            'detalles.*.cantidad' => 'required|numeric|min:0.01',
+            'detalles.*.precio_unitario' => 'required|numeric|min:0',
+            'detalles.*.total_linea' => 'required|numeric|min:0.01',
+        ]);
+
+        return ApiResponse::exito(
+            'Venta POS registrada correctamente.',
+            (array) $this->pos->guardar($datos, (int) $request->user()->id),
+            [],
+            201,
         );
     }
 

@@ -24,11 +24,43 @@ Ventas
 Ejemplo:
 
 ```text
-Código: CAJA-XPADEL-01
+Código: CAJA-XPADEL-001
 Nombre: Caja principal Xpadel
 Sede: Revive Xpadel
+Descripción: Caja operativa para la gestión de cobros y ventas de la sede Revive Xpadel.
 Activa: Sí
 ```
+
+### Código automático
+
+El código no se escribe manualmente. El backend lo genera por sede y consecutivo, manteniendo un formato uniforme:
+
+```text
+Revive Xpadel → CAJA-XPADEL-001
+Revive Xpadel → CAJA-XPADEL-002
+Revive Home   → CAJA-HOME-001
+Revive Centro → CAJA-CENTRO-001
+```
+
+La generación se realiza dentro de una transacción y bloquea la fila de la sede durante el cálculo del consecutivo, evitando que dos registros simultáneos obtengan el mismo código.
+
+Si una caja ya tiene turnos registrados, no se permite cambiarla de sede. Para operar en otra sede se debe crear una nueva caja, preservando la trazabilidad histórica.
+
+### Descripción general
+
+Al seleccionar la sede, el frontend propone automáticamente una descripción general:
+
+```text
+Caja operativa para la gestión de cobros y ventas de la sede Revive Xpadel.
+```
+
+La descripción sigue siendo editable. Si el cliente envía la descripción vacía, el backend aplica el mismo texto general como respaldo.
+
+### Saldo inicial
+
+La configuración permanente de una caja no administra efectivo inicial. El campo `saldo_inicial` histórico de `ventas.cajas` se mantiene internamente en `0.00` por compatibilidad, pero deja de formar parte del formulario operativo.
+
+El efectivo real con el que inicia el cajero se registra exclusivamente al abrir un turno de caja.
 
 Responsables de configuración:
 
@@ -119,7 +151,7 @@ Pueden disponer además de `VENTAS-CAJAS` para la administración de puntos de c
 
 ## Prueba funcional recomendada
 
-1. Un supervisor/administrador crea `Caja principal Xpadel` en Revive Xpadel.
+1. Un supervisor/administrador crea `Caja principal Xpadel` en Revive Xpadel; el sistema genera `CAJA-XPADEL-001`.
 2. Karol inicia sesión como CAJERO.
 3. Karol abre un turno con saldo inicial.
 4. Se genera o selecciona una venta pendiente de Revive Xpadel.

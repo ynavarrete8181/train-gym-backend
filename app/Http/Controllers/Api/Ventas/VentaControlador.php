@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Ventas;
 
 use App\Http\Controllers\Controller;
+use App\Services\Ventas\CajaServicio;
 use App\Services\Ventas\TurnoCajaServicio;
 use App\Services\Ventas\VentaFiltroServicio;
 use App\Services\Ventas\VentaServicio;
@@ -17,6 +18,7 @@ class VentaControlador extends Controller
         private readonly VentaServicio $ventas,
         private readonly VentaFiltroServicio $filtros,
         private readonly TurnoCajaServicio $turnos,
+        private readonly CajaServicio $cajas,
     ) {
     }
 
@@ -60,16 +62,14 @@ class VentaControlador extends Controller
     {
         $datos = $request->validate([
             'sede_id' => 'required|exists:pgsql.institucional.sedes,id_sede',
-            'codigo' => ['required', 'string', 'max:40', Rule::unique('ventas.cajas', 'codigo')->ignore($id)],
             'nombre' => 'required|string|max:120',
-            'descripcion' => 'nullable|string',
-            'saldo_inicial' => 'required|numeric|min:0',
+            'descripcion' => 'nullable|string|max:500',
             'activa' => 'boolean',
         ]);
 
         return ApiResponse::exito(
             'Caja guardada correctamente.',
-            (array) $this->ventas->guardarCaja($datos, $id, $request->user()?->id),
+            (array) $this->cajas->guardar($datos, $id, $request->user()?->id),
             [],
             $id ? 200 : 201,
         );

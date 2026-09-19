@@ -35,13 +35,99 @@ class InventarioServicio
         $this->filtrarTexto($query, 'inventario.categorias_producto.nombre', $filtros['categoria'] ?? null);
         $this->filtrarBooleano($query, 'inventario.productos.activo', $filtros['estado'] ?? null);
 
-        return $query->orderBy('inventario.productos.nombre')->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
+        $paginador = $query->orderBy('inventario.productos.nombre')->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
+
+        $paginador->getCollection()->transform(fn ($producto) => $this->completarProducto($producto));
+
+        return $paginador;
     }
 
     public function guardarProducto(array $datos, ?int $id = null): object
     {
-        $id = $this->guardarRetornandoId('inventario.productos', $datos, $id);
-        return $this->obtenerProducto($id);
+        return DB::transaction(function () use ($datos, $id): object {
+            $preciosSede = $datos['precios_sede'] ?? [];
+            $stocksSede = $datos['stocks_sede'] ?? [];
+            $lotes = $datos['lotes'] ?? [];
+
+            unset($datos['precios_sede'], $datos['stocks_sede'], $datos['lotes']);
+
+            $id = $this->guardarRetornandoId('inventario.productos', $datos, $id);
+
+            $sedes = DB::table('institucional.sedes')
+                ->where('activo', true)
+                ->where('maneja_inventario', true)
+                ->get(['id_sede as id', 'nombre']);
+
+            $preciosPorSede = collect($preciosSede)->keyBy('sede_id');
+            $stocksPorSede = collect($stocksSede)->keyBy('sede_id');
+            $stockInicialDefecto = app()->environment('production') ? 0 : 20;
+
+            foreach ($sedes as $sede) {
+                $precio = $preciosPorSede->get($sede->id);
+                $stock = $stocksPorSede->get($sede->id);
+
+                DB::table('inventario.producto_precios_sede')->updateOrInsert(
+                    ['producto_id' => $id, 'sede_id' => $sede->id],
+                    [
+                        'precio' => $precio['precio'] ?? $datos['precio_venta'] ?? 0,
+                        'activo' => array_key_exists('activo', (array) $precio) ? (bool) $precio['activo'] : true,
+                        'updated_at' => now(),
+                        'created_at' => now(),
+                    ]
+                );
+
+                DB::table('inventario.producto_stock_sede')->updateOrInsert(
+                    ['producto_id' => $id, 'sede_id' => $sede->id],
+                    [
+                        'stock_actual' => $stock['stock_actual'] ?? $stockInicialDefecto,
+                        'stock_minimo' => $stock['stock_minimo'] ?? $datos['stock_minimo'] ?? 0,
+                        'updated_at' => now(),
+                        'created_at' => now(),
+                    ]
+                );
+            }
+
+            if (! empty($datos['maneja_lotes'])) {
+                $idsConservados = [];
+                foreach ($lotes as $lote) {
+                    $payload = [
+                        'producto_id' => $id,
+                        'sede_id' => (int) $lote['sede_id'],
+                        'codigo_lote' => $lote['codigo_lote'],
+                        'fecha_vencimiento' => $lote['fecha_vencimiento'] ?? null,
+                        'cantidad_inicial' => $lote['cantidad_inicial'] ?? 0,
+                        'stock_actual' => $lote['stock_actual'] ?? 0,
+                        'costo_unitario' => $lote['costo_unitario'] ?? null,
+                        'activo' => $lote['activo'] ?? true,
+                        'updated_at' => now(),
+                    ];
+
+                    if (! empty($lote['id'])) {
+                        DB::table('inventario.lotes_producto')
+                            ->where('id', $lote['id'])
+                            ->where('producto_id', $id)
+                            ->update($payload);
+                        $idsConservados[] = (int) $lote['id'];
+                    } else {
+                        $payload['created_at'] = now();
+                        $idsConservados[] = DB::table('inventario.lotes_producto')->insertGetId($payload);
+                    }
+                }
+
+                DB::table('inventario.lotes_producto')
+                    ->where('producto_id', $id)
+                    ->when($idsConservados, fn ($q) => $q->whereNotIn('id', $idsConservados))
+                    ->update(['activo' => false, 'updated_at' => now()]);
+            } else {
+                DB::table('inventario.lotes_producto')
+                    ->where('producto_id', $id)
+                    ->update(['activo' => false, 'updated_at' => now()]);
+            }
+
+            $this->actualizarStockGlobal($id);
+
+            return $this->completarProducto($this->obtenerProducto($id));
+        });
     }
 
     public function listarMovimientos(array $filtros)
@@ -64,17 +150,80 @@ class InventarioServicio
     {
         return DB::transaction(function () use ($datos, $usuarioId): object {
             $producto = DB::table('inventario.productos')->where('id', $datos['producto_id'])->lockForUpdate()->first();
+            if (! $producto) {
+                throw new \RuntimeException('Producto no encontrado.');
+            }
+
+            $sedeId = $datos['sede_id'] ?? null;
+            if ($producto->controla_stock && ! $sedeId) {
+                throw new \InvalidArgumentException('La sede es obligatoria para movimientos de productos con control de stock.');
+            }
+
             $cantidad = (float) $datos['cantidad'];
             $tipo = $datos['tipo_movimiento'];
-            $stockAnterior = (float) $producto->stock_actual;
             $factor = in_array($tipo, ['SALIDA', 'BAJA'], true) ? -1 : 1;
-            $stockNuevo = max(0, $stockAnterior + ($cantidad * $factor));
 
-            DB::table('inventario.productos')->where('id', $producto->id)->update(['stock_actual' => $stockNuevo, 'updated_at' => now()]);
+            $stockSede = DB::table('inventario.producto_stock_sede')
+                ->where('producto_id', $producto->id)
+                ->where('sede_id', $sedeId)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $stockSede) {
+                DB::table('inventario.producto_stock_sede')->insert([
+                    'producto_id' => $producto->id,
+                    'sede_id' => $sedeId,
+                    'stock_actual' => 0,
+                    'stock_minimo' => $producto->stock_minimo ?? 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+                $stockSede = DB::table('inventario.producto_stock_sede')
+                    ->where('producto_id', $producto->id)
+                    ->where('sede_id', $sedeId)
+                    ->lockForUpdate()
+                    ->first();
+            }
+
+            $stockAnterior = (float) $stockSede->stock_actual;
+            $stockNuevo = $stockAnterior + ($cantidad * $factor);
+            if ($stockNuevo < 0) {
+                throw new \InvalidArgumentException('El movimiento dejaría el stock de la sede en negativo.');
+            }
+
+            DB::table('inventario.producto_stock_sede')->where('id', $stockSede->id)->update([
+                'stock_actual' => $stockNuevo,
+                'updated_at' => now(),
+            ]);
+
+            $loteId = $datos['lote_id'] ?? null;
+            if ($loteId) {
+                $lote = DB::table('inventario.lotes_producto')
+                    ->where('id', $loteId)
+                    ->where('producto_id', $producto->id)
+                    ->where('sede_id', $sedeId)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $lote) {
+                    throw new \InvalidArgumentException('El lote seleccionado no corresponde al producto y sede.');
+                }
+
+                $stockLoteNuevo = (float) $lote->stock_actual + ($cantidad * $factor);
+                if ($stockLoteNuevo < 0) {
+                    throw new \InvalidArgumentException('El movimiento dejaría el stock del lote en negativo.');
+                }
+
+                DB::table('inventario.lotes_producto')->where('id', $lote->id)->update([
+                    'stock_actual' => $stockLoteNuevo,
+                    'updated_at' => now(),
+                ]);
+            }
 
             $movimientoId = DB::table('inventario.movimientos')->insertGetId([
                 'producto_id' => $producto->id,
-                'sede_id' => $datos['sede_id'] ?? null,
+                'lote_id' => $loteId,
+                'sede_id' => $sedeId,
                 'usuario_id' => $usuarioId,
                 'tipo_movimiento' => $tipo,
                 'cantidad' => $cantidad,
@@ -87,8 +236,10 @@ class InventarioServicio
                 'updated_at' => now(),
             ]);
 
+            $this->actualizarStockGlobal((int) $producto->id);
+
             $movimiento = $this->obtenerMovimiento($movimientoId);
-            $this->auditar('inventario', 'CREAR', 'inventario.movimientos', $movimientoId, null, $movimiento, "Movimiento {$tipo} de {$cantidad} sobre {$producto->nombre}.");
+            $this->auditar('inventario', 'CREAR', 'inventario.movimientos', $movimientoId, null, $movimiento, "Movimiento {$tipo} de {$cantidad} sobre {$producto->nombre} en sede {$sedeId}.");
 
             return $movimiento;
         });
@@ -99,8 +250,8 @@ class InventarioServicio
         return [
             'categorias' => DB::table('inventario.categorias_producto')->where('activo', true)->orderBy('nombre')->get(['id', 'nombre']),
             'proveedores' => DB::table('inventario.proveedores')->where('activo', true)->orderBy('nombre')->get(['id', 'nombre']),
-            'productos' => DB::table('inventario.productos')->where('activo', true)->orderBy('nombre')->get(['id', 'codigo', 'nombre', 'stock_actual']),
-            'sedes' => DB::table('institucional.sedes')->where('activo', true)->orderBy('nombre')->get(['id_sede as id', 'nombre']),
+            'productos' => DB::table('inventario.productos')->where('activo', true)->orderBy('nombre')->get(['id', 'codigo', 'nombre', 'stock_actual', 'maneja_lotes']),
+            'sedes' => DB::table('institucional.sedes')->where('activo', true)->where('maneja_inventario', true)->orderBy('nombre')->get(['id_sede as id', 'nombre']),
         ];
     }
 
@@ -151,6 +302,52 @@ class InventarioServicio
             ->leftJoin('inventario.proveedores', 'inventario.productos.proveedor_id', '=', 'inventario.proveedores.id')
             ->select('inventario.productos.*', 'inventario.categorias_producto.nombre as categoria_nombre', 'inventario.proveedores.nombre as proveedor_nombre')
             ->where('inventario.productos.id', $id)->first();
+    }
+
+    private function completarProducto(object $producto): object
+    {
+        $producto->precios_sede = DB::table('inventario.producto_precios_sede as ps')
+            ->join('institucional.sedes as s', 's.id_sede', '=', 'ps.sede_id')
+            ->where('ps.producto_id', $producto->id)
+            ->orderBy('s.nombre')
+            ->get(['ps.sede_id', 's.nombre as sede_nombre', 'ps.precio', 'ps.activo']);
+
+        $producto->stocks_sede = DB::table('inventario.producto_stock_sede as ss')
+            ->join('institucional.sedes as s', 's.id_sede', '=', 'ss.sede_id')
+            ->where('ss.producto_id', $producto->id)
+            ->orderBy('s.nombre')
+            ->get(['ss.sede_id', 's.nombre as sede_nombre', 'ss.stock_actual', 'ss.stock_minimo']);
+
+        $producto->lotes = DB::table('inventario.lotes_producto as l')
+            ->join('institucional.sedes as s', 's.id_sede', '=', 'l.sede_id')
+            ->where('l.producto_id', $producto->id)
+            ->where('l.activo', true)
+            ->orderByRaw('l.fecha_vencimiento asc nulls last')
+            ->get([
+                'l.id',
+                'l.sede_id',
+                's.nombre as sede_nombre',
+                'l.codigo_lote',
+                'l.fecha_vencimiento',
+                'l.cantidad_inicial',
+                'l.stock_actual',
+                'l.costo_unitario',
+                'l.activo',
+            ]);
+
+        return $producto;
+    }
+
+    private function actualizarStockGlobal(int $productoId): void
+    {
+        $total = DB::table('inventario.producto_stock_sede')
+            ->where('producto_id', $productoId)
+            ->sum('stock_actual');
+
+        DB::table('inventario.productos')->where('id', $productoId)->update([
+            'stock_actual' => $total,
+            'updated_at' => now(),
+        ]);
     }
 
     private function obtenerMovimiento(int $id): object

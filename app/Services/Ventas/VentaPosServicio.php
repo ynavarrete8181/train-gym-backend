@@ -73,20 +73,56 @@ class VentaPosServicio
 
         $planes = $this->planesPorSede($sedeId);
 
-        $productos = Schema::connection('pgsql')->hasTable('inventario.productos')
-            ? DB::table('inventario.productos')
-                ->where('activo', true)
-                ->orderBy('nombre')
-                ->get([
-                    'id',
-                    'codigo',
-                    'nombre',
-                    'descripcion',
-                    'precio_venta as precio',
-                    'stock_actual',
-                    'controla_stock',
-                ])
-            : collect();
+        $productos = collect();
+        if (Schema::connection('pgsql')->hasTable('inventario.productos')) {
+            $productosQuery = DB::table('inventario.productos as p')
+                ->where('p.activo', true);
+
+            $columnasProductos = [
+                'p.id',
+                'p.codigo',
+                'p.nombre',
+                'p.descripcion',
+                'p.precio_venta as precio_base',
+                'p.controla_stock',
+            ];
+
+            $columnasProductos[] = Schema::connection('pgsql')->hasColumn('inventario.productos', 'imagen_url')
+                ? 'p.imagen_url'
+                : DB::raw('NULL::text as imagen_url');
+
+            $columnasProductos[] = Schema::connection('pgsql')->hasColumn('inventario.productos', 'maneja_lotes')
+                ? 'p.maneja_lotes'
+                : DB::raw('false as maneja_lotes');
+
+            if (Schema::connection('pgsql')->hasTable('inventario.producto_precios_sede')) {
+                $productosQuery->leftJoin('inventario.producto_precios_sede as pps', function ($join) use ($sedeId): void {
+                    $join->on('pps.producto_id', '=', 'p.id')
+                        ->where('pps.sede_id', '=', $sedeId)
+                        ->where('pps.activo', '=', true);
+                });
+                $columnasProductos[] = DB::raw('COALESCE(pps.precio, p.precio_venta) as precio');
+            } else {
+                $columnasProductos[] = 'p.precio_venta as precio';
+            }
+
+            if (Schema::connection('pgsql')->hasTable('inventario.producto_stock_sede')) {
+                $productosQuery->leftJoin('inventario.producto_stock_sede as pss', function ($join) use ($sedeId): void {
+                    $join->on('pss.producto_id', '=', 'p.id')
+                        ->where('pss.sede_id', '=', $sedeId);
+                });
+                $columnasProductos[] = DB::raw('COALESCE(pss.stock_actual, 0) as stock_actual');
+                $columnasProductos[] = DB::raw('COALESCE(pss.stock_minimo, 0) as stock_minimo');
+            } else {
+                $columnasProductos[] = 'p.stock_actual';
+                $columnasProductos[] = 'p.stock_minimo';
+            }
+
+            $productos = $productosQuery
+                ->select($columnasProductos)
+                ->orderBy('p.nombre')
+                ->get();
+        }
 
         return [
             'turno' => $turno,

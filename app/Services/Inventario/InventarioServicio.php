@@ -252,6 +252,7 @@ class InventarioServicio
             'proveedores' => DB::table('inventario.proveedores')->where('activo', true)->orderBy('nombre')->get(['id', 'nombre']),
             'productos' => DB::table('inventario.productos')->where('activo', true)->orderBy('nombre')->get(['id', 'codigo', 'nombre', 'stock_actual', 'maneja_lotes']),
             'sedes' => DB::table('institucional.sedes')->where('activo', true)->where('maneja_inventario', true)->orderBy('nombre')->get(['id_sede as id', 'nombre']),
+            'lotes' => DB::table('inventario.lotes_producto as l')->join('inventario.productos as p', 'p.id', '=', 'l.producto_id')->join('institucional.sedes as s', 's.id_sede', '=', 'l.sede_id')->where('l.activo', true)->orderByRaw('l.fecha_vencimiento asc nulls last')->get(['l.id', 'l.producto_id', 'l.sede_id', 'l.codigo_lote', 'l.fecha_vencimiento', 'l.stock_actual', 'p.nombre as producto_nombre', 's.nombre as sede_nombre']),
         ];
     }
 

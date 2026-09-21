@@ -4,6 +4,7 @@ namespace App\Services\Inventario;
 
 use App\Services\Concerns\RegistraAuditoria;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class InventarioServicio
 {
@@ -48,6 +49,7 @@ class InventarioServicio
             $preciosSede = $datos['precios_sede'] ?? [];
             $stocksSede = $datos['stocks_sede'] ?? [];
             $lotes = $datos['lotes'] ?? [];
+            $productoAnterior = $id ? DB::table('inventario.productos')->where('id', $id)->first() : null;
 
             unset($datos['precios_sede'], $datos['stocks_sede'], $datos['lotes']);
 
@@ -60,7 +62,7 @@ class InventarioServicio
 
             $preciosPorSede = collect($preciosSede)->keyBy('sede_id');
             $stocksPorSede = collect($stocksSede)->keyBy('sede_id');
-            $stockInicialDefecto = app()->environment('production') ? 0 : 20;
+            $stockInicialDefecto = 0;
 
             foreach ($sedes as $sede) {
                 $precio = $preciosPorSede->get($sede->id);
@@ -125,6 +127,10 @@ class InventarioServicio
             }
 
             $this->actualizarStockGlobal($id);
+
+            if ($productoAnterior?->imagen_path && $productoAnterior->imagen_path !== ($datos['imagen_path'] ?? null)) {
+                Storage::disk('public')->delete($productoAnterior->imagen_path);
+            }
 
             return $this->completarProducto($this->obtenerProducto($id));
         });

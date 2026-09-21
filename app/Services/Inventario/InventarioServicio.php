@@ -556,6 +556,17 @@ class InventarioServicio
                 'observaciones' => 'Inventario inicial corregido antes de movimientos posteriores.',
                 'updated_at' => now(),
             ]);
+
+            $despues = DB::table('inventario.movimientos')->where('id', $inicial->id)->first();
+            $this->auditar(
+                'inventario',
+                'ACTUALIZAR',
+                'inventario.movimientos',
+                (int) $inicial->id,
+                $inicial,
+                $despues,
+                'Corrección controlada del inventario inicial antes de movimientos posteriores.'
+            );
             return;
         }
 

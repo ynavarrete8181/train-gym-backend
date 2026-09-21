@@ -97,7 +97,6 @@ class InventarioServicio
                         'sede_id' => (int) $lote['sede_id'],
                         'codigo_lote' => $lote['codigo_lote'],
                         'fecha_elaboracion' => $lote['fecha_elaboracion'] ?? null,
-                        'fecha_ingreso_inventario' => $lote['fecha_ingreso_inventario'] ?? null,
                         'fecha_vencimiento' => $lote['fecha_vencimiento'] ?? null,
                         'cantidad_inicial' => $lote['cantidad_inicial'] ?? 0,
                         'stock_actual' => $lote['stock_actual'] ?? 0,
@@ -113,6 +112,7 @@ class InventarioServicio
                             ->update($payload);
                         $idsConservados[] = (int) $lote['id'];
                     } else {
+                        $payload['fecha_ingreso_inventario'] = now()->toDateString();
                         $payload['created_at'] = now();
                         $idsConservados[] = DB::table('inventario.lotes_producto')->insertGetId($payload);
                     }
@@ -205,27 +205,71 @@ class InventarioServicio
             ]);
 
             $loteId = $datos['lote_id'] ?? null;
-            if ($loteId) {
-                $lote = DB::table('inventario.lotes_producto')
-                    ->where('id', $loteId)
-                    ->where('producto_id', $producto->id)
-                    ->where('sede_id', $sedeId)
-                    ->lockForUpdate()
-                    ->first();
+            $asignacionesLote = [];
 
-                if (! $lote) {
-                    throw new \InvalidArgumentException('El lote seleccionado no corresponde al producto y sede.');
+            if ($producto->maneja_lotes) {
+                if (in_array($tipo, ['SALIDA', 'BAJA'], true)) {
+                    $pendiente = $cantidad;
+                    $lotesFefo = DB::table('inventario.lotes_producto')
+                        ->where('producto_id', $producto->id)
+                        ->where('sede_id', $sedeId)
+                        ->where('activo', true)
+                        ->where('stock_actual', '>', 0)
+                        ->orderByRaw('fecha_vencimiento asc nulls last')
+                        ->orderBy('fecha_ingreso_inventario')
+                        ->orderBy('id')
+                        ->lockForUpdate()
+                        ->get();
+
+                    foreach ($lotesFefo as $lote) {
+                        if ($pendiente <= 0) {
+                            break;
+                        }
+
+                        $disponible = (float) $lote->stock_actual;
+                        $tomar = min($disponible, $pendiente);
+                        if ($tomar <= 0) {
+                            continue;
+                        }
+
+                        DB::table('inventario.lotes_producto')->where('id', $lote->id)->update([
+                            'stock_actual' => $disponible - $tomar,
+                            'updated_at' => now(),
+                        ]);
+
+                        $asignacionesLote[] = ['lote_id' => (int) $lote->id, 'cantidad' => $tomar];
+                        $pendiente -= $tomar;
+                    }
+
+                    if ($pendiente > 0.00001) {
+                        throw new \InvalidArgumentException('No existe stock suficiente en los lotes activos de la sede.');
+                    }
+
+                    $loteId = $asignacionesLote[0]['lote_id'] ?? null;
+                } else {
+                    if (! $loteId) {
+                        throw new \InvalidArgumentException('Debe seleccionar un lote para una entrada o ajuste de un producto que maneja lotes.');
+                    }
+
+                    $lote = DB::table('inventario.lotes_producto')
+                        ->where('id', $loteId)
+                        ->where('producto_id', $producto->id)
+                        ->where('sede_id', $sedeId)
+                        ->where('activo', true)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (! $lote) {
+                        throw new \InvalidArgumentException('El lote seleccionado no corresponde al producto y sede.');
+                    }
+
+                    DB::table('inventario.lotes_producto')->where('id', $lote->id)->update([
+                        'stock_actual' => (float) $lote->stock_actual + $cantidad,
+                        'updated_at' => now(),
+                    ]);
+
+                    $asignacionesLote[] = ['lote_id' => (int) $lote->id, 'cantidad' => $cantidad];
                 }
-
-                $stockLoteNuevo = (float) $lote->stock_actual + ($cantidad * $factor);
-                if ($stockLoteNuevo < 0) {
-                    throw new \InvalidArgumentException('El movimiento dejaría el stock del lote en negativo.');
-                }
-
-                DB::table('inventario.lotes_producto')->where('id', $lote->id)->update([
-                    'stock_actual' => $stockLoteNuevo,
-                    'updated_at' => now(),
-                ]);
             }
 
             $movimientoId = DB::table('inventario.movimientos')->insertGetId([
@@ -243,6 +287,16 @@ class InventarioServicio
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+
+            foreach ($asignacionesLote as $asignacion) {
+                DB::table('inventario.movimiento_lotes')->insert([
+                    'movimiento_id' => $movimientoId,
+                    'lote_id' => $asignacion['lote_id'],
+                    'cantidad' => $asignacion['cantidad'],
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
 
             $this->actualizarStockGlobal((int) $producto->id);
 

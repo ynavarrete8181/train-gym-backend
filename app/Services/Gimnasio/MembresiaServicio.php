@@ -29,6 +29,7 @@ class MembresiaServicio
         $datos['updated_at'] = now();
 
         $id = DB::table('gimnasio.membresias')->insertGetId($datos);
+        $this->sincronizarAsignacionEntrenador($id, (int) $datos['deportista_id'], $datos['entrenador_id'] ?? null, $datos['fecha_inicio']);
         $codigo = 'MEMB-' . str_pad((string) $id, 6, '0', STR_PAD_LEFT);
 
         DB::table('gimnasio.membresias')->where('id', $id)->update([
@@ -57,6 +58,11 @@ class MembresiaServicio
         $datos['updated_at'] = now();
         DB::table('gimnasio.membresias')->where('id', $id)->update($datos);
 
+        if (array_key_exists('entrenador_id', $datos)) {
+            $actualizada = DB::table('gimnasio.membresias')->where('id', $id)->first();
+            $this->sincronizarAsignacionEntrenador($id, (int) $actualizada->deportista_id, $actualizada->entrenador_id, $actualizada->fecha_inicio);
+        }
+
         $membresia = $this->obtenerMembresiaConRelaciones($id);
         $this->auditar('gimnasio', 'ACTUALIZAR', 'gimnasio.membresias', $id, $antes, $membresia);
         return $membresia;
@@ -76,6 +82,8 @@ class MembresiaServicio
             ->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
             ->join('gimnasio.planes', 'gimnasio.membresias.plan_id', '=', 'gimnasio.planes.id')
             ->leftJoin('institucional.sedes', 'gimnasio.membresias.sede_id', '=', 'institucional.sedes.id_sede')
+            ->leftJoin('gimnasio.entrenadores as entrenador_membresia', 'gimnasio.membresias.entrenador_id', '=', 'entrenador_membresia.id')
+            ->leftJoin('seguridad.users as entrenador_user', 'entrenador_membresia.usuario_id', '=', 'entrenador_user.id')
             ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'gimnasio.membresias.estado_id', '=', 'estado_cfg.id')
             ->select(
                 'gimnasio.membresias.*',
@@ -89,6 +97,9 @@ class MembresiaServicio
                 'gimnasio.planes.requiere_pago',
                 'gimnasio.planes.renovable',
                 'institucional.sedes.nombre as sede_nombre',
+                'entrenador_user.name as entrenador_nombre',
+                'entrenador_user.nombres as entrenador_nombres',
+                'entrenador_user.apellidos as entrenador_apellidos',
                 'estado_cfg.codigo as estado_codigo',
                 'estado_cfg.valor_interno as estado_valor',
                 'estado_cfg.nombre as estado_nombre',
@@ -96,6 +107,35 @@ class MembresiaServicio
             )
             ->where('gimnasio.membresias.id', $id)
             ->first();
+    }
+
+    private function sincronizarAsignacionEntrenador(int $membresiaId, int $deportistaId, mixed $entrenadorId, string $fechaInicio): void
+    {
+        DB::table('gimnasio.asignaciones_entrenador_cliente')
+            ->where('membresia_id', $membresiaId)
+            ->where('estado', 'ACTIVO')
+            ->update([
+                'estado' => 'FINALIZADO',
+                'fecha_fin' => now()->toDateString(),
+                'updated_at' => now(),
+            ]);
+
+        if (! $entrenadorId) {
+            return;
+        }
+
+        DB::table('gimnasio.asignaciones_entrenador_cliente')->insert([
+            'entrenador_id' => (int) $entrenadorId,
+            'deportista_id' => $deportistaId,
+            'membresia_id' => $membresiaId,
+            'horario_bloque_id' => null,
+            'tipo_asignacion' => 'MEMBRESIA',
+            'estado' => 'ACTIVO',
+            'fecha_inicio' => $fechaInicio,
+            'fecha_fin' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     private function calcularFechaFin(string $fechaInicio, string $tipoDuracion, int $duracion): string

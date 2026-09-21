@@ -77,7 +77,6 @@ return new class extends Migration
             }
         });
 
-        $this->inicializarPorSede();
     }
 
     public function down(): void
@@ -100,32 +99,4 @@ return new class extends Migration
         });
     }
 
-    private function inicializarPorSede(): void
-    {
-        $sedes = DB::table('institucional.sedes')
-            ->where('activo', true)
-            ->where('maneja_inventario', true)
-            ->pluck('id_sede');
-
-        $productos = DB::table('inventario.productos')
-            ->where('activo', true)
-            ->get(['id', 'precio_venta', 'stock_minimo']);
-
-        $stockInicial = app()->environment('production') ? 0 : 20;
-        $ahora = now();
-
-        foreach ($productos as $producto) {
-            foreach ($sedes as $sedeId) {
-                DB::table('inventario.producto_precios_sede')->updateOrInsert(
-                    ['producto_id' => $producto->id, 'sede_id' => $sedeId],
-                    ['precio' => $producto->precio_venta, 'activo' => true, 'created_at' => $ahora, 'updated_at' => $ahora]
-                );
-
-                DB::table('inventario.producto_stock_sede')->updateOrInsert(
-                    ['producto_id' => $producto->id, 'sede_id' => $sedeId],
-                    ['stock_actual' => $stockInicial, 'stock_minimo' => $producto->stock_minimo, 'created_at' => $ahora, 'updated_at' => $ahora]
-                );
-            }
-        }
-    }
 };

@@ -91,7 +91,6 @@ class InventarioControlador extends Controller
             'lotes.*.sede_id' => 'required|exists:pgsql.institucional.sedes,id_sede',
             'lotes.*.codigo_lote' => 'required|string|max:80',
             'lotes.*.fecha_elaboracion' => 'nullable|date',
-            'lotes.*.fecha_ingreso_inventario' => 'nullable|date',
             'lotes.*.fecha_vencimiento' => 'nullable|date',
             'lotes.*.cantidad_inicial' => 'required|numeric|min:0',
             'lotes.*.stock_actual' => 'required|numeric|min:0',

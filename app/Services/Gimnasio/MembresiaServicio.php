@@ -58,9 +58,18 @@ class MembresiaServicio
         $datos['updated_at'] = now();
         DB::table('gimnasio.membresias')->where('id', $id)->update($datos);
 
-        if (array_key_exists('entrenador_id', $datos)) {
-            $actualizada = DB::table('gimnasio.membresias')->where('id', $id)->first();
+        $actualizada = DB::table('gimnasio.membresias')->where('id', $id)->first();
+
+        if (array_key_exists('entrenador_id', $datos) && (int) ($antes->entrenador_id ?? 0) !== (int) ($actualizada->entrenador_id ?? 0)) {
             $this->sincronizarAsignacionEntrenador($id, (int) $actualizada->deportista_id, $actualizada->entrenador_id, $actualizada->fecha_inicio);
+        } elseif (array_key_exists('fecha_inicio', $datos) && $actualizada->entrenador_id) {
+            DB::table('gimnasio.asignaciones_entrenador_cliente')
+                ->where('membresia_id', $id)
+                ->where('estado', 'ACTIVO')
+                ->update([
+                    'fecha_inicio' => $actualizada->fecha_inicio,
+                    'updated_at' => now(),
+                ]);
         }
 
         $membresia = $this->obtenerMembresiaConRelaciones($id);

@@ -75,6 +75,34 @@ class VentaControlador extends Controller
         );
     }
 
+    public function cobrarVentaPos(Request $request)
+    {
+        $datos = $request->validate([
+            'cliente_id' => 'nullable|exists:pgsql.gimnasio.deportistas,id',
+            'descuento' => 'nullable|numeric|min:0',
+            'impuesto' => 'nullable|numeric|min:0',
+            'observaciones' => 'nullable|string|max:1000',
+            'metodo_pago' => 'required|string|in:EFECTIVO,TARJETA,TRANSFERENCIA,DEPOSITO,OTRO',
+            'referencia_pago' => 'nullable|string|max:120',
+            'observaciones_pago' => 'nullable|string|max:1000',
+            'detalles' => 'required|array|min:1',
+            'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO',
+            'detalles.*.referencia_id' => 'nullable|integer',
+            'detalles.*.producto_id' => 'nullable|integer',
+            'detalles.*.descripcion' => 'nullable|string|max:180',
+            'detalles.*.cantidad' => 'required|numeric|min:0.01',
+            'detalles.*.precio_unitario' => 'nullable|numeric|min:0',
+            'detalles.*.total_linea' => 'nullable|numeric|min:0',
+        ]);
+
+        return ApiResponse::exito(
+            'Venta, pago y comprobante registrados correctamente.',
+            (array) $this->pos->cobrar($datos, (int) $request->user()->id),
+            [],
+            201,
+        );
+    }
+
     public function pagos(Request $request)
     {
         return $this->respuesta(

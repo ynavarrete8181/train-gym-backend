@@ -4,6 +4,7 @@ namespace App\Services\Ventas;
 
 use App\Services\Concerns\RegistraAuditoria;
 use App\Services\Configuracion\EstadoCatalogoServicio;
+use App\Services\Inventario\InventarioServicio;
 use App\Services\Seguridad\AlcanceOperativoService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -15,6 +16,7 @@ class VentaServicio
     public function __construct(
         private readonly EstadoCatalogoServicio $estados,
         private readonly AlcanceOperativoService $alcance,
+        private readonly InventarioServicio $inventario,
     ) {
     }
 
@@ -162,6 +164,24 @@ class VentaServicio
     public function guardarPago(array $datos, ?int $usuarioId = null): object
     {
         return DB::transaction(function () use ($datos, $usuarioId): object {
+            $venta = DB::table('ventas.ventas')->where('id', (int) $datos['venta_id'])->lockForUpdate()->first();
+            if (! $venta) {
+                throw ValidationException::withMessages(['venta_id' => 'La venta no existe.']);
+            }
+
+            if (($datos['estado'] ?? null) === 'CONFIRMADO') {
+                $pagadoActual = (float) DB::table('ventas.pagos')
+                    ->where('venta_id', $venta->id)
+                    ->where('estado', 'CONFIRMADO')
+                    ->sum('monto');
+                $saldo = round((float) $venta->total - $pagadoActual, 2);
+                if ((float) $datos['monto'] > $saldo + 0.00001) {
+                    throw ValidationException::withMessages([
+                        'monto' => 'El pago supera el saldo pendiente de la venta.',
+                    ]);
+                }
+            }
+
             $sedeVenta = $this->alcance->sedeDeVenta((int) $datos['venta_id']);
             $this->alcance->validarSede($usuarioId, $sedeVenta, 'maneja_caja');
 
@@ -179,7 +199,7 @@ class VentaServicio
             $datos['usuario_id'] = $usuarioId;
             $datos['numero_comprobante'] = $datos['numero_comprobante'] ?? $this->secuencia('PAGO');
             $pagoId = $this->guardarRetornandoId('ventas.pagos', $datos, null);
-            $this->actualizarEstadoVenta((int) $datos['venta_id']);
+            $this->actualizarEstadoVenta((int) $datos['venta_id'], $usuarioId);
             $this->auditar('ventas', 'CREAR', 'ventas.pagos', $pagoId, null, DB::table('ventas.pagos')->where('id', $pagoId)->first(), 'Pago registrado sobre la venta #' . $datos['venta_id'] . '.');
 
             DB::table('ventas.comprobantes')->where('venta_id', $datos['venta_id'])->update([
@@ -301,11 +321,19 @@ class VentaServicio
             ->first();
     }
 
-    private function actualizarEstadoVenta(int $ventaId): void
+    private function actualizarEstadoVenta(int $ventaId, ?int $usuarioId = null): void
     {
-        $venta = DB::table('ventas.ventas')->where('id', $ventaId)->first();
-        $pagado = (float) DB::table('ventas.pagos')->where('venta_id', $ventaId)->where('estado', 'CONFIRMADO')->sum('monto');
-        $estado = $pagado <= 0 ? 'PENDIENTE' : ($pagado >= (float) $venta->total ? 'PAGADA' : 'PARCIAL');
+        $venta = DB::table('ventas.ventas')->where('id', $ventaId)->lockForUpdate()->first();
+        if (! $venta) {
+            throw ValidationException::withMessages(['venta_id' => 'La venta no existe.']);
+        }
+
+        $pagado = (float) DB::table('ventas.pagos')
+            ->where('venta_id', $ventaId)
+            ->where('estado', 'CONFIRMADO')
+            ->sum('monto');
+
+        $estado = $pagado <= 0 ? 'PENDIENTE' : ($pagado + 0.00001 >= (float) $venta->total ? 'PAGADA' : 'PARCIAL');
         $estadoVentaId = $this->estados->idPorValor('VENTA', $estado);
 
         DB::table('ventas.ventas')->where('id', $ventaId)->update([
@@ -313,6 +341,37 @@ class VentaServicio
             'estado_id' => $estadoVentaId,
             'updated_at' => now(),
         ]);
+
+        if ($estado === 'PAGADA' && ! $venta->inventario_aplicado_at) {
+            $sedeId = $this->alcance->sedeDeVenta($ventaId);
+            if (! $sedeId) {
+                throw ValidationException::withMessages([
+                    'venta_id' => 'No se pudo determinar la sede de la venta para descontar inventario.',
+                ]);
+            }
+
+            $productos = DB::table('ventas.venta_detalles')
+                ->where('venta_id', $ventaId)
+                ->whereNotNull('producto_id')
+                ->select('producto_id', DB::raw('SUM(cantidad) as cantidad'))
+                ->groupBy('producto_id')
+                ->get();
+
+            foreach ($productos as $detalle) {
+                $this->inventario->registrarSalidaVenta(
+                    (int) $detalle->producto_id,
+                    (int) $sedeId,
+                    (float) $detalle->cantidad,
+                    $ventaId,
+                    $usuarioId,
+                );
+            }
+
+            DB::table('ventas.ventas')->where('id', $ventaId)->update([
+                'inventario_aplicado_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
 
         if ($estado === 'PAGADA' && $venta->membresia_id) {
             $estadoMembresiaId = $this->estados->idPorValor('MEMBRESIA', 'ACTIVA');

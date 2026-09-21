@@ -132,6 +132,75 @@ class VentaServicio
         });
     }
 
+    public function detalleVenta(int $ventaId, ?int $usuarioId = null): object
+    {
+        $sedeId = $this->alcance->sedeDeVenta($ventaId);
+        $this->alcance->validarSede($usuarioId, $sedeId, 'maneja_caja');
+
+        $venta = DB::table('ventas.ventas as v')
+            ->leftJoin('gimnasio.deportistas as d', 'd.id', '=', 'v.cliente_id')
+            ->leftJoin('seguridad.users as cu', 'cu.id', '=', 'd.usuario_id')
+            ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
+            ->leftJoin('institucional.sedes as s', 's.id_sede', '=', 'c.sede_id')
+            ->leftJoin('configuracion.estados_catalogo as e', 'e.id', '=', 'v.estado_id')
+            ->where('v.id', $ventaId)
+            ->select(
+                'v.*',
+                'cu.name as cliente_nombre',
+                'cu.email as cliente_email',
+                'd.codigo_deportista',
+                'c.nombre as caja_nombre',
+                'c.codigo as caja_codigo',
+                's.nombre as sede_nombre',
+                'e.nombre as estado_nombre',
+                'e.color as estado_color'
+            )
+            ->first();
+
+        if (! $venta) {
+            throw ValidationException::withMessages(['venta_id' => 'La venta no existe.']);
+        }
+
+        $venta->detalles = DB::table('ventas.venta_detalles')
+            ->where('venta_id', $ventaId)
+            ->orderBy('id')
+            ->get();
+
+        $venta->pagos = DB::table('ventas.pagos as p')
+            ->leftJoin('configuracion.estados_catalogo as e', 'e.id', '=', 'p.estado_id')
+            ->where('p.venta_id', $ventaId)
+            ->orderBy('p.id')
+            ->get([
+                'p.*',
+                'e.nombre as estado_nombre',
+                'e.color as estado_color',
+            ]);
+
+        $venta->comprobante = DB::table('ventas.comprobantes')
+            ->where('venta_id', $ventaId)
+            ->first();
+
+        $venta->movimientos_inventario = DB::table('inventario.movimientos as m')
+            ->join('inventario.productos as p', 'p.id', '=', 'm.producto_id')
+            ->leftJoin('inventario.lotes_producto as l', 'l.id', '=', 'm.lote_id')
+            ->where('m.venta_id', $ventaId)
+            ->orderBy('m.id')
+            ->get([
+                'm.id',
+                'm.tipo_movimiento',
+                'm.cantidad',
+                'm.stock_anterior',
+                'm.stock_nuevo',
+                'm.referencia',
+                'm.fecha_movimiento',
+                'p.codigo as producto_codigo',
+                'p.nombre as producto_nombre',
+                'l.codigo_lote',
+            ]);
+
+        return $venta;
+    }
+
     public function listarPagos(array $filtros, ?int $usuarioId = null)
     {
         $query = DB::table('ventas.pagos')

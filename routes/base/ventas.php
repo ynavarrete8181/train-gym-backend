@@ -20,6 +20,7 @@ Route::middleware(['base.auth'])->prefix('ventas')->group(function (): void {
 
     Route::middleware(['base.permiso:VENTAS-VENTAS'])->group(function (): void {
         Route::get('ventas', [VentaControlador::class, 'ventas'])->name('ventas.ventas.index');
+        Route::get('ventas/{id}/detalle', [VentaControlador::class, 'detalleVenta'])->name('ventas.ventas.detalle');
         Route::get('pos/contexto', [VentaControlador::class, 'contextoPos'])->name('ventas.pos.contexto');
         Route::post('pos', [VentaControlador::class, 'guardarVentaPos'])->name('ventas.pos.store');
         Route::post('pos/cobrar', [VentaControlador::class, 'cobrarVentaPos'])->name('ventas.pos.cobrar');

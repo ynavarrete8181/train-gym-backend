@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Inventario\InventarioServicio;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 class InventarioControlador extends Controller
@@ -43,6 +44,21 @@ class InventarioControlador extends Controller
 
     public function productos(Request $request) { return $this->respuesta('Productos consultados.', $this->inventario->listarProductos($request->all())); }
 
+    public function subirImagenProducto(Request $request)
+    {
+        $request->validate([
+            'imagen' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
+        ]);
+
+        $path = $request->file('imagen')->store('productos', 'public');
+
+        return ApiResponse::exito('Imagen de producto cargada correctamente.', [
+            'imagen_path' => $path,
+            'imagen_url' => url(Storage::url($path)),
+        ]);
+    }
+
+
     public function guardarProducto(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
@@ -53,6 +69,7 @@ class InventarioControlador extends Controller
             'descripcion' => 'nullable|string',
             'marca' => 'nullable|string|max:100',
             'imagen_url' => 'nullable|string|max:2000',
+            'imagen_path' => 'nullable|string|max:500',
             'maneja_lotes' => 'boolean',
             'unidad_medida' => 'required|string|max:30',
             'precio_costo' => 'required|numeric|min:0',

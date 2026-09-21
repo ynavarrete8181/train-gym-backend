@@ -103,6 +103,14 @@ class VentaControlador extends Controller
         );
     }
 
+    public function detalleVenta(Request $request, int $id)
+    {
+        return ApiResponse::exito(
+            'Detalle de venta consultado.',
+            (array) $this->ventas->detalleVenta($id, $request->user()?->id),
+        );
+    }
+
     public function pagos(Request $request)
     {
         return $this->respuesta(

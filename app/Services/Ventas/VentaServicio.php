@@ -141,7 +141,10 @@ class VentaServicio
             ->leftJoin('gimnasio.deportistas as d', 'd.id', '=', 'v.cliente_id')
             ->leftJoin('seguridad.users as cu', 'cu.id', '=', 'd.usuario_id')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
-            ->leftJoin('institucional.sedes as s', 's.id_sede', '=', 'c.sede_id')
+            ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
+            ->leftJoin('gimnasio.entrenadores as em', 'em.id', '=', 'm.entrenador_id')
+            ->leftJoin('seguridad.users as eu', 'eu.id', '=', 'em.usuario_id')
+            ->leftJoin('institucional.sedes as s', 's.id_sede', '=', DB::raw('COALESCE(c.sede_id, m.sede_id)'))
             ->leftJoin('configuracion.estados_catalogo as e', 'e.id', '=', 'v.estado_id')
             ->where('v.id', $ventaId)
             ->select(
@@ -152,6 +155,10 @@ class VentaServicio
                 'c.nombre as caja_nombre',
                 'c.codigo as caja_codigo',
                 's.nombre as sede_nombre',
+                'm.codigo_contrato as membresia_codigo',
+                'eu.name as entrenador_nombre',
+                'eu.nombres as entrenador_nombres',
+                'eu.apellidos as entrenador_apellidos',
                 'e.nombre as estado_nombre',
                 'e.color as estado_color'
             )

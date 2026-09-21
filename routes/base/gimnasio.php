@@ -69,7 +69,7 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
 
     // Entrenadores: Clientes puede consultar asignación/horario sin adquirir permisos de administración.
     Route::get('entrenadores', [EntrenadorControlador::class, 'index'])
-        ->middleware('base.permiso:GIMNASIO-ENTRENADORES,GIMNASIO-DEPORTISTAS')
+        ->middleware('base.permiso:GIMNASIO-ENTRENADORES,GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
         ->name('gimnasio.entrenadores.index');
     Route::get('entrenadores/{id}/turnos', [EntrenadorControlador::class, 'turnos'])
         ->middleware('base.permiso:GIMNASIO-ENTRENADORES,GIMNASIO-DEPORTISTAS')

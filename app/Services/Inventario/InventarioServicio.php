@@ -3,12 +3,17 @@
 namespace App\Services\Inventario;
 
 use App\Services\Concerns\RegistraAuditoria;
+use App\Services\Configuracion\EstadoCatalogoServicio;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class InventarioServicio
 {
     use RegistraAuditoria;
+
+    public function __construct(private readonly EstadoCatalogoServicio $estados)
+    {
+    }
 
     public function listarCategorias(array $filtros) { return $this->listarSimple('inventario.categorias_producto', $filtros, ['nombre', 'descripcion']); }
     public function guardarCategoria(array $datos, ?int $id = null): object { return $this->guardar('inventario.categorias_producto', $datos, $id); }
@@ -110,9 +115,11 @@ class InventarioServicio
                             ->where('id', $lote['id'])
                             ->where('producto_id', $id)
                             ->update($payload);
+                        $this->sincronizarEstadoLote((int) $lote['id']);
                         $idsConservados[] = (int) $lote['id'];
                     } else {
                         $payload['fecha_ingreso_inventario'] = now()->toDateString();
+                        $payload['estado_id'] = $this->estadoLoteId($payload['fecha_vencimiento'] ?? null, (float) ($payload['stock_actual'] ?? 0));
                         $payload['created_at'] = now();
                         $idsConservados[] = DB::table('inventario.lotes_producto')->insertGetId($payload);
                     }
@@ -144,7 +151,8 @@ class InventarioServicio
             ->join('inventario.productos', 'inventario.movimientos.producto_id', '=', 'inventario.productos.id')
             ->leftJoin('institucional.sedes', 'inventario.movimientos.sede_id', '=', 'institucional.sedes.id_sede')
             ->leftJoin('seguridad.users', 'inventario.movimientos.usuario_id', '=', 'seguridad.users.id')
-            ->select('inventario.movimientos.*', 'inventario.productos.codigo as producto_codigo', 'inventario.productos.nombre as producto_nombre', 'institucional.sedes.nombre as sede_nombre', 'seguridad.users.name as usuario_nombre');
+            ->leftJoin('configuracion.estados_catalogo as estado_mov', 'estado_mov.id', '=', 'inventario.movimientos.estado_id')
+            ->select('inventario.movimientos.*', 'inventario.productos.codigo as producto_codigo', 'inventario.productos.nombre as producto_nombre', 'institucional.sedes.nombre as sede_nombre', 'seguridad.users.name as usuario_nombre', 'estado_mov.valor_interno as estado_valor', 'estado_mov.nombre as estado_nombre', 'estado_mov.color as estado_color');
 
         $this->buscar($query, $filtros['busqueda'] ?? null, ['inventario.productos.codigo', 'inventario.productos.nombre', 'inventario.movimientos.tipo_movimiento', 'inventario.movimientos.referencia']);
         $this->filtrarTexto($query, 'inventario.productos.nombre', $filtros['producto'] ?? null);
@@ -210,11 +218,16 @@ class InventarioServicio
             if ($producto->maneja_lotes) {
                 if (in_array($tipo, ['SALIDA', 'BAJA'], true)) {
                     $pendiente = $cantidad;
+                    $estadoDisponibleId = $this->estados->idPorValor('INVENTARIO_LOTE', 'DISPONIBLE');
                     $lotesFefo = DB::table('inventario.lotes_producto')
                         ->where('producto_id', $producto->id)
                         ->where('sede_id', $sedeId)
                         ->where('activo', true)
+                        ->where('estado_id', $estadoDisponibleId)
                         ->where('stock_actual', '>', 0)
+                        ->where(function ($q): void {
+                            $q->whereNull('fecha_vencimiento')->orWhereDate('fecha_vencimiento', '>=', now()->toDateString());
+                        })
                         ->orderByRaw('fecha_vencimiento asc nulls last')
                         ->orderBy('fecha_ingreso_inventario')
                         ->orderBy('id')
@@ -236,6 +249,7 @@ class InventarioServicio
                             'stock_actual' => $disponible - $tomar,
                             'updated_at' => now(),
                         ]);
+                        $this->sincronizarEstadoLote((int) $lote->id);
 
                         $asignacionesLote[] = ['lote_id' => (int) $lote->id, 'cantidad' => $tomar];
                         $pendiente -= $tomar;
@@ -267,6 +281,7 @@ class InventarioServicio
                         'stock_actual' => (float) $lote->stock_actual + $cantidad,
                         'updated_at' => now(),
                     ]);
+                    $this->sincronizarEstadoLote((int) $lote->id);
 
                     $asignacionesLote[] = ['lote_id' => (int) $lote->id, 'cantidad' => $cantidad];
                 }
@@ -278,6 +293,7 @@ class InventarioServicio
                 'sede_id' => $sedeId,
                 'usuario_id' => $usuarioId,
                 'tipo_movimiento' => $tipo,
+                'estado_id' => $this->estados->idPorValor('INVENTARIO_MOVIMIENTO', 'REGISTRADO'),
                 'cantidad' => $cantidad,
                 'stock_anterior' => $stockAnterior,
                 'stock_nuevo' => $stockNuevo,
@@ -314,7 +330,7 @@ class InventarioServicio
             'proveedores' => DB::table('inventario.proveedores')->where('activo', true)->orderBy('nombre')->get(['id', 'nombre']),
             'productos' => DB::table('inventario.productos')->where('activo', true)->orderBy('nombre')->get(['id', 'codigo', 'nombre', 'stock_actual', 'maneja_lotes']),
             'sedes' => DB::table('institucional.sedes')->where('activo', true)->where('maneja_inventario', true)->orderBy('nombre')->get(['id_sede as id', 'nombre']),
-            'lotes' => DB::table('inventario.lotes_producto as l')->join('inventario.productos as p', 'p.id', '=', 'l.producto_id')->join('institucional.sedes as s', 's.id_sede', '=', 'l.sede_id')->where('l.activo', true)->orderByRaw('l.fecha_vencimiento asc nulls last')->get(['l.id', 'l.producto_id', 'l.sede_id', 'l.codigo_lote', 'l.fecha_vencimiento', 'l.stock_actual', 'p.nombre as producto_nombre', 's.nombre as sede_nombre']),
+            'lotes' => DB::table('inventario.lotes_producto as l')->join('inventario.productos as p', 'p.id', '=', 'l.producto_id')->join('institucional.sedes as s', 's.id_sede', '=', 'l.sede_id')->leftJoin('configuracion.estados_catalogo as e', 'e.id', '=', 'l.estado_id')->where('l.activo', true)->orderByRaw('l.fecha_vencimiento asc nulls last')->get(['l.id', 'l.producto_id', 'l.sede_id', 'l.codigo_lote', 'l.fecha_vencimiento', 'l.stock_actual', 'l.estado_id', 'e.valor_interno as estado_valor', 'e.nombre as estado_nombre', 'e.color as estado_color', 'p.nombre as producto_nombre', 's.nombre as sede_nombre']),
         ];
     }
 
@@ -369,6 +385,8 @@ class InventarioServicio
 
     private function completarProducto(object $producto): object
     {
+        $this->sincronizarEstadosLotesProducto((int) $producto->id);
+
         $producto->precios_sede = DB::table('inventario.producto_precios_sede as ps')
             ->join('institucional.sedes as s', 's.id_sede', '=', 'ps.sede_id')
             ->where('ps.producto_id', $producto->id)
@@ -383,6 +401,7 @@ class InventarioServicio
 
         $producto->lotes = DB::table('inventario.lotes_producto as l')
             ->join('institucional.sedes as s', 's.id_sede', '=', 'l.sede_id')
+            ->leftJoin('configuracion.estados_catalogo as e', 'e.id', '=', 'l.estado_id')
             ->where('l.producto_id', $producto->id)
             ->where('l.activo', true)
             ->orderByRaw('l.fecha_vencimiento asc nulls last')
@@ -398,6 +417,10 @@ class InventarioServicio
                 'l.stock_actual',
                 'l.costo_unitario',
                 'l.activo',
+                'l.estado_id',
+                'e.valor_interno as estado_valor',
+                'e.nombre as estado_nombre',
+                'e.color as estado_color',
             ]);
 
         return $producto;
@@ -421,8 +444,52 @@ class InventarioServicio
             ->join('inventario.productos', 'inventario.movimientos.producto_id', '=', 'inventario.productos.id')
             ->leftJoin('institucional.sedes', 'inventario.movimientos.sede_id', '=', 'institucional.sedes.id_sede')
             ->leftJoin('seguridad.users', 'inventario.movimientos.usuario_id', '=', 'seguridad.users.id')
-            ->select('inventario.movimientos.*', 'inventario.productos.codigo as producto_codigo', 'inventario.productos.nombre as producto_nombre', 'institucional.sedes.nombre as sede_nombre', 'seguridad.users.name as usuario_nombre')
+            ->leftJoin('configuracion.estados_catalogo as estado_mov', 'estado_mov.id', '=', 'inventario.movimientos.estado_id')
+            ->select('inventario.movimientos.*', 'inventario.productos.codigo as producto_codigo', 'inventario.productos.nombre as producto_nombre', 'institucional.sedes.nombre as sede_nombre', 'seguridad.users.name as usuario_nombre', 'estado_mov.valor_interno as estado_valor', 'estado_mov.nombre as estado_nombre', 'estado_mov.color as estado_color')
             ->where('inventario.movimientos.id', $id)->first();
+    }
+
+    private function estadoLoteId(?string $fechaVencimiento, float $stockActual): int
+    {
+        if ($fechaVencimiento && $fechaVencimiento < now()->toDateString()) {
+            return $this->estados->idPorValor('INVENTARIO_LOTE', 'VENCIDO');
+        }
+
+        if ($stockActual <= 0) {
+            return $this->estados->idPorValor('INVENTARIO_LOTE', 'AGOTADO');
+        }
+
+        return $this->estados->idPorValor('INVENTARIO_LOTE', 'DISPONIBLE');
+    }
+
+    private function sincronizarEstadoLote(int $loteId): void
+    {
+        $lote = DB::table('inventario.lotes_producto')->where('id', $loteId)->first();
+        if (! $lote) {
+            return;
+        }
+
+        $estadoBloqueado = $this->estados->porValor('INVENTARIO_LOTE', 'BLOQUEADO');
+        if ($estadoBloqueado && (int) $lote->estado_id === (int) $estadoBloqueado->id) {
+            return;
+        }
+
+        $estadoId = $this->estadoLoteId($lote->fecha_vencimiento, (float) $lote->stock_actual);
+        if ((int) $lote->estado_id !== $estadoId) {
+            DB::table('inventario.lotes_producto')->where('id', $loteId)->update([
+                'estado_id' => $estadoId,
+                'updated_at' => now(),
+            ]);
+        }
+    }
+
+    private function sincronizarEstadosLotesProducto(int $productoId): void
+    {
+        DB::table('inventario.lotes_producto')
+            ->where('producto_id', $productoId)
+            ->where('activo', true)
+            ->pluck('id')
+            ->each(fn ($id) => $this->sincronizarEstadoLote((int) $id));
     }
 
     private function buscar($query, ?string $busqueda, array $columnas): void

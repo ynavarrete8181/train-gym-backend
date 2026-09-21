@@ -6,6 +6,7 @@ use App\Services\Concerns\RegistraAuditoria;
 use App\Services\Configuracion\EstadoCatalogoServicio;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 class InventarioServicio
 {
@@ -83,14 +84,11 @@ class InventarioServicio
                     ]
                 );
 
-                DB::table('inventario.producto_stock_sede')->updateOrInsert(
-                    ['producto_id' => $id, 'sede_id' => $sede->id],
-                    [
-                        'stock_actual' => $stock['stock_actual'] ?? $stockInicialDefecto,
-                        'stock_minimo' => $stock['stock_minimo'] ?? $datos['stock_minimo'] ?? 0,
-                        'updated_at' => now(),
-                        'created_at' => now(),
-                    ]
+                $this->sincronizarStockInicialSede(
+                    (int) $id,
+                    (int) $sede->id,
+                    (float) ($stock['stock_actual'] ?? $stockInicialDefecto),
+                    (float) ($stock['stock_minimo'] ?? $datos['stock_minimo'] ?? 0),
                 );
             }
 
@@ -177,6 +175,16 @@ class InventarioServicio
 
             $cantidad = (float) $datos['cantidad'];
             $tipo = $datos['tipo_movimiento'];
+
+            if ($tipo === 'AJUSTE_INICIAL' && DB::table('inventario.movimientos')
+                ->where('producto_id', $producto->id)
+                ->where('sede_id', $sedeId)
+                ->exists()) {
+                throw ValidationException::withMessages([
+                    'tipo_movimiento' => 'El inventario inicial solo puede registrarse antes de cualquier otro movimiento del producto en la sede.',
+                ]);
+            }
+
             $factor = in_array($tipo, ['SALIDA', 'BAJA'], true) ? -1 : 1;
 
             $stockSede = DB::table('inventario.producto_stock_sede')
@@ -323,6 +331,18 @@ class InventarioServicio
         });
     }
 
+    public function registrarSalidaVenta(int $productoId, int $sedeId, float $cantidad, int $ventaId, ?int $usuarioId = null): object
+    {
+        return $this->guardarMovimiento([
+            'producto_id' => $productoId,
+            'sede_id' => $sedeId,
+            'tipo_movimiento' => 'SALIDA',
+            'cantidad' => $cantidad,
+            'referencia' => 'VENTA-' . $ventaId,
+            'observaciones' => 'Salida automática por venta pagada #' . $ventaId . '.',
+        ], $usuarioId);
+    }
+
     public function catalogos(): array
     {
         return [
@@ -397,7 +417,15 @@ class InventarioServicio
             ->join('institucional.sedes as s', 's.id_sede', '=', 'ss.sede_id')
             ->where('ss.producto_id', $producto->id)
             ->orderBy('s.nombre')
-            ->get(['ss.sede_id', 's.nombre as sede_nombre', 'ss.stock_actual', 'ss.stock_minimo']);
+            ->get(['ss.sede_id', 's.nombre as sede_nombre', 'ss.stock_actual', 'ss.stock_minimo'])
+            ->map(function ($stock) use ($producto) {
+                $stock->stock_inicial_editable = ! DB::table('inventario.movimientos')
+                    ->where('producto_id', $producto->id)
+                    ->where('sede_id', $stock->sede_id)
+                    ->where('tipo_movimiento', '<>', 'AJUSTE_INICIAL')
+                    ->exists();
+                return $stock;
+            });
 
         $producto->lotes = DB::table('inventario.lotes_producto as l')
             ->join('institucional.sedes as s', 's.id_sede', '=', 'l.sede_id')
@@ -447,6 +475,97 @@ class InventarioServicio
             ->leftJoin('configuracion.estados_catalogo as estado_mov', 'estado_mov.id', '=', 'inventario.movimientos.estado_id')
             ->select('inventario.movimientos.*', 'inventario.productos.codigo as producto_codigo', 'inventario.productos.nombre as producto_nombre', 'institucional.sedes.nombre as sede_nombre', 'seguridad.users.name as usuario_nombre', 'estado_mov.valor_interno as estado_valor', 'estado_mov.nombre as estado_nombre', 'estado_mov.color as estado_color')
             ->where('inventario.movimientos.id', $id)->first();
+    }
+
+    private function sincronizarStockInicialSede(int $productoId, int $sedeId, float $stockDeseado, float $stockMinimo): void
+    {
+        $stockDeseado = round(max(0, $stockDeseado), 2);
+
+        $stock = DB::table('inventario.producto_stock_sede')
+            ->where('producto_id', $productoId)
+            ->where('sede_id', $sedeId)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $stock) {
+            DB::table('inventario.producto_stock_sede')->insert([
+                'producto_id' => $productoId,
+                'sede_id' => $sedeId,
+                'stock_actual' => 0,
+                'stock_minimo' => $stockMinimo,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $stock = DB::table('inventario.producto_stock_sede')
+                ->where('producto_id', $productoId)
+                ->where('sede_id', $sedeId)
+                ->lockForUpdate()
+                ->first();
+        }
+
+        $tienePosteriores = DB::table('inventario.movimientos')
+            ->where('producto_id', $productoId)
+            ->where('sede_id', $sedeId)
+            ->where('tipo_movimiento', '<>', 'AJUSTE_INICIAL')
+            ->exists();
+
+        if ($tienePosteriores) {
+            if (abs((float) $stock->stock_actual - $stockDeseado) > 0.00001) {
+                throw ValidationException::withMessages([
+                    'stocks_sede' => 'El stock actual ya tiene movimientos de Kardex y no puede editarse directamente. Registra un AJUSTE de inventario.',
+                ]);
+            }
+
+            DB::table('inventario.producto_stock_sede')->where('id', $stock->id)->update([
+                'stock_minimo' => $stockMinimo,
+                'updated_at' => now(),
+            ]);
+            return;
+        }
+
+        $inicial = DB::table('inventario.movimientos')
+            ->where('producto_id', $productoId)
+            ->where('sede_id', $sedeId)
+            ->where('tipo_movimiento', 'AJUSTE_INICIAL')
+            ->orderBy('id')
+            ->first();
+
+        DB::table('inventario.producto_stock_sede')->where('id', $stock->id)->update([
+            'stock_actual' => $stockDeseado,
+            'stock_minimo' => $stockMinimo,
+            'updated_at' => now(),
+        ]);
+
+        if ($inicial) {
+            DB::table('inventario.movimientos')->where('id', $inicial->id)->update([
+                'cantidad' => $stockDeseado,
+                'stock_anterior' => 0,
+                'stock_nuevo' => $stockDeseado,
+                'observaciones' => 'Inventario inicial corregido antes de movimientos posteriores.',
+                'updated_at' => now(),
+            ]);
+            return;
+        }
+
+        if ($stockDeseado <= 0) {
+            return;
+        }
+
+        DB::table('inventario.movimientos')->insert([
+            'producto_id' => $productoId,
+            'sede_id' => $sedeId,
+            'usuario_id' => null,
+            'tipo_movimiento' => 'AJUSTE_INICIAL',
+            'estado_id' => $this->estados->idPorValor('INVENTARIO_MOVIMIENTO', 'REGISTRADO'),
+            'cantidad' => $stockDeseado,
+            'stock_anterior' => 0,
+            'stock_nuevo' => $stockDeseado,
+            'referencia' => 'INVENTARIO-INICIAL',
+            'observaciones' => 'Carga inicial de inventario.',
+            'fecha_movimiento' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     private function estadoLoteId(?string $fechaVencimiento, float $stockActual): int

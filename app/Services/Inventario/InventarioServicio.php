@@ -298,6 +298,7 @@ class InventarioServicio
             $movimientoId = DB::table('inventario.movimientos')->insertGetId([
                 'producto_id' => $producto->id,
                 'lote_id' => $loteId,
+                'venta_id' => $datos['venta_id'] ?? null,
                 'sede_id' => $sedeId,
                 'usuario_id' => $usuarioId,
                 'tipo_movimiento' => $tipo,
@@ -333,8 +334,19 @@ class InventarioServicio
 
     public function registrarSalidaVenta(int $productoId, int $sedeId, float $cantidad, int $ventaId, ?int $usuarioId = null): object
     {
+        $existente = DB::table('inventario.movimientos')
+            ->where('venta_id', $ventaId)
+            ->where('producto_id', $productoId)
+            ->where('tipo_movimiento', 'SALIDA')
+            ->first();
+
+        if ($existente) {
+            return $this->obtenerMovimiento((int) $existente->id);
+        }
+
         return $this->guardarMovimiento([
             'producto_id' => $productoId,
+            'venta_id' => $ventaId,
             'sede_id' => $sedeId,
             'tipo_movimiento' => 'SALIDA',
             'cantidad' => $cantidad,

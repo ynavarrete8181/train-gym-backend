@@ -142,14 +142,20 @@ class VentaPosServicio
             ]);
         }
 
-        $detalles = collect($datos['detalles'] ?? [])->values();
-        if ($detalles->isEmpty()) {
+        $detallesEntrada = collect($datos['detalles'] ?? [])->values();
+        if ($detallesEntrada->isEmpty()) {
             throw ValidationException::withMessages(['detalles' => 'Agrega al menos un ítem a la venta.']);
         }
 
-        $subtotal = round((float) $detalles->sum(fn ($item) => (float) ($item['total_linea'] ?? 0)), 2);
+        $detalles = $this->resolverDetalles($detallesEntrada, (int) $turno->sede_id);
+        $subtotal = round((float) $detalles->sum('total_linea'), 2);
         $descuento = round((float) ($datos['descuento'] ?? 0), 2);
         $impuesto = round((float) ($datos['impuesto'] ?? 0), 2);
+
+        if ($descuento > $subtotal) {
+            throw ValidationException::withMessages(['descuento' => 'El descuento no puede superar el subtotal de la venta.']);
+        }
+
         $total = round($subtotal - $descuento + $impuesto, 2);
         if ($total <= 0) {
             throw ValidationException::withMessages(['total' => 'El total de la venta debe ser mayor que cero.']);
@@ -183,6 +189,8 @@ class VentaPosServicio
             DB::table('ventas.venta_detalles')->insert($detalles->map(fn ($item) => [
                 'venta_id' => $venta->id,
                 'producto_id' => $item['producto_id'] ?? null,
+                'tipo_item' => $item['tipo'] ?? null,
+                'referencia_id' => $item['referencia_id'] ?? null,
                 'descripcion' => $item['descripcion'],
                 'cantidad' => round((float) $item['cantidad'], 2),
                 'precio_unitario' => round((float) $item['precio_unitario'], 2),
@@ -198,6 +206,157 @@ class VentaPosServicio
 
             return $venta;
         });
+    }
+
+    public function cobrar(array $datos, int $usuarioId): object
+    {
+        return DB::transaction(function () use ($datos, $usuarioId): object {
+            $turno = $this->turnos->turnoAbiertoUsuario($usuarioId);
+            if (! $turno) {
+                throw ValidationException::withMessages([
+                    'turno_caja_id' => 'Debes abrir un turno de caja antes de cobrar una venta.',
+                ]);
+            }
+
+            $venta = $this->guardar($datos, $usuarioId);
+            $pago = $this->ventas->guardarPago([
+                'venta_id' => (int) $venta->id,
+                'caja_id' => (int) $turno->caja_id,
+                'turno_caja_id' => (int) $turno->id,
+                'metodo_pago' => $datos['metodo_pago'],
+                'monto' => (float) $venta->total,
+                'estado' => 'CONFIRMADO',
+                'referencia' => $datos['referencia_pago'] ?? null,
+                'observaciones' => $datos['observaciones_pago'] ?? 'Cobro registrado desde POS.',
+            ], $usuarioId);
+
+            $ventaActualizada = DB::table('ventas.ventas')->where('id', $venta->id)->first();
+            $ventaActualizada->detalles = DB::table('ventas.venta_detalles')->where('venta_id', $venta->id)->orderBy('id')->get();
+            $ventaActualizada->pago = $pago;
+            $ventaActualizada->comprobante = DB::table('ventas.comprobantes')->where('venta_id', $venta->id)->first();
+
+            return $ventaActualizada;
+        });
+    }
+
+    private function resolverDetalles($detalles, int $sedeId)
+    {
+        return $detalles->map(function ($item) use ($sedeId): array {
+            $tipo = strtoupper((string) ($item['tipo'] ?? ''));
+            $cantidad = round((float) ($item['cantidad'] ?? 0), 2);
+            if ($cantidad <= 0) {
+                throw ValidationException::withMessages(['detalles' => 'La cantidad de cada ítem debe ser mayor que cero.']);
+            }
+
+            if ($tipo === 'PRODUCTO') {
+                $productoId = (int) ($item['producto_id'] ?? $item['referencia_id'] ?? 0);
+                $producto = DB::table('inventario.productos as p')
+                    ->join('inventario.producto_precios_sede as ps', function ($join) use ($sedeId): void {
+                        $join->on('ps.producto_id', '=', 'p.id')
+                            ->where('ps.sede_id', '=', $sedeId)
+                            ->where('ps.activo', '=', true);
+                    })
+                    ->leftJoin('inventario.producto_stock_sede as ss', function ($join) use ($sedeId): void {
+                        $join->on('ss.producto_id', '=', 'p.id')->where('ss.sede_id', '=', $sedeId);
+                    })
+                    ->where('p.id', $productoId)
+                    ->where('p.activo', true)
+                    ->first(['p.id', 'p.nombre', 'p.controla_stock', 'ps.precio', DB::raw('COALESCE(ss.stock_actual, 0) as stock_actual')]);
+
+                if (! $producto) {
+                    throw ValidationException::withMessages(['detalles' => 'El producto no está disponible o no tiene precio configurado para la sede.']);
+                }
+                if ($producto->controla_stock && $cantidad > (float) $producto->stock_actual) {
+                    throw ValidationException::withMessages(['detalles' => "Stock insuficiente para {$producto->nombre} en la sede."]);
+                }
+
+                $precio = round((float) $producto->precio, 2);
+                return [
+                    'tipo' => 'PRODUCTO',
+                    'referencia_id' => (int) $producto->id,
+                    'producto_id' => (int) $producto->id,
+                    'descripcion' => $producto->nombre,
+                    'cantidad' => $cantidad,
+                    'precio_unitario' => $precio,
+                    'total_linea' => round($precio * $cantidad, 2),
+                ];
+            }
+
+            if ($tipo === 'SERVICIO') {
+                $servicioId = (int) ($item['referencia_id'] ?? 0);
+                $servicio = DB::table('gimnasio.servicios as s')
+                    ->join('gimnasio.horarios_servicio as h', function ($join) use ($sedeId): void {
+                        $join->on('h.servicio_id', '=', 's.id')->where('h.sede_id', '=', $sedeId)->where('h.activo', '=', true);
+                    })
+                    ->join('gimnasio.servicio_precios_sede as ps', function ($join) use ($sedeId): void {
+                        $join->on('ps.servicio_id', '=', 's.id')->where('ps.sede_id', '=', $sedeId)->where('ps.activo', '=', true);
+                    })
+                    ->where('s.id', $servicioId)
+                    ->where('s.activo', true)
+                    ->first(['s.id', 's.nombre', 'ps.precio']);
+
+                if (! $servicio) {
+                    throw ValidationException::withMessages(['detalles' => 'El servicio no está disponible o no tiene precio configurado para la sede.']);
+                }
+
+                $precio = round((float) $servicio->precio, 2);
+                return [
+                    'tipo' => 'SERVICIO',
+                    'referencia_id' => (int) $servicio->id,
+                    'producto_id' => null,
+                    'descripcion' => $servicio->nombre,
+                    'cantidad' => $cantidad,
+                    'precio_unitario' => $precio,
+                    'total_linea' => round($precio * $cantidad, 2),
+                ];
+            }
+
+            if ($tipo === 'MEMBRESIA') {
+                $planId = (int) ($item['referencia_id'] ?? 0);
+                $plan = DB::table('gimnasio.planes as p')
+                    ->leftJoin('gimnasio.plan_precios_sede as ps', function ($join) use ($sedeId): void {
+                        $join->on('ps.plan_id', '=', 'p.id')->where('ps.sede_id', '=', $sedeId)->where('ps.activo', '=', true);
+                    })
+                    ->where('p.id', $planId)
+                    ->where('p.activo', true)
+                    ->first(['p.id', 'p.nombre', DB::raw('COALESCE(ps.precio, p.precio_base) as precio')]);
+
+                if (! $plan) {
+                    throw ValidationException::withMessages(['detalles' => 'La membresía seleccionada no está disponible.']);
+                }
+
+                $precio = round((float) $plan->precio, 2);
+                return [
+                    'tipo' => 'MEMBRESIA',
+                    'referencia_id' => (int) $plan->id,
+                    'producto_id' => null,
+                    'descripcion' => $plan->nombre,
+                    'cantidad' => $cantidad,
+                    'precio_unitario' => $precio,
+                    'total_linea' => round($precio * $cantidad, 2),
+                ];
+            }
+
+            if ($tipo === 'OTRO') {
+                $precio = round((float) ($item['precio_unitario'] ?? 0), 2);
+                $descripcion = trim((string) ($item['descripcion'] ?? ''));
+                if ($precio <= 0 || $descripcion === '') {
+                    throw ValidationException::withMessages(['detalles' => 'Completa descripción y precio para los ítems manuales.']);
+                }
+
+                return [
+                    'tipo' => 'OTRO',
+                    'referencia_id' => null,
+                    'producto_id' => null,
+                    'descripcion' => $descripcion,
+                    'cantidad' => $cantidad,
+                    'precio_unitario' => $precio,
+                    'total_linea' => round($precio * $cantidad, 2),
+                ];
+            }
+
+            throw ValidationException::withMessages(['detalles' => 'Existe un tipo de ítem no permitido en la venta.']);
+        })->values();
     }
 
     private function planesPorSede(int $sedeId)

@@ -107,8 +107,8 @@ class InventarioControlador extends Controller
         $datos = $request->validate([
             'producto_id' => 'required|exists:pgsql.inventario.productos,id',
             'lote_id' => 'nullable|exists:pgsql.inventario.lotes_producto,id',
-            'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
-            'tipo_movimiento' => 'required|string|in:ENTRADA,SALIDA,AJUSTE,BAJA',
+            'sede_id' => 'required|exists:pgsql.institucional.sedes,id_sede',
+            'tipo_movimiento' => 'required|string|in:AJUSTE_INICIAL,ENTRADA,SALIDA,AJUSTE,BAJA',
             'cantidad' => 'required|numeric|min:0.01',
             'referencia' => 'nullable|string|max:120',
             'observaciones' => 'nullable|string',

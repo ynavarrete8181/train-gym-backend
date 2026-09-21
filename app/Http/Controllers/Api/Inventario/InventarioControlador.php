@@ -68,7 +68,7 @@ class InventarioControlador extends Controller
             'nombre' => 'required|string|max:160',
             'descripcion' => 'nullable|string',
             'marca' => 'nullable|string|max:100',
-            'imagen_url' => 'nullable|string|max:2000',
+            'imagen_url' => 'nullable|string',
             'imagen_path' => 'nullable|string|max:500',
             'maneja_lotes' => 'boolean',
             'unidad_medida' => 'required|string|max:30',

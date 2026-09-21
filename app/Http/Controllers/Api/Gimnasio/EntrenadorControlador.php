@@ -22,6 +22,7 @@ class EntrenadorControlador extends Controller
         $especialidad = $request->input('especialidad');
         $persona = $request->input('persona');
         $usuario = $request->input('usuario');
+        $sedeId = $request->input('sede_id');
         
         $query = DB::table('gimnasio.entrenadores as e')
             ->join('seguridad.users as u', 'e.usuario_id', '=', 'u.id')
@@ -74,6 +75,18 @@ class EntrenadorControlador extends Controller
         if (!empty($usuario)) {
             $usuario = mb_strtolower($usuario);
             $query->whereRaw('LOWER(u.email) LIKE ?', ["%{$usuario}%"]);
+        }
+
+        if (!empty($sedeId)) {
+            $query->whereExists(function ($sub) use ($sedeId): void {
+                $sub->selectRaw('1')
+                    ->from('gimnasio.horario_entrenadores as he')
+                    ->join('gimnasio.horarios_servicio as hs', 'hs.horario_bloque_id', '=', 'he.horario_bloque_id')
+                    ->whereColumn('he.entrenador_id', 'e.id')
+                    ->where('he.activo', true)
+                    ->where('hs.activo', true)
+                    ->where('hs.sede_id', (int) $sedeId);
+            });
         }
 
         $paginador = $query->orderBy('u.nombres')->paginate($porPagina);

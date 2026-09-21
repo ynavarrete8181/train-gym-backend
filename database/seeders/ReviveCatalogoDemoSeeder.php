@@ -75,7 +75,7 @@ class ReviveCatalogoDemoSeeder extends Seeder
                     'unidad_medida' => 'UNIDAD',
                     'precio_costo' => 0,
                     'precio_venta' => $item['precio'],
-                    'stock_actual' => 40,
+                    'stock_actual' => 0,
                     'stock_minimo' => 5,
                     'controla_stock' => true,
                     'maneja_lotes' => false,
@@ -98,16 +98,58 @@ class ReviveCatalogoDemoSeeder extends Seeder
                     ],
                 );
 
-                DB::table('inventario.producto_stock_sede')->updateOrInsert(
-                    ['producto_id' => $productoId, 'sede_id' => $sede->id],
-                    [
-                        'stock_actual' => 20,
-                        'stock_minimo' => 5,
-                        'updated_at' => $ahora,
-                        'created_at' => $ahora,
-                    ],
-                );
+                $tieneMovimientosPosteriores = DB::table('inventario.movimientos')
+                    ->where('producto_id', $productoId)
+                    ->where('sede_id', $sede->id)
+                    ->where('tipo_movimiento', '<>', 'AJUSTE_INICIAL')
+                    ->exists();
+
+                if (! $tieneMovimientosPosteriores) {
+                    DB::table('inventario.producto_stock_sede')->updateOrInsert(
+                        ['producto_id' => $productoId, 'sede_id' => $sede->id],
+                        [
+                            'stock_actual' => 20,
+                            'stock_minimo' => 5,
+                            'updated_at' => $ahora,
+                            'created_at' => $ahora,
+                        ],
+                    );
+
+                    $estadoRegistrado = DB::table('configuracion.estados_catalogo')
+                        ->where('entidad', 'INVENTARIO_MOVIMIENTO')
+                        ->where('valor_interno', 'REGISTRADO')
+                        ->value('id');
+
+                    DB::table('inventario.movimientos')->updateOrInsert(
+                        [
+                            'producto_id' => $productoId,
+                            'sede_id' => $sede->id,
+                            'tipo_movimiento' => 'AJUSTE_INICIAL',
+                        ],
+                        [
+                            'usuario_id' => null,
+                            'estado_id' => $estadoRegistrado,
+                            'cantidad' => 20,
+                            'stock_anterior' => 0,
+                            'stock_nuevo' => 20,
+                            'referencia' => 'INVENTARIO-INICIAL-DEMO',
+                            'observaciones' => 'Carga inicial de desarrollo: 20 unidades por sede.',
+                            'fecha_movimiento' => $ahora,
+                            'updated_at' => $ahora,
+                            'created_at' => $ahora,
+                        ],
+                    );
+                }
             }
+
+            $stockGlobal = DB::table('inventario.producto_stock_sede')
+                ->where('producto_id', $productoId)
+                ->sum('stock_actual');
+
+            DB::table('inventario.productos')->where('id', $productoId)->update([
+                'stock_actual' => $stockGlobal,
+                'updated_at' => $ahora,
+            ]);
         }
     }
 }

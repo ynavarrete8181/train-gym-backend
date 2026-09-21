@@ -192,7 +192,12 @@ class MembresiaControlador extends Controller
         }
 
         $sedeValidacion = (int) ($validados['sede_id'] ?? $membresia->sede_id);
-        $this->validarEntrenadorSede($validados['entrenador_id'] ?? $membresia->entrenador_id, $sedeValidacion);
+        $entrenadorNuevo = $validados['entrenador_id'] ?? $membresia->entrenador_id;
+        $cambioEntrenador = (int) ($entrenadorNuevo ?? 0) !== (int) ($membresia->entrenador_id ?? 0);
+        $cambioSede = array_key_exists('sede_id', $validados) && (int) $validados['sede_id'] !== (int) ($membresia->sede_id ?? 0);
+        if ($cambioEntrenador || $cambioSede) {
+            $this->validarEntrenadorSede($entrenadorNuevo, $sedeValidacion);
+        }
 
         $membresiaActualizada = $this->membresiaServicio->actualizar($id, $validados);
         return ApiResponse::exito('Membresía actualizada correctamente.', (array) $membresiaActualizada);

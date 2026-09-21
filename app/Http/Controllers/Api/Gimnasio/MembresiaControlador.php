@@ -34,6 +34,8 @@ class MembresiaControlador extends Controller
             ->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
             ->join('gimnasio.planes', 'gimnasio.membresias.plan_id', '=', 'gimnasio.planes.id')
             ->leftJoin('institucional.sedes', 'gimnasio.membresias.sede_id', '=', 'institucional.sedes.id_sede')
+            ->leftJoin('gimnasio.entrenadores as entrenador_membresia', 'gimnasio.membresias.entrenador_id', '=', 'entrenador_membresia.id')
+            ->leftJoin('seguridad.users as entrenador_user', 'entrenador_membresia.usuario_id', '=', 'entrenador_user.id')
             ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'gimnasio.membresias.estado_id', '=', 'estado_cfg.id')
             ->select(
                 'gimnasio.membresias.*',
@@ -44,6 +46,9 @@ class MembresiaControlador extends Controller
                 'gimnasio.planes.tipo_producto',
                 'gimnasio.planes.tipo_cobro',
                 'institucional.sedes.nombre as sede_nombre',
+                'entrenador_user.name as entrenador_nombre',
+                'entrenador_user.nombres as entrenador_nombres',
+                'entrenador_user.apellidos as entrenador_apellidos',
                 'estado_cfg.codigo as estado_codigo',
                 'estado_cfg.valor_interno as estado_valor',
                 'estado_cfg.nombre as estado_nombre',
@@ -91,6 +96,7 @@ class MembresiaControlador extends Controller
             'deportista_id' => 'required|exists:pgsql.gimnasio.deportistas,id',
             'plan_id' => 'required|exists:pgsql.gimnasio.planes,id',
             'sede_id' => 'required|exists:pgsql.institucional.sedes,id_sede',
+            'entrenador_id' => 'nullable|exists:pgsql.gimnasio.entrenadores,id',
             'fecha_inicio' => 'required|date',
             'dias_gracia' => 'integer|min:0',
             'renovacion_automatica' => 'boolean',
@@ -98,6 +104,7 @@ class MembresiaControlador extends Controller
         ]);
 
         $this->validarDeportistaActual((int) $validados['deportista_id']);
+        $this->validarEntrenadorSede($validados['entrenador_id'] ?? null, (int) $validados['sede_id']);
         $generarVenta = (bool) ($validados['generar_venta'] ?? false);
         unset($validados['generar_venta']);
 
@@ -159,6 +166,7 @@ class MembresiaControlador extends Controller
 
         $validados = $request->validate([
             'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
+            'entrenador_id' => 'nullable|exists:pgsql.gimnasio.entrenadores,id',
             'fecha_inicio' => 'required|date',
             'estado' => [
                 'required',
@@ -183,6 +191,9 @@ class MembresiaControlador extends Controller
             unset($validados['sede_id']);
         }
 
+        $sedeValidacion = (int) ($validados['sede_id'] ?? $membresia->sede_id);
+        $this->validarEntrenadorSede($validados['entrenador_id'] ?? $membresia->entrenador_id, $sedeValidacion);
+
         $membresiaActualizada = $this->membresiaServicio->actualizar($id, $validados);
         return ApiResponse::exito('Membresía actualizada correctamente.', (array) $membresiaActualizada);
     }
@@ -193,6 +204,41 @@ class MembresiaControlador extends Controller
         if (!$membresia) return response()->json(['mensaje' => 'Membresía no encontrada'], 404);
         $this->membresiaServicio->eliminar((int) $id);
         return ApiResponse::exito('Membresía eliminada correctamente.');
+    }
+
+    private function validarEntrenadorSede(mixed $entrenadorId, int $sedeId): void
+    {
+        if (! $entrenadorId) {
+            return;
+        }
+
+        $entrenador = DB::table('gimnasio.entrenadores as e')
+            ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
+            ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
+            ->where('e.id', (int) $entrenadorId)
+            ->where('e.estado', 'ACTIVO')
+            ->where('r.role', 'ENTRENADOR')
+            ->first();
+
+        if (! $entrenador) {
+            throw ValidationException::withMessages([
+                'entrenador_id' => 'El entrenador seleccionado no está activo.',
+            ]);
+        }
+
+        $tieneHorarioSede = DB::table('gimnasio.horario_entrenadores as he')
+            ->join('gimnasio.horarios_servicio as hs', 'hs.horario_bloque_id', '=', 'he.horario_bloque_id')
+            ->where('he.entrenador_id', (int) $entrenadorId)
+            ->where('he.activo', true)
+            ->where('hs.activo', true)
+            ->where('hs.sede_id', $sedeId)
+            ->exists();
+
+        if (! $tieneHorarioSede) {
+            throw ValidationException::withMessages([
+                'entrenador_id' => 'El entrenador seleccionado no tiene horarios activos configurados en la sede de la membresía.',
+            ]);
+        }
     }
 
     private function validarDeportistaActual(int $deportistaId): void

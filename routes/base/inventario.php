@@ -19,6 +19,7 @@ Route::middleware(['base.auth'])->prefix('inventario')->group(function (): void 
     Route::middleware(['base.permiso:INVENTARIO-PRODUCTOS'])->group(function (): void {
         Route::get('productos', [InventarioControlador::class, 'productos'])->name('inventario.productos.index');
         Route::post('productos', [InventarioControlador::class, 'guardarProducto'])->name('inventario.productos.store');
+        Route::post('productos/imagen', [InventarioControlador::class, 'subirImagenProducto'])->name('inventario.productos.imagen');
         Route::put('productos/{id}', [InventarioControlador::class, 'guardarProducto'])->name('inventario.productos.update');
     });
 

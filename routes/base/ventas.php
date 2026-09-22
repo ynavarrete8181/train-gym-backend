@@ -23,7 +23,9 @@ Route::middleware(['base.auth'])->prefix('ventas')->group(function (): void {
         Route::get('ventas/{id}/detalle', [VentaControlador::class, 'detalleVenta'])->name('ventas.ventas.detalle');
         Route::get('pos/contexto', [VentaControlador::class, 'contextoPos'])->name('ventas.pos.contexto');
         Route::post('pos', [VentaControlador::class, 'guardarVentaPos'])->name('ventas.pos.store');
+        Route::put('pos/{id}', [VentaControlador::class, 'actualizarVentaPos'])->name('ventas.pos.update');
         Route::post('pos/cobrar', [VentaControlador::class, 'cobrarVentaPos'])->name('ventas.pos.cobrar');
+        Route::post('pos/{id}/cobrar', [VentaControlador::class, 'cobrarVentaPosExistente'])->name('ventas.pos.cobrar-existente');
         Route::post('ventas', [VentaControlador::class, 'guardarVenta'])->name('ventas.ventas.store');
         Route::put('ventas/{id}', [VentaControlador::class, 'guardarVenta'])->name('ventas.ventas.update');
     });

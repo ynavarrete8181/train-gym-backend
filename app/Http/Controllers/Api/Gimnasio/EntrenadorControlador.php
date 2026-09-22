@@ -150,6 +150,14 @@ class EntrenadorControlador extends Controller
         return ApiResponse::exito('Entrenador actualizado correctamente.', (array) $entrenador);
     }
 
+    public function configuracion(int $id): JsonResponse
+    {
+        return ApiResponse::exito(
+            'Configuración del entrenador consultada.',
+            $this->servicio->configuracionCompleta($id),
+        );
+    }
+
     public function serviciosCatalogo(): JsonResponse
     {
         return ApiResponse::exito('Servicios consultados.', $this->servicio->catalogoServicios());

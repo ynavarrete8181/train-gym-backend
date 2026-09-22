@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\Gimnasio\ClienteCatalogoControlador;
 use App\Http\Controllers\Api\Gimnasio\ServicioAgendaControlador;
 use App\Http\Controllers\Api\Gimnasio\MiTrabajoEntrenadorControlador;
 use App\Http\Controllers\Api\Gimnasio\AgendaConfiguracionControlador;
+use App\Http\Controllers\Api\Gimnasio\AgendaOperacionControlador;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
@@ -134,7 +135,20 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::put('agenda/asignaciones-horario/{id}', [AgendaConfiguracionControlador::class, 'guardarAsignacion'])->name('gimnasio.agenda.asignaciones.update');
     });
 
+    Route::middleware(['base.permiso:GIMNASIO-DISPONIBILIDAD'])->group(function (): void {
+        Route::get('agenda/catalogos-operacion', [AgendaOperacionControlador::class, 'catalogos'])->name('gimnasio.agenda.operacion.catalogos');
+        Route::get('agenda/disponibilidad', [AgendaOperacionControlador::class, 'disponibilidad'])->name('gimnasio.agenda.disponibilidad');
+    });
+
+    Route::middleware(['base.permiso:GIMNASIO-EXCEPCIONES-HORARIO'])->group(function (): void {
+        Route::get('agenda/excepciones', [AgendaOperacionControlador::class, 'excepciones'])->name('gimnasio.agenda.excepciones.index');
+        Route::post('agenda/excepciones', [AgendaOperacionControlador::class, 'guardarExcepcion'])->name('gimnasio.agenda.excepciones.store');
+        Route::put('agenda/excepciones/{id}', [AgendaOperacionControlador::class, 'guardarExcepcion'])->name('gimnasio.agenda.excepciones.update');
+    });
+
     Route::middleware(['base.permiso:GIMNASIO-RESERVAS-DIA'])->group(function (): void {
+        Route::get('agenda/reservas', [AgendaOperacionControlador::class, 'reservas'])->name('gimnasio.agenda.reservas.index');
+
         Route::get('reservas-dia', [ServicioAgendaControlador::class, 'reservasDia'])->name('gimnasio.reservas-dia.index');
         Route::post('reservas-dia', [ServicioAgendaControlador::class, 'guardarReservaDia'])->name('gimnasio.reservas-dia.store');
         Route::put('reservas-dia/{id}', [ServicioAgendaControlador::class, 'guardarReservaDia'])->name('gimnasio.reservas-dia.update');

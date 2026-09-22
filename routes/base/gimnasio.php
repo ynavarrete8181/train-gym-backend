@@ -129,6 +129,7 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
     Route::middleware(['base.permiso:GIMNASIO-ASIGNACION-HORARIOS'])->group(function (): void {
         Route::get('agenda/asignaciones-horario', [AgendaConfiguracionControlador::class, 'asignaciones'])->name('gimnasio.agenda.asignaciones.index');
         Route::get('agenda/asignaciones-horario/catalogos', [AgendaConfiguracionControlador::class, 'catalogosAsignacion'])->name('gimnasio.agenda.asignaciones.catalogos');
+        Route::get('agenda/asignaciones-horario/entrenadores', [AgendaConfiguracionControlador::class, 'buscarEntrenadores'])->name('gimnasio.agenda.asignaciones.entrenadores');
         Route::post('agenda/asignaciones-horario', [AgendaConfiguracionControlador::class, 'guardarAsignacion'])->name('gimnasio.agenda.asignaciones.store');
         Route::put('agenda/asignaciones-horario/{id}', [AgendaConfiguracionControlador::class, 'guardarAsignacion'])->name('gimnasio.agenda.asignaciones.update');
     });

@@ -497,6 +497,14 @@ class VentaServicio
                     'estado_id' => $estadoMembresiaId,
                     'updated_at' => now(),
                 ]);
+
+            DB::table('gimnasio.membresia_periodos')
+                ->where('membresia_id', $venta->membresia_id)
+                ->where('venta_id', $ventaId)
+                ->update([
+                    'estado' => 'ACTIVA',
+                    'updated_at' => now(),
+                ]);
         }
     }
 

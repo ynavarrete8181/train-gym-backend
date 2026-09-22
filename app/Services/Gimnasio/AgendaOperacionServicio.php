@@ -39,6 +39,34 @@ class AgendaOperacionServicio
         ];
     }
 
+    public function serviciosDisponibles(int $entrenadorId, int $sedeId): array
+    {
+        $tieneAsignacion = DB::table('gimnasio.asignaciones_horario_entrenador')
+            ->where('entrenador_id', $entrenadorId)
+            ->where('sede_id', $sedeId)
+            ->where('activo', true)
+            ->exists();
+
+        if (! $tieneAsignacion) {
+            return [];
+        }
+
+        return DB::table('gimnasio.entrenador_servicios as es')
+            ->join('gimnasio.servicios as s', 's.id', '=', 'es.servicio_id')
+            ->where('es.entrenador_id', $entrenadorId)
+            ->where('es.activo', true)
+            ->where('s.activo', true)
+            ->where('s.requiere_reserva', true)
+            ->orderBy('s.nombre')
+            ->get([
+                's.id',
+                's.nombre',
+                's.duracion_minutos',
+                's.capacidad_base',
+            ])
+            ->all();
+    }
+
     public function disponibilidad(array $filtros): array
     {
         $fecha = Carbon::parse($filtros['fecha'])->startOfDay();
@@ -47,13 +75,21 @@ class AgendaOperacionServicio
         $sedeId = (int) $filtros['sede_id'];
         $servicioId = (int) $filtros['servicio_id'];
 
-        $servicio = DB::table('gimnasio.servicios')
-            ->where('id', $servicioId)
-            ->where('activo', true)
-            ->first(['id', 'nombre', 'duracion_minutos', 'capacidad_base']);
+        $servicio = DB::table('gimnasio.servicios as s')
+            ->join('gimnasio.entrenador_servicios as es', function ($join) use ($entrenadorId): void {
+                $join->on('es.servicio_id', '=', 's.id')
+                    ->where('es.entrenador_id', $entrenadorId)
+                    ->where('es.activo', true);
+            })
+            ->where('s.id', $servicioId)
+            ->where('s.activo', true)
+            ->where('s.requiere_reserva', true)
+            ->first(['s.id', 's.nombre', 's.duracion_minutos', 's.capacidad_base']);
 
         if (! $servicio) {
-            throw ValidationException::withMessages(['servicio_id' => 'El servicio seleccionado no está disponible.']);
+            throw ValidationException::withMessages([
+                'servicio_id' => 'El entrenador no tiene habilitado este servicio.',
+            ]);
         }
 
         $asignaciones = DB::table('gimnasio.asignaciones_horario_entrenador as a')

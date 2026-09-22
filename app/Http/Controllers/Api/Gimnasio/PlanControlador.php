@@ -115,6 +115,7 @@ class PlanControlador extends Controller
             'tipo_cobro' => 'required|string|in:PAGO_UNICO,RECURRENTE',
             'generar_venta' => 'boolean',
             'requiere_pago' => 'boolean',
+            'requiere_entrenador' => 'boolean',
             'renovable' => 'boolean',
             'activo' => 'boolean',
             'precios_sede' => 'nullable|array',

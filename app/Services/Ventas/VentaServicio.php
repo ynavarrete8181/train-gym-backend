@@ -142,8 +142,6 @@ class VentaServicio
             ->leftJoin('seguridad.users as cu', 'cu.id', '=', 'd.usuario_id')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
             ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
-            ->leftJoin('gimnasio.entrenadores as em', 'em.id', '=', 'm.entrenador_id')
-            ->leftJoin('seguridad.users as eu', 'eu.id', '=', 'em.usuario_id')
             ->leftJoin('institucional.sedes as s', 's.id_sede', '=', DB::raw('COALESCE(c.sede_id, m.sede_id)'))
             ->leftJoin('configuracion.estados_catalogo as e', 'e.id', '=', 'v.estado_id')
             ->where('v.id', $ventaId)
@@ -156,9 +154,6 @@ class VentaServicio
                 'c.codigo as caja_codigo',
                 's.nombre as sede_nombre',
                 'm.codigo_contrato as membresia_codigo',
-                'eu.name as entrenador_nombre',
-                'eu.nombres as entrenador_nombres',
-                'eu.apellidos as entrenador_apellidos',
                 'e.nombre as estado_nombre',
                 'e.color as estado_color'
             )
@@ -186,6 +181,38 @@ class VentaServicio
         $venta->comprobante = DB::table('ventas.comprobantes')
             ->where('venta_id', $ventaId)
             ->first();
+
+        $venta->sedes_membresia = collect();
+        $venta->entrenadores_membresia = collect();
+
+        if ($venta->membresia_id) {
+            $venta->sedes_membresia = DB::table('gimnasio.membresia_sedes as ms')
+                ->join('institucional.sedes as s', 's.id_sede', '=', 'ms.sede_id')
+                ->where('ms.membresia_id', $venta->membresia_id)
+                ->where('ms.activo', true)
+                ->orderByDesc('ms.es_principal')
+                ->orderBy('s.nombre')
+                ->get(['ms.sede_id', 'ms.es_principal', 's.nombre as sede_nombre']);
+
+            $venta->entrenadores_membresia = DB::table('gimnasio.asignaciones_entrenador_cliente as a')
+                ->join('gimnasio.entrenadores as e', 'e.id', '=', 'a.entrenador_id')
+                ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
+                ->leftJoin('institucional.sedes as s', 's.id_sede', '=', 'a.sede_id')
+                ->leftJoin('gimnasio.horario_bloques as hb', 'hb.id', '=', 'a.horario_bloque_id')
+                ->where('a.membresia_id', $venta->membresia_id)
+                ->where('a.estado', 'ACTIVO')
+                ->orderBy('s.nombre')
+                ->orderBy('u.name')
+                ->get([
+                    'a.entrenador_id',
+                    'a.sede_id',
+                    'a.horario_bloque_id',
+                    'u.name as entrenador_nombre',
+                    'e.especialidad',
+                    's.nombre as sede_nombre',
+                    'hb.nombre as horario_nombre',
+                ]);
+        }
 
         $venta->movimientos_inventario = DB::table('inventario.movimientos as m')
             ->join('inventario.productos as p', 'p.id', '=', 'm.producto_id')

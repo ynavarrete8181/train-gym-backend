@@ -133,6 +133,8 @@ class MembresiaControlador extends Controller
                     'estado' => 'PENDIENTE',
                     'observaciones' => 'Venta generada automáticamente desde Membresías.',
                     'detalle' => [
+                        'tipo_item' => 'MEMBRESIA',
+                        'referencia_id' => (int) $plan->id,
                         'descripcion' => $plan->nombre,
                         'cantidad' => 1,
                         'precio_unitario' => $membresia->precio_aplicado,

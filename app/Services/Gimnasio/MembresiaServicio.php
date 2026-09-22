@@ -49,6 +49,19 @@ class MembresiaServicio
             $asignacionesEntrenador
         );
 
+        DB::table('gimnasio.membresia_periodos')->insert([
+            'membresia_id' => $id,
+            'numero_periodo' => 1,
+            'fecha_inicio' => $datos['fecha_inicio'],
+            'fecha_fin' => $datos['fecha_fin'],
+            'precio' => $datos['precio_aplicado'],
+            'estado' => $datos['estado'],
+            'venta_id' => null,
+            'generado_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
         $membresia = $this->obtenerMembresiaConRelaciones($id);
         $this->auditar('gimnasio', 'CREAR', 'gimnasio.membresias', $id, null, $membresia);
         return $membresia;
@@ -189,8 +202,94 @@ class MembresiaServicio
         $membresia->venta_numero = $venta?->numero;
         $membresia->venta_estado = $venta?->estado;
         $membresia->venta_total = $venta?->total;
+        $membresia->periodos = $this->periodos($id);
+        $membresia->periodo_actual = $membresia->periodos->first();
 
         return $membresia;
+    }
+
+    public function periodos(int $membresiaId)
+    {
+        return DB::table('gimnasio.membresia_periodos as p')
+            ->leftJoin('ventas.ventas as v', 'v.id', '=', 'p.venta_id')
+            ->where('p.membresia_id', $membresiaId)
+            ->orderByDesc('p.numero_periodo')
+            ->get([
+                'p.id',
+                'p.numero_periodo',
+                'p.fecha_inicio',
+                'p.fecha_fin',
+                'p.precio',
+                'p.estado',
+                'p.venta_id',
+                'v.numero as venta_numero',
+                'v.estado as venta_estado',
+                'v.total as venta_total',
+                'p.generado_at',
+            ]);
+    }
+
+    public function crearSiguientePeriodo(int $membresiaId): object
+    {
+        $membresia = DB::table('gimnasio.membresias')->where('id', $membresiaId)->lockForUpdate()->first();
+
+        if (! $membresia) {
+            throw new \Illuminate\Validation\ValidationException(
+                validator([], [])
+            );
+        }
+
+        $plan = DB::table('gimnasio.planes')->where('id', $membresia->plan_id)->first();
+        if (! $plan || ! ($plan->renovable ?? false)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'membresia_id' => 'El plan de esta membresía no permite renovación.',
+            ]);
+        }
+
+        $ultimo = DB::table('gimnasio.membresia_periodos')
+            ->where('membresia_id', $membresiaId)
+            ->orderByDesc('numero_periodo')
+            ->lockForUpdate()
+            ->first();
+
+        $inicio = $ultimo
+            ? Carbon::parse($ultimo->fecha_fin)->addDay()->toDateString()
+            : Carbon::parse($membresia->fecha_fin)->addDay()->toDateString();
+
+        $numero = $ultimo ? ((int) $ultimo->numero_periodo + 1) : 1;
+        $fin = $this->calcularFechaFin($inicio, $plan->tipo_duracion, (int) $plan->duracion);
+        $precio = $this->resolverPrecio((int) $plan->id, $membresia->sede_id);
+
+        $id = DB::table('gimnasio.membresia_periodos')->insertGetId([
+            'membresia_id' => $membresiaId,
+            'numero_periodo' => $numero,
+            'fecha_inicio' => $inicio,
+            'fecha_fin' => $fin,
+            'precio' => $precio,
+            'estado' => ($plan->requiere_pago ?? true) ? 'PENDIENTE_PAGO' : 'ACTIVA',
+            'venta_id' => null,
+            'generado_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('gimnasio.membresias')->where('id', $membresiaId)->update([
+            'fecha_inicio' => $inicio,
+            'fecha_fin' => $fin,
+            'precio_aplicado' => $precio,
+            'estado' => ($plan->requiere_pago ?? true) ? 'PENDIENTE_PAGO' : 'ACTIVA',
+            'updated_at' => now(),
+        ]);
+
+        return DB::table('gimnasio.membresia_periodos')->where('id', $id)->first();
+    }
+
+    public function vincularVentaPeriodo(int $periodoId, int $ventaId): void
+    {
+        DB::table('gimnasio.membresia_periodos')->where('id', $periodoId)->update([
+            'venta_id' => $ventaId,
+            'updated_at' => now(),
+        ]);
     }
 
     private function sincronizarSedes(int $membresiaId, int $sedePrincipalId, array $sedesHabilitadas): void

@@ -57,6 +57,112 @@ class EntrenadorServicio
             ->all();
     }
 
+    public function configuracionCompleta(int $entrenadorId): array
+    {
+        $entrenador = DB::table('gimnasio.entrenadores as e')
+            ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
+            ->where('e.id', $entrenadorId)
+            ->select(
+                'e.id',
+                'e.usuario_id',
+                'e.tipo',
+                'e.especialidad',
+                'e.estado',
+                'u.name',
+                'u.nombres',
+                'u.apellidos',
+                'u.cedula',
+                'u.email'
+            )
+            ->first();
+
+        if (! $entrenador) {
+            throw ValidationException::withMessages(['entrenador_id' => 'El entrenador no existe.']);
+        }
+
+        $servicios = DB::table('gimnasio.entrenador_servicios as es')
+            ->join('gimnasio.servicios as s', 's.id', '=', 'es.servicio_id')
+            ->where('es.entrenador_id', $entrenadorId)
+            ->where('es.activo', true)
+            ->orderBy('s.nombre')
+            ->get([
+                's.id',
+                's.nombre',
+                's.duracion_minutos',
+                's.capacidad_base',
+                's.activo',
+            ]);
+
+        $asignaciones = DB::table('gimnasio.asignaciones_horario_entrenador as a')
+            ->join('institucional.sedes as sd', 'sd.id_sede', '=', 'a.sede_id')
+            ->join('gimnasio.jornadas as j', 'j.id', '=', 'a.jornada_id')
+            ->leftJoin('gimnasio.recesos as r', 'r.id', '=', 'a.receso_id')
+            ->where('a.entrenador_id', $entrenadorId)
+            ->where('a.activo', true)
+            ->orderBy('a.fecha_inicio')
+            ->get([
+                'a.id',
+                'a.sede_id',
+                'sd.nombre as sede_nombre',
+                'a.jornada_id',
+                'j.nombre as jornada_nombre',
+                'a.receso_id',
+                'r.nombre as receso_nombre',
+                'r.hora_inicio as receso_hora_inicio',
+                'r.hora_fin as receso_hora_fin',
+                'a.fecha_inicio',
+                'a.fecha_fin',
+                'a.observaciones',
+            ]);
+
+        foreach ($asignaciones as $asignacion) {
+            $detalles = DB::table('gimnasio.jornada_detalles')
+                ->where('jornada_id', $asignacion->jornada_id)
+                ->where('activo', true)
+                ->get(['dia_semana', 'hora_inicio', 'hora_fin']);
+
+            $asignacion->dias_semana = $detalles
+                ->pluck('dia_semana')
+                ->sortBy(fn ($dia) => self::ORDEN_DIAS[$dia] ?? 99)
+                ->values()
+                ->all();
+            $asignacion->hora_inicio = $detalles->min('hora_inicio');
+            $asignacion->hora_fin = $detalles->max('hora_fin');
+        }
+
+        $excepciones = DB::table('gimnasio.excepciones_horario as x')
+            ->leftJoin('institucional.sedes as sd', 'sd.id_sede', '=', 'x.sede_id')
+            ->where('x.entrenador_id', $entrenadorId)
+            ->where('x.activo', true)
+            ->whereDate('x.fecha_fin', '>=', now()->toDateString())
+            ->orderBy('x.fecha_inicio')
+            ->limit(10)
+            ->get([
+                'x.id',
+                'x.sede_id',
+                'sd.nombre as sede_nombre',
+                'x.tipo',
+                'x.motivo',
+                'x.fecha_inicio',
+                'x.fecha_fin',
+                'x.hora_inicio',
+                'x.hora_fin',
+            ]);
+
+        return [
+            'entrenador' => $entrenador,
+            'servicios' => $servicios,
+            'asignaciones' => $asignaciones,
+            'excepciones' => $excepciones,
+            'resumen' => [
+                'servicios' => $servicios->count(),
+                'sedes' => $asignaciones->pluck('sede_id')->unique()->count(),
+                'asignaciones' => $asignaciones->count(),
+                'excepciones' => $excepciones->count(),
+            ],
+        ];
+    }
+
     public function obtenerPorUsuario(int $usuarioId): ?object
     {
         return DB::table('gimnasio.entrenadores')

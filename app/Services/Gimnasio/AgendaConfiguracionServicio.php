@@ -267,7 +267,7 @@ class AgendaConfiguracionServicio
                 ->orderBy('u.name')
                 ->get(['e.id', 'u.name', 'e.especialidad']),
             'sedes' => DB::table('institucional.sedes')
-                ->where('estado', true)
+                ->where('activo', true)
                 ->orderBy('nombre')
                 ->get(['id_sede as id', 'nombre']),
             'jornadas' => collect($this->listarJornadasActivas()),

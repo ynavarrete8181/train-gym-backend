@@ -75,11 +75,24 @@ class AgendaConfiguracionControlador extends Controller
         return $this->respuestaPaginada('Asignaciones de horario consultadas.', $resultado);
     }
 
-    public function catalogosAsignacion()
+    public function catalogosAsignacion(Request $request)
     {
         return ApiResponse::exito(
             'Catálogos de asignación consultados.',
-            $this->agenda->catalogosAsignacion(),
+            $this->agenda->catalogosAsignacion(
+                $request->filled('entrenador_id') ? (int) $request->input('entrenador_id') : null,
+            ),
+        );
+    }
+
+    public function buscarEntrenadores(Request $request)
+    {
+        $busqueda = $request->input('q');
+        $entrenadorId = $request->filled('entrenador_id') ? (int) $request->input('entrenador_id') : null;
+
+        return ApiResponse::exito(
+            'Entrenadores consultados.',
+            $this->agenda->buscarEntrenadores($busqueda, $entrenadorId, 20),
         );
     }
 

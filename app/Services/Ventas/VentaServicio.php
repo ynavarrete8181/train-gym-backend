@@ -106,6 +106,8 @@ class VentaServicio
             DB::table('ventas.venta_detalles')->insert([
                 'venta_id' => $ventaId,
                 'producto_id' => $detalle['producto_id'] ?? null,
+                'tipo_item' => $detalle['tipo_item'] ?? null,
+                'referencia_id' => $detalle['referencia_id'] ?? null,
                 'descripcion' => $detalle['descripcion'] ?? $datos['concepto'],
                 'cantidad' => $this->numero($detalle['cantidad'] ?? 1),
                 'precio_unitario' => $this->numero($detalle['precio_unitario'] ?? $datos['total']),
@@ -142,6 +144,7 @@ class VentaServicio
             ->leftJoin('seguridad.users as cu', 'cu.id', '=', 'd.usuario_id')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
             ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
+            ->leftJoin('gimnasio.planes as pm', 'pm.id', '=', 'm.plan_id')
             ->leftJoin('institucional.sedes as s', 's.id_sede', '=', DB::raw('COALESCE(c.sede_id, m.sede_id)'))
             ->leftJoin('configuracion.estados_catalogo as e', 'e.id', '=', 'v.estado_id')
             ->where('v.id', $ventaId)
@@ -154,6 +157,9 @@ class VentaServicio
                 'c.codigo as caja_codigo',
                 's.nombre as sede_nombre',
                 'm.codigo_contrato as membresia_codigo',
+                'm.plan_id as membresia_plan_id',
+                'pm.nombre as membresia_plan_nombre',
+                'pm.tipo_producto as membresia_tipo_producto',
                 'e.nombre as estado_nombre',
                 'e.color as estado_color'
             )

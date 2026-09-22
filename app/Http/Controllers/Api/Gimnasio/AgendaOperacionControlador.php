@@ -16,6 +16,22 @@ class AgendaOperacionControlador extends Controller
         return ApiResponse::exito('Catálogos consultados.', $this->agenda->catalogos());
     }
 
+    public function serviciosDisponibles(Request $request)
+    {
+        $datos = $request->validate([
+            'entrenador_id' => 'required|integer|exists:pgsql.gimnasio.entrenadores,id',
+            'sede_id' => 'required|integer|exists:pgsql.institucional.sedes,id_sede',
+        ]);
+
+        return ApiResponse::exito(
+            'Servicios disponibles consultados.',
+            $this->agenda->serviciosDisponibles(
+                (int) $datos['entrenador_id'],
+                (int) $datos['sede_id'],
+            ),
+        );
+    }
+
     public function disponibilidad(Request $request)
     {
         $datos = $request->validate([

@@ -66,6 +66,7 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::post('membresias', [MembresiaControlador::class, 'store'])->name('gimnasio.membresias.store');
         Route::get('membresias/{id}', [MembresiaControlador::class, 'show'])->name('gimnasio.membresias.show');
         Route::put('membresias/{id}', [MembresiaControlador::class, 'update'])->name('gimnasio.membresias.update');
+        Route::post('membresias/{id}/renovar', [MembresiaControlador::class, 'renovar'])->name('gimnasio.membresias.renovar');
         Route::delete('membresias/{id}', [MembresiaControlador::class, 'destroy'])->name('gimnasio.membresias.destroy');
     });
 

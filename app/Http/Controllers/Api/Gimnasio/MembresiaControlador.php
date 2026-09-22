@@ -141,6 +141,15 @@ class MembresiaControlador extends Controller
                         'total_linea' => $membresia->precio_aplicado,
                     ],
                 ], null, $request->user()?->id);
+
+                $periodoId = DB::table('gimnasio.membresia_periodos')
+                    ->where('membresia_id', $membresia->id)
+                    ->orderByDesc('numero_periodo')
+                    ->value('id');
+
+                if ($periodoId) {
+                    $this->membresiaServicio->vincularVentaPeriodo((int) $periodoId, (int) $venta->id);
+                }
             }
 
             return [$membresia, $venta];
@@ -157,6 +166,93 @@ class MembresiaControlador extends Controller
             $respuesta,
             [],
             201
+        );
+    }
+
+    public function renovar(Request $request, int $id)
+    {
+        $membresia = DB::table('gimnasio.membresias')->where('id', $id)->first();
+        if (! $membresia) {
+            return response()->json(['mensaje' => 'Membresía no encontrada'], 404);
+        }
+
+        $plan = DB::table('gimnasio.planes')->where('id', $membresia->plan_id)->first();
+        if (! $plan || ! ($plan->renovable ?? false)) {
+            throw ValidationException::withMessages([
+                'membresia_id' => 'El plan de esta membresía no permite renovación.',
+            ]);
+        }
+
+        if (in_array(strtoupper((string) $membresia->estado), ['CANCELADA'], true)) {
+            throw ValidationException::withMessages([
+                'membresia_id' => 'Una membresía cancelada no puede renovarse.',
+            ]);
+        }
+
+        $periodoActual = DB::table('gimnasio.membresia_periodos')
+            ->where('membresia_id', $id)
+            ->orderByDesc('numero_periodo')
+            ->first();
+
+        if ($periodoActual?->venta_id) {
+            $ventaActual = DB::table('ventas.ventas')->where('id', $periodoActual->venta_id)->first();
+
+            if ($ventaActual && ! in_array(strtoupper((string) $ventaActual->estado), ['PAGADA', 'ANULADA'], true)) {
+                throw ValidationException::withMessages([
+                    'membresia_id' => 'El período actual todavía tiene un cobro pendiente. Debe pagarse antes de generar la siguiente renovación.',
+                ]);
+            }
+        }
+
+        [$periodo, $venta] = DB::transaction(function () use ($id, $plan, $request): array {
+            $periodo = $this->membresiaServicio->crearSiguientePeriodo($id);
+            $membresiaActualizada = DB::table('gimnasio.membresias')->where('id', $id)->first();
+            $venta = null;
+
+            if ($plan->generar_venta ?? true) {
+                $venta = $this->ventaServicio->guardarVenta([
+                    'cliente_id' => $membresiaActualizada->deportista_id,
+                    'membresia_id' => $id,
+                    'caja_id' => null,
+                    'tipo_venta' => 'MEMBRESIA',
+                    'concepto' => $plan->nombre
+                        . ' - ' . $membresiaActualizada->codigo_contrato
+                        . ' - Período ' . $periodo->numero_periodo
+                        . ' (' . $periodo->fecha_inicio . ' al ' . $periodo->fecha_fin . ')',
+                    'subtotal' => $periodo->precio,
+                    'descuento' => 0,
+                    'impuesto' => 0,
+                    'total' => $periodo->precio,
+                    'estado' => 'PENDIENTE',
+                    'observaciones' => 'Cobro generado por renovación de membresía.',
+                    'detalle' => [
+                        'tipo_item' => 'MEMBRESIA',
+                        'referencia_id' => (int) $plan->id,
+                        'descripcion' => $plan->nombre . ' - Período ' . $periodo->numero_periodo,
+                        'cantidad' => 1,
+                        'precio_unitario' => $periodo->precio,
+                        'total_linea' => $periodo->precio,
+                    ],
+                ], null, $request->user()?->id);
+
+                $this->membresiaServicio->vincularVentaPeriodo((int) $periodo->id, (int) $venta->id);
+            }
+
+            return [$periodo, $venta];
+        });
+
+        $respuesta = [
+            'membresia' => $this->membresiaServicio->obtenerMembresiaConRelaciones($id),
+            'periodo' => $periodo,
+            'venta_id' => $venta?->id,
+            'venta_numero' => $venta?->numero,
+        ];
+
+        return ApiResponse::exito(
+            $venta
+                ? 'Membresía renovada y nuevo cobro generado.'
+                : 'Membresía renovada correctamente.',
+            $respuesta
         );
     }
 
@@ -244,7 +340,7 @@ class MembresiaControlador extends Controller
                 return;
             }
 
-            $this->ventaServicio->guardarVenta([
+            $ventaCreada = $this->ventaServicio->guardarVenta([
                 'cliente_id' => $membresia->deportista_id,
                 'membresia_id' => $membresiaId,
                 'caja_id' => null,
@@ -265,6 +361,15 @@ class MembresiaControlador extends Controller
                     'total_linea' => $membresia->precio_aplicado,
                 ],
             ], null, $request->user()?->id);
+
+            $periodoId = DB::table('gimnasio.membresia_periodos')
+                ->where('membresia_id', $membresiaId)
+                ->orderByDesc('numero_periodo')
+                ->value('id');
+
+            if ($periodoId) {
+                $this->membresiaServicio->vincularVentaPeriodo((int) $periodoId, (int) $ventaCreada->id);
+            }
 
             return;
         }

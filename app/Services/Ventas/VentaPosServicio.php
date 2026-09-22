@@ -133,7 +133,7 @@ class VentaPosServicio
         ];
     }
 
-    public function guardar(array $datos, int $usuarioId): object
+    public function guardar(array $datos, int $usuarioId, ?int $ventaId = null): object
     {
         $turno = $this->turnos->turnoAbiertoUsuario($usuarioId);
         if (! $turno) {
@@ -161,7 +161,17 @@ class VentaPosServicio
             throw ValidationException::withMessages(['total' => 'El total de la venta debe ser mayor que cero.']);
         }
 
-        return DB::transaction(function () use ($datos, $detalles, $subtotal, $descuento, $impuesto, $total, $usuarioId, $turno): object {
+        return DB::transaction(function () use ($datos, $detalles, $subtotal, $descuento, $impuesto, $total, $usuarioId, $turno, $ventaId): object {
+            $ventaExistente = $ventaId ? DB::table('ventas.ventas')->where('id', $ventaId)->lockForUpdate()->first() : null;
+            if ($ventaId && ! $ventaExistente) {
+                throw ValidationException::withMessages(['venta_id' => 'La cuenta pendiente no existe.']);
+            }
+            if ($ventaExistente && ! in_array(strtoupper((string) $ventaExistente->estado), ['PENDIENTE', 'PARCIAL'], true)) {
+                throw ValidationException::withMessages(['venta_id' => 'Solo se pueden modificar cuentas pendientes o parciales.']);
+            }
+            if ($ventaExistente && $ventaExistente->inventario_aplicado_at) {
+                throw ValidationException::withMessages(['venta_id' => 'Esta venta ya afectó inventario y no puede modificarse.']);
+            }
             $primero = $detalles->first();
             $venta = $this->ventas->guardarVenta([
                 'cliente_id' => $datos['cliente_id'] ?? null,
@@ -182,7 +192,7 @@ class VentaPosServicio
                     'precio_unitario' => $primero['precio_unitario'],
                     'total_linea' => $primero['total_linea'],
                 ],
-            ], null, $usuarioId);
+            ], $ventaId, $usuarioId);
 
             DB::table('ventas.venta_detalles')->where('venta_id', $venta->id)->delete();
             $ahora = now();
@@ -208,7 +218,7 @@ class VentaPosServicio
         });
     }
 
-    public function cobrar(array $datos, int $usuarioId): object
+    public function cobrar(array $datos, int $usuarioId, ?int $ventaId = null): object
     {
         return DB::transaction(function () use ($datos, $usuarioId): object {
             $turno = $this->turnos->turnoAbiertoUsuario($usuarioId);
@@ -218,7 +228,7 @@ class VentaPosServicio
                 ]);
             }
 
-            $venta = $this->guardar($datos, $usuarioId);
+            $venta = $this->guardar($datos, $usuarioId, $ventaId);
             $pago = $this->ventas->guardarPago([
                 'venta_id' => (int) $venta->id,
                 'caja_id' => (int) $turno->caja_id,

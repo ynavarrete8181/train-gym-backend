@@ -7,95 +7,134 @@ class ComprobantePdfServicio
     public function generar(object $venta): string
     {
         $ops = [];
-        $this->rect($ops, 0, 782, 595, 60, 0.08, 0.08, 0.08);
-        $this->text($ops, 36, 812, 'REVIVE SPORTS', 18, true, [0.83, 0.63, 0.09]);
-        $this->text($ops, 36, 792, strtoupper((string) ($venta->sede_nombre ?? 'REVIVE')), 9, false, [1, 1, 1]);
+
+        $negro = [0.055, 0.055, 0.055];
+        $dorado = [0.83, 0.63, 0.09];
+        $gris = [0.40, 0.43, 0.47];
+        $borde = [0.88, 0.89, 0.91];
+        $suave = [0.975, 0.978, 0.982];
 
         $estado = strtoupper((string) ($venta->estado_nombre ?? $venta->estado ?? 'PENDIENTE'));
-        $titulo = str_contains($estado, 'PAGAD') ? 'COMPROBANTE DE VENTA' : 'CUENTA PENDIENTE';
+        $pagada = str_contains($estado, 'PAGAD');
+        $titulo = $pagada ? 'COMPROBANTE DE VENTA' : 'CUENTA PENDIENTE';
         $numero = $venta->comprobante?->numero ?? $venta->numero ?? ('VENTA-' . $venta->id);
-
-        $this->text($ops, 36, 754, $titulo, 15, true);
-        $this->text($ops, 36, 736, 'N.º ' . $numero, 9, false, [0.35, 0.38, 0.43]);
-        $this->line($ops, 36, 722, 559, 722, [0.88, 0.89, 0.91]);
-
         $cliente = $venta->cliente_nombre ?? 'Consumidor final';
         $fecha = $venta->fecha_venta ? date('d/m/Y H:i', strtotime((string) $venta->fecha_venta)) : '-';
-        $this->labelValue($ops, 36, 696, 'Cliente', $cliente, 260);
-        $this->labelValue($ops, 320, 696, 'Fecha', $fecha, 220);
-        $this->labelValue($ops, 36, 660, 'Código', $venta->codigo_deportista ?? '-', 260);
-        $this->labelValue($ops, 320, 660, 'Caja', $venta->caja_nombre ?? 'Pendiente de caja', 220);
 
-        $this->text($ops, 36, 620, 'DETALLE', 11, true);
-        $this->line($ops, 36, 610, 559, 610, [0.88, 0.89, 0.91]);
-        $this->text($ops, 36, 592, 'Descripción', 8, true, [0.35, 0.38, 0.43]);
-        $this->text($ops, 382, 592, 'Cant.', 8, true, [0.35, 0.38, 0.43]);
-        $this->text($ops, 438, 592, 'Unit.', 8, true, [0.35, 0.38, 0.43]);
-        $this->text($ops, 513, 592, 'Total', 8, true, [0.35, 0.38, 0.43]);
+        $pagos = collect($venta->pagos ?? []);
+        $pagado = (float) $pagos->where('estado', 'CONFIRMADO')->sum(fn ($p) => (float) $p->monto);
+        $saldo = max(0, (float) ($venta->total ?? 0) - $pagado);
+        $ultimoPago = $pagos->where('estado', 'CONFIRMADO')->last();
 
-        $y = 570;
+        // Encabezado de marca
+        $this->rect($ops, 0, 754, 595, 88, $negro[0], $negro[1], $negro[2]);
+        $this->text($ops, 36, 806, 'REVIVE', 23, true, $dorado);
+        $this->text($ops, 120, 806, 'SPORTS', 23, true, [1, 1, 1]);
+        $this->text($ops, 36, 782, strtoupper((string) ($venta->sede_nombre ?? 'REVIVE')), 8.5, true, [0.86, 0.86, 0.86]);
+
+        // Estado y número
+        $this->text($ops, 36, 720, $titulo, 15, true);
+        $this->text($ops, 36, 701, 'N.º ' . $numero, 8.5, false, $gris);
+        $this->statusPill($ops, 430, 705, $pagada ? 'PAGADO' : 'PENDIENTE', $pagada);
+        $this->line($ops, 36, 684, 559, 684, $borde);
+
+        // Información principal
+        $this->sectionTitle($ops, 36, 660, 'DATOS DE LA OPERACIÓN', $dorado);
+        $this->rect($ops, 36, 584, 523, 60, $suave[0], $suave[1], $suave[2]);
+        $this->labelValue($ops, 50, 628, 'Cliente', $cliente, 230);
+        $this->labelValue($ops, 310, 628, 'Fecha', $fecha, 210);
+        $this->labelValue($ops, 50, 598, 'Código', $venta->codigo_deportista ?? '-', 230);
+        $this->labelValue($ops, 310, 598, 'Caja', $venta->caja_nombre ?? 'Pendiente de caja', 210);
+
+        // Detalle
+        $this->sectionTitle($ops, 36, 554, 'DETALLE', $dorado);
+        $this->rect($ops, 36, 516, 523, 25, 0.95, 0.955, 0.96);
+        $this->text($ops, 48, 525, 'Descripción', 8, true, $gris);
+        $this->text($ops, 382, 525, 'Cant.', 8, true, $gris);
+        $this->text($ops, 438, 525, 'Unit.', 8, true, $gris);
+        $this->text($ops, 511, 525, 'Total', 8, true, $gris);
+
+        $y = 496;
         foreach (($venta->detalles ?? []) as $detalle) {
-            if ($y < 210) {
-                break;
-            }
+            if ($y < 290) break;
+
             $descripcion = (string) ($detalle->descripcion ?? 'Ítem');
-            $lineas = $this->wrap($descripcion, 48);
+            $lineas = $this->wrap($descripcion, 46);
+
             foreach ($lineas as $indice => $linea) {
-                $this->text($ops, 36, $y, $linea, 9, $indice === 0);
+                $this->text($ops, 48, $y, $linea, 9, $indice === 0);
+
                 if ($indice === 0) {
-                    $this->text($ops, 388, $y, $this->numero($detalle->cantidad ?? 0), 9);
+                    $this->text($ops, 386, $y, $this->numero($detalle->cantidad ?? 0), 9);
                     $this->text($ops, 438, $y, $this->dinero($detalle->precio_unitario ?? 0), 9);
                     $this->text($ops, 505, $y, $this->dinero($detalle->total_linea ?? 0), 9, true);
                 }
+
                 $y -= 13;
             }
-            $y -= 8;
-            $this->line($ops, 36, $y + 3, 559, $y + 3, [0.94, 0.94, 0.95]);
+
+            $y -= 7;
+            $this->line($ops, 48, $y + 2, 548, $y + 2, [0.94, 0.945, 0.95]);
         }
 
-        $y -= 4;
-        $this->text($ops, 390, $y, 'Subtotal', 9, false, [0.35, 0.38, 0.43]);
-        $this->text($ops, 505, $y, $this->dinero($venta->subtotal ?? 0), 9, true);
+        // Totales
+        $y -= 6;
+        $this->rect($ops, 342, $y - 78, 217, 92, 0.985, 0.985, 0.985);
+        $this->summaryLine($ops, 356, $y, 'Subtotal', $this->dinero($venta->subtotal ?? 0), false);
         $y -= 18;
-        $this->text($ops, 390, $y, 'Descuento', 9, false, [0.35, 0.38, 0.43]);
-        $this->text($ops, 505, $y, $this->dinero($venta->descuento ?? 0), 9, true);
+        $this->summaryLine($ops, 356, $y, 'Descuento', $this->dinero($venta->descuento ?? 0), false);
         $y -= 18;
-        $this->text($ops, 390, $y, 'Impuesto', 9, false, [0.35, 0.38, 0.43]);
-        $this->text($ops, 505, $y, $this->dinero($venta->impuesto ?? 0), 9, true);
-        $y -= 12;
-        $this->line($ops, 390, $y, 559, $y, [0.83, 0.63, 0.09]);
-        $y -= 24;
-        $this->text($ops, 390, $y, 'TOTAL', 12, true);
-        $this->text($ops, 500, $y, $this->dinero($venta->total ?? 0), 14, true, [0.69, 0.48, 0]);
+        $this->summaryLine($ops, 356, $y, 'Impuesto', $this->dinero($venta->impuesto ?? 0), false);
+        $y -= 9;
+        $this->line($ops, 356, $y, 545, $y, $dorado);
+        $y -= 21;
+        $this->summaryLine($ops, 356, $y, 'TOTAL', $this->dinero($venta->total ?? 0), true);
 
-        $pagado = collect($venta->pagos ?? [])->where('estado', 'CONFIRMADO')->sum(fn ($p) => (float) $p->monto);
-        $saldo = max(0, (float) ($venta->total ?? 0) - $pagado);
-        $y -= 42;
-        $this->text($ops, 36, $y, 'PAGO', 11, true);
-        $this->line($ops, 36, $y - 10, 559, $y - 10, [0.88, 0.89, 0.91]);
-        $y -= 30;
+        // Pago y saldo
+        $pagoY = 210;
+        $this->sectionTitle($ops, 36, $pagoY + 46, 'RESUMEN DE PAGO', $dorado);
+        $this->rect($ops, 36, $pagoY - 4, 523, 35, $suave[0], $suave[1], $suave[2]);
+        $this->labelValue($ops, 50, $pagoY + 20, 'Método', $ultimoPago?->metodo_pago ?? 'Pendiente', 145);
+        $this->labelValue($ops, 210, $pagoY + 20, 'Pagado', $this->dinero($pagado), 120);
+        $this->labelValue($ops, 350, $pagoY + 20, 'Saldo pendiente', $this->dinero($saldo), 180);
 
-        $ultimoPago = collect($venta->pagos ?? [])->where('estado', 'CONFIRMADO')->last();
-        $this->labelValue($ops, 36, $y, 'Método', $ultimoPago?->metodo_pago ?? 'Pendiente', 220);
-        $this->labelValue($ops, 280, $y, 'Estado', $estado, 260);
-        $y -= 36;
-        $this->labelValue($ops, 36, $y, 'Pagado', $this->dinero($pagado), 220);
-        $this->labelValue($ops, 280, $y, 'Saldo', $this->dinero($saldo), 260);
-
-        if (!empty($venta->membresia_codigo)) {
-            $y -= 46;
-            $this->text($ops, 36, $y, 'MEMBRESÍA / PASE', 11, true);
-            $this->line($ops, 36, $y - 10, 559, $y - 10, [0.88, 0.89, 0.91]);
-            $y -= 30;
-            $this->labelValue($ops, 36, $y, 'Contrato', $venta->membresia_codigo, 220);
-            $this->labelValue($ops, 280, $y, 'Plan', $venta->membresia_plan_nombre ?? '-', 260);
+        // Membresía/pase
+        if (! empty($venta->membresia_codigo)) {
+            $this->sectionTitle($ops, 36, 166, 'MEMBRESÍA / PASE', $dorado);
+            $this->labelValue($ops, 36, 142, 'Contrato', $venta->membresia_codigo, 220);
+            $this->labelValue($ops, 280, 142, 'Plan', $venta->membresia_plan_nombre ?? '-', 260);
         }
 
-        $this->line($ops, 36, 72, 559, 72, [0.88, 0.89, 0.91]);
-        $this->text($ops, 36, 52, 'Gracias por entrenar con Revive.', 9, true, [0.35, 0.38, 0.43]);
-        $this->text($ops, 410, 52, 'Documento generado por Revive', 7, false, [0.5, 0.52, 0.56]);
+        // Pie institucional
+        $this->line($ops, 36, 74, 559, 74, $borde);
+        $this->text($ops, 36, 54, 'Gracias por entrenar con Revive.', 9, true, $gris);
+        $this->text($ops, 385, 54, 'Documento generado por Revive', 7, false, [0.52, 0.54, 0.57]);
 
         return $this->pdf(implode("\n", $ops));
+    }
+
+    private function sectionTitle(array &$ops, float $x, float $y, string $titulo, array $dorado): void
+    {
+        $this->rect($ops, $x, $y - 3, 3, 14, $dorado[0], $dorado[1], $dorado[2]);
+        $this->text($ops, $x + 10, $y, $titulo, 10, true);
+    }
+
+    private function statusPill(array &$ops, float $x, float $y, string $label, bool $pagada): void
+    {
+        if ($pagada) {
+            $this->rect($ops, $x, $y - 9, 100, 22, 0.91, 0.97, 0.94);
+            $this->text($ops, $x + 21, $y - 1, $label, 8, true, [0.04, 0.45, 0.29]);
+            return;
+        }
+
+        $this->rect($ops, $x, $y - 9, 100, 22, 1.0, 0.96, 0.82);
+        $this->text($ops, $x + 14, $y - 1, $label, 8, true, [0.55, 0.40, 0.0]);
+    }
+
+    private function summaryLine(array &$ops, float $x, float $y, string $label, string $valor, bool $total): void
+    {
+        $this->text($ops, $x, $y, $label, $total ? 11 : 8.5, $total, $total ? [0.07, 0.09, 0.13] : [0.40, 0.43, 0.47]);
+        $this->text($ops, 500, $y, $valor, $total ? 13 : 9, true, $total ? [0.69, 0.48, 0] : [0.07, 0.09, 0.13]);
     }
 
     private function labelValue(array &$ops, float $x, float $y, string $label, string $value, int $width): void

@@ -103,8 +103,8 @@ class PlanControlador extends Controller
 
     private function validar(Request $request, ?int $id = null): array
     {
-        return $request->validate([
-            'codigo' => 'required|string|max:50|unique:pgsql.gimnasio.planes,codigo' . ($id ? ',' . $id : ''),
+        $datos = $request->validate([
+            'codigo' => 'nullable|string|max:50|unique:pgsql.gimnasio.planes,codigo' . ($id ? ',' . $id : ''),
             'nombre' => 'required|string|max:150',
             'descripcion' => 'nullable|string',
             'tipo_duracion' => 'required|string|max:20|in:DIAS,MESES,ANIOS',
@@ -119,8 +119,24 @@ class PlanControlador extends Controller
             'renovable' => 'boolean',
             'activo' => 'boolean',
             'precios_sede' => 'nullable|array',
-            'precios_sede.*.sede_id' => 'required|exists:pgsql.institucional.sedes,id_sede',
+            'precios_sede.*.sede_id' => 'required|distinct|exists:pgsql.institucional.sedes,id_sede',
             'precios_sede.*.precio' => 'required|numeric|min:0',
         ]);
+
+        if (($datos['tipo_producto'] ?? null) === 'PASE_DIARIO') {
+            $datos['tipo_cobro'] = 'PAGO_UNICO';
+            $datos['tipo_duracion'] = 'DIAS';
+            $datos['duracion'] = 1;
+            $datos['tarifa_inscripcion'] = 0;
+            $datos['renovable'] = false;
+        }
+
+        if ($id) {
+            unset($datos['codigo']);
+        } elseif (empty($datos['codigo'])) {
+            unset($datos['codigo']);
+        }
+
+        return $datos;
     }
 }

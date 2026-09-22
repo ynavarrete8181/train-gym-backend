@@ -177,13 +177,13 @@ class VentaPosServicio
                 'cliente_id' => $datos['cliente_id'] ?? null,
                 'caja_id' => (int) $turno->caja_id,
                 'turno_caja_id' => (int) $turno->id,
-                'tipo_venta' => $this->tipoVentaGeneral($detalles->all()),
-                'concepto' => $this->conceptoGeneral($detalles->all()),
+                'tipo_venta' => $ventaExistente?->tipo_venta ?? $this->tipoVentaGeneral($detalles->all()),
+                'concepto' => $ventaExistente?->concepto ?? $this->conceptoGeneral($detalles->all()),
                 'subtotal' => $subtotal,
                 'descuento' => $descuento,
                 'impuesto' => $impuesto,
                 'total' => $total,
-                'estado' => 'PENDIENTE',
+                'estado' => $ventaExistente?->estado ?? 'PENDIENTE',
                 'observaciones' => $datos['observaciones'] ?? null,
                 'detalle' => [
                     'producto_id' => $primero['producto_id'] ?? null,
@@ -220,7 +220,7 @@ class VentaPosServicio
 
     public function cobrar(array $datos, int $usuarioId, ?int $ventaId = null): object
     {
-        return DB::transaction(function () use ($datos, $usuarioId): object {
+        return DB::transaction(function () use ($datos, $usuarioId, $ventaId): object {
             $turno = $this->turnos->turnoAbiertoUsuario($usuarioId);
             if (! $turno) {
                 throw ValidationException::withMessages([
@@ -229,12 +229,21 @@ class VentaPosServicio
             }
 
             $venta = $this->guardar($datos, $usuarioId, $ventaId);
+            $pagadoActual = (float) DB::table('ventas.pagos')
+                ->where('venta_id', $venta->id)
+                ->where('estado', 'CONFIRMADO')
+                ->sum('monto');
+            $saldo = round((float) $venta->total - $pagadoActual, 2);
+            if ($saldo <= 0) {
+                throw ValidationException::withMessages(['venta_id' => 'La cuenta ya no tiene saldo pendiente.']);
+            }
+
             $pago = $this->ventas->guardarPago([
                 'venta_id' => (int) $venta->id,
                 'caja_id' => (int) $turno->caja_id,
                 'turno_caja_id' => (int) $turno->id,
                 'metodo_pago' => $datos['metodo_pago'],
-                'monto' => (float) $venta->total,
+                'monto' => $saldo,
                 'estado' => 'CONFIRMADO',
                 'referencia' => $datos['referencia_pago'] ?? null,
                 'observaciones' => $datos['observaciones_pago'] ?? 'Cobro registrado desde POS.',

@@ -79,8 +79,11 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
     Route::get('entrenadores/{id}/horarios-disponibles', [EntrenadorControlador::class, 'horariosDisponibles'])
         ->middleware('base.permiso:GIMNASIO-ENTRENADORES,GIMNASIO-DEPORTISTAS')
         ->name('gimnasio.entrenadores.horarios-disponibles');
+    Route::get('entrenadores/catalogos/servicios', [EntrenadorControlador::class, 'serviciosCatalogo'])
+        ->middleware('base.permiso:GIMNASIO-ENTRENADORES,GIMNASIO-SERVICIOS,GIMNASIO-DISPONIBILIDAD')
+        ->name('gimnasio.entrenadores.servicios.catalogo');
+
     Route::middleware(['base.permiso:GIMNASIO-ENTRENADORES'])->group(function (): void {
-        Route::get('entrenadores/catalogos/servicios', [EntrenadorControlador::class, 'serviciosCatalogo'])->name('gimnasio.entrenadores.servicios.catalogo');
         Route::post('entrenadores', [EntrenadorControlador::class, 'store'])->name('gimnasio.entrenadores.store');
         Route::put('entrenadores/{id}', [EntrenadorControlador::class, 'update'])->name('gimnasio.entrenadores.update');
         Route::post('entrenadores/{id}/turnos', [EntrenadorControlador::class, 'asignarHorario'])->name('gimnasio.entrenadores.turnos.store');

@@ -261,13 +261,16 @@ class MembresiaServicio
         $fin = $this->calcularFechaFin($inicio, $plan->tipo_duracion, (int) $plan->duracion);
         $precio = $this->resolverPrecio((int) $plan->id, $membresia->sede_id);
 
+        $estadoValor = ($plan->requiere_pago ?? true) ? 'PENDIENTE_PAGO' : 'ACTIVA';
+        $estadoMembresia = $this->estados->aplicar(['estado' => $estadoValor], 'MEMBRESIA');
+
         $id = DB::table('gimnasio.membresia_periodos')->insertGetId([
             'membresia_id' => $membresiaId,
             'numero_periodo' => $numero,
             'fecha_inicio' => $inicio,
             'fecha_fin' => $fin,
             'precio' => $precio,
-            'estado' => ($plan->requiere_pago ?? true) ? 'PENDIENTE_PAGO' : 'ACTIVA',
+            'estado' => $estadoValor,
             'venta_id' => null,
             'generado_at' => now(),
             'created_at' => now(),
@@ -278,7 +281,8 @@ class MembresiaServicio
             'fecha_inicio' => $inicio,
             'fecha_fin' => $fin,
             'precio_aplicado' => $precio,
-            'estado' => ($plan->requiere_pago ?? true) ? 'PENDIENTE_PAGO' : 'ACTIVA',
+            'estado' => $estadoMembresia['estado'],
+            'estado_id' => $estadoMembresia['estado_id'] ?? null,
             'updated_at' => now(),
         ]);
 

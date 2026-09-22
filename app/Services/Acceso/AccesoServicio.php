@@ -58,8 +58,9 @@ class AccesoServicio
         return DB::transaction(function () use ($datos): object {
             $credencial = DB::table('acceso.credenciales')->where('codigo', $datos['codigo_credencial'] ?? '')->first();
             $clienteId = $datos['cliente_id'] ?? $credencial?->cliente_id;
-            $membresia = $clienteId ? $this->membresiaVigente((int) $clienteId) : null;
-            [$resultado, $motivo] = $this->evaluarAcceso($credencial, $membresia, $clienteId ? (int) $clienteId : null);
+            $sedeId = ! empty($datos['sede_id']) ? (int) $datos['sede_id'] : null;
+            $membresia = $clienteId ? $this->membresiaVigente((int) $clienteId, $sedeId) : null;
+            [$resultado, $motivo] = $this->evaluarAcceso($credencial, $membresia, $clienteId ? (int) $clienteId : null, $sedeId);
 
             $eventoId = DB::table('acceso.eventos')->insertGetId([
                 'dispositivo_id' => $datos['dispositivo_id'] ?? null,
@@ -152,14 +153,22 @@ class AccesoServicio
         return $query->orderBy("{$tabla}.nombre")->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
     }
 
-    private function membresiaVigente(int $clienteId): ?object
+    private function membresiaVigente(int $clienteId, ?int $sedeId = null): ?object
     {
-        return DB::table('gimnasio.membresias')
-            ->where('deportista_id', $clienteId)
-            ->where('estado', 'ACTIVA')
-            ->whereDate('fecha_inicio', '<=', now()->toDateString())
-            ->whereDate('fecha_fin', '>=', now()->toDateString())
-            ->orderByDesc('fecha_fin')
+        return DB::table('gimnasio.membresias as m')
+            ->when($sedeId, function ($query) use ($sedeId): void {
+                $query->join('gimnasio.membresia_sedes as ms', function ($join) use ($sedeId): void {
+                    $join->on('ms.membresia_id', '=', 'm.id')
+                        ->where('ms.sede_id', '=', $sedeId)
+                        ->where('ms.activo', '=', true);
+                });
+            })
+            ->where('m.deportista_id', $clienteId)
+            ->where('m.estado', 'ACTIVA')
+            ->whereDate('m.fecha_inicio', '<=', now()->toDateString())
+            ->whereDate('m.fecha_fin', '>=', now()->toDateString())
+            ->orderByDesc('m.fecha_fin')
+            ->select('m.*')
             ->first();
     }
 
@@ -167,14 +176,14 @@ class AccesoServicio
      * Devuelve [resultado, motivo]. El resultado se mantiene en PERMITIDO/DENEGADO
      * (son los únicos valores que conoce el frontend); el motivo explica el porqué.
      */
-    private function evaluarAcceso(?object $credencial, ?object $membresia, ?int $clienteId): array
+    private function evaluarAcceso(?object $credencial, ?object $membresia, ?int $clienteId, ?int $sedeId = null): array
     {
         if (! $credencial) return ['DENEGADO', 'Acceso denegado: credencial no encontrada.'];
         if ($credencial->estado !== 'ACTIVA') return ['DENEGADO', 'Acceso denegado: credencial inactiva.'];
         if ($credencial->vigencia_inicio && now()->lessThan($credencial->vigencia_inicio)) return ['DENEGADO', 'Acceso denegado: credencial aún no vigente.'];
         if ($credencial->vigencia_fin && now()->greaterThan($credencial->vigencia_fin)) return ['DENEGADO', 'Acceso denegado: credencial vencida.'];
         if (! $membresia) return ['DENEGADO', 'Acceso denegado: sin membresía vigente.'];
-        if ($clienteId && ! $this->dentroDeHorarioAsignado($clienteId)) {
+        if ($clienteId && $membresia && ! $this->dentroDeHorarioAsignado($clienteId, (int) $membresia->id, $sedeId)) {
             return ['DENEGADO', 'Acceso denegado: fuera del horario asignado con su entrenador.'];
         }
         return ['PERMITIDO', 'Acceso permitido con membresía vigente.'];
@@ -186,14 +195,22 @@ class AccesoServicio
      * acceso debe caer dentro de alguno de esos bloques (con tolerancia de entrada
      * anticipada) el día actual.
      */
-    private function dentroDeHorarioAsignado(int $clienteId): bool
+    private function dentroDeHorarioAsignado(int $clienteId, int $membresiaId, ?int $sedeId = null): bool
     {
-        $asignaciones = DB::table('gimnasio.asignaciones_entrenador_cliente')
-            ->join('gimnasio.horarios_servicio', 'gimnasio.horarios_servicio.horario_bloque_id', '=', 'gimnasio.asignaciones_entrenador_cliente.horario_bloque_id')
-            ->where('gimnasio.asignaciones_entrenador_cliente.deportista_id', $clienteId)
-            ->where('gimnasio.asignaciones_entrenador_cliente.estado', 'ACTIVO')
-            ->whereNotNull('gimnasio.asignaciones_entrenador_cliente.horario_bloque_id')
-            ->get(['gimnasio.horarios_servicio.dia_semana', 'gimnasio.horarios_servicio.hora_inicio', 'gimnasio.horarios_servicio.hora_fin']);
+        $asignaciones = DB::table('gimnasio.asignaciones_entrenador_cliente as a')
+            ->join('gimnasio.horarios_servicio as hs', function ($join): void {
+                $join->on('hs.horario_bloque_id', '=', 'a.horario_bloque_id')
+                    ->where('hs.activo', true);
+            })
+            ->where('a.deportista_id', $clienteId)
+            ->where('a.membresia_id', $membresiaId)
+            ->where('a.estado', 'ACTIVO')
+            ->whereNotNull('a.horario_bloque_id')
+            ->when($sedeId, function ($query) use ($sedeId): void {
+                $query->where('a.sede_id', $sedeId)
+                    ->where('hs.sede_id', $sedeId);
+            })
+            ->get(['hs.dia_semana', 'hs.hora_inicio', 'hs.hora_fin']);
 
         if ($asignaciones->isEmpty()) {
             return true;

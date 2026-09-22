@@ -170,6 +170,10 @@ class MembresiaControlador extends Controller
         $membresia = DB::table('gimnasio.membresias')->where('id', $id)->first();
         if (!$membresia) return response()->json(['mensaje' => 'Membresía no encontrada'], 404);
 
+        if ($request->filled('estado')) {
+            $request->merge(['estado' => strtoupper((string) $request->input('estado'))]);
+        }
+
         $validados = $request->validate([
             'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
             'sedes_habilitadas' => 'required|array|min:1',
@@ -191,7 +195,11 @@ class MembresiaControlador extends Controller
             'fecha_congelacion_fin' => 'nullable|date|after_or_equal:fecha_congelacion_inicio',
         ]);
 
-        $validados['sede_id'] = (int) collect($validados['sedes_habilitadas'])->first();
+        $sedesHabilitadas = collect($validados['sedes_habilitadas'])->map(fn ($id) => (int) $id)->values();
+        $sedeActual = (int) ($membresia->sede_id ?? 0);
+        $validados['sede_id'] = $sedeActual && $sedesHabilitadas->contains($sedeActual)
+            ? $sedeActual
+            : (int) $sedesHabilitadas->first();
         $sedeValidacion = (int) $validados['sede_id'];
         $this->validarConfiguracionMembresia(
             (int) $membresia->plan_id,

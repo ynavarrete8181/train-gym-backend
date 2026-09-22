@@ -178,6 +178,18 @@ class MembresiaServicio
                 'hb.nombre as horario_nombre',
             ]);
 
+        $venta = DB::table('ventas.ventas')
+            ->where('membresia_id', $id)
+            ->where('estado', '!=', 'ANULADA')
+            ->orderByDesc('id')
+            ->first(['id', 'numero', 'estado', 'total']);
+
+        $membresia->requiere_facturar = (bool) $venta;
+        $membresia->venta_id = $venta?->id;
+        $membresia->venta_numero = $venta?->numero;
+        $membresia->venta_estado = $venta?->estado;
+        $membresia->venta_total = $venta?->total;
+
         return $membresia;
     }
 

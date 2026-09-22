@@ -124,7 +124,7 @@ class MembresiaControlador extends Controller
                     'cliente_id' => $membresia->deportista_id,
                     'membresia_id' => $membresia->id,
                     'caja_id' => null,
-                    'tipo_venta' => 'MEMBRESIA',
+                    'tipo_venta' => ($plan->tipo_producto ?? 'MEMBRESIA') === 'PASE_DIARIO' ? 'SERVICIO' : 'MEMBRESIA',
                     'concepto' => $plan->nombre . ' - ' . $membresia->codigo_contrato,
                     'subtotal' => $membresia->precio_aplicado,
                     'descuento' => 0,

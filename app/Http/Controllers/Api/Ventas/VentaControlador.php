@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Ventas;
 
 use App\Http\Controllers\Controller;
 use App\Services\Ventas\CajaServicio;
+use App\Services\Ventas\ComprobantePdfServicio;
 use App\Services\Ventas\TurnoCajaServicio;
 use App\Services\Ventas\VentaFiltroServicio;
 use App\Services\Ventas\VentaPosServicio;
@@ -21,6 +22,7 @@ class VentaControlador extends Controller
         private readonly TurnoCajaServicio $turnos,
         private readonly CajaServicio $cajas,
         private readonly VentaPosServicio $pos,
+        private readonly ComprobantePdfServicio $pdfs,
     ) {
     }
 
@@ -160,6 +162,19 @@ class VentaControlador extends Controller
             'Detalle de venta consultado.',
             (array) $this->ventas->detalleVenta($id, $request->user()?->id),
         );
+    }
+
+    public function comprobantePdf(Request $request, int $id)
+    {
+        $venta = $this->ventas->detalleVenta($id, $request->user()?->id);
+        $pdf = $this->pdfs->generar($venta);
+        $nombre = ($venta->comprobante?->numero ?? $venta->numero ?? ('VENTA-' . $id)) . '.pdf';
+
+        return response($pdf, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . $nombre . '"',
+            'Cache-Control' => 'private, no-store, max-age=0',
+        ]);
     }
 
     public function pagos(Request $request)

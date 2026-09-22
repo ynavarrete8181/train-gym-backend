@@ -191,9 +191,13 @@ class MembresiaControlador extends Controller
             ],
             'dias_gracia' => 'integer|min:0',
             'renovacion_automatica' => 'boolean',
+            'generar_venta' => 'boolean',
             'fecha_congelacion_inicio' => 'nullable|date',
             'fecha_congelacion_fin' => 'nullable|date|after_or_equal:fecha_congelacion_inicio',
         ]);
+
+        $generarVenta = array_key_exists('generar_venta', $validados) ? (bool) $validados['generar_venta'] : null;
+        unset($validados['generar_venta']);
 
         $sedesHabilitadas = collect($validados['sedes_habilitadas'])->map(fn ($id) => (int) $id)->values();
         $sedeActual = (int) ($membresia->sede_id ?? 0);
@@ -208,8 +212,91 @@ class MembresiaControlador extends Controller
             $validados['asignaciones_entrenador'] ?? []
         );
 
-        $membresiaActualizada = $this->membresiaServicio->actualizar($id, $validados);
+        $membresiaActualizada = DB::transaction(function () use ($id, $validados, $generarVenta, $request) {
+            $actualizada = $this->membresiaServicio->actualizar($id, $validados);
+
+            if ($generarVenta !== null) {
+                $this->sincronizarFacturacion((int) $id, $generarVenta, $request);
+                $actualizada = $this->membresiaServicio->obtenerMembresiaConRelaciones((int) $id);
+            }
+
+            return $actualizada;
+        });
+
         return ApiResponse::exito('Membresía actualizada correctamente.', (array) $membresiaActualizada);
+    }
+
+    private function sincronizarFacturacion(int $membresiaId, bool $generarVenta, Request $request): void
+    {
+        $membresia = DB::table('gimnasio.membresias')->where('id', $membresiaId)->first();
+        $plan = DB::table('gimnasio.planes')->where('id', $membresia->plan_id)->first();
+
+        $venta = DB::table('ventas.ventas')
+            ->where('membresia_id', $membresiaId)
+            ->where('estado', '!=', 'ANULADA')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($generarVenta) {
+            if ($venta || ! ($plan->generar_venta ?? true)) {
+                return;
+            }
+
+            $this->ventaServicio->guardarVenta([
+                'cliente_id' => $membresia->deportista_id,
+                'membresia_id' => $membresiaId,
+                'caja_id' => null,
+                'tipo_venta' => ($plan->tipo_producto ?? 'MEMBRESIA') === 'PASE_DIARIO' ? 'SERVICIO' : 'MEMBRESIA',
+                'concepto' => $plan->nombre . ' - ' . $membresia->codigo_contrato,
+                'subtotal' => $membresia->precio_aplicado,
+                'descuento' => 0,
+                'impuesto' => 0,
+                'total' => $membresia->precio_aplicado,
+                'estado' => 'PENDIENTE',
+                'observaciones' => 'Venta generada desde edición de Membresías.',
+                'detalle' => [
+                    'descripcion' => $plan->nombre,
+                    'cantidad' => 1,
+                    'precio_unitario' => $membresia->precio_aplicado,
+                    'total_linea' => $membresia->precio_aplicado,
+                ],
+            ], null, $request->user()?->id);
+
+            return;
+        }
+
+        if (! $venta) {
+            return;
+        }
+
+        $pagado = (float) DB::table('ventas.pagos')
+            ->where('venta_id', $venta->id)
+            ->where('estado', 'CONFIRMADO')
+            ->sum('monto');
+
+        if ($pagado > 0 || in_array(strtoupper((string) $venta->estado), ['PARCIAL', 'PAGADA'], true)) {
+            throw ValidationException::withMessages([
+                'generar_venta' => 'No se puede desactivar la facturación porque la venta ya tiene pagos confirmados.',
+            ]);
+        }
+
+        $estadoAnuladaId = DB::table('configuracion.estados_catalogo')
+            ->where('entidad', 'VENTA')
+            ->where('valor_interno', 'ANULADA')
+            ->where('activo', true)
+            ->value('id');
+
+        DB::table('ventas.ventas')->where('id', $venta->id)->update([
+            'estado' => 'ANULADA',
+            'estado_id' => $estadoAnuladaId,
+            'observaciones' => trim(($venta->observaciones ? $venta->observaciones . ' ' : '') . 'Facturación desactivada desde Membresías.'),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('ventas.comprobantes')->where('venta_id', $venta->id)->update([
+            'estado' => 'ANULADO',
+            'updated_at' => now(),
+        ]);
     }
 
     public function destroy($id)

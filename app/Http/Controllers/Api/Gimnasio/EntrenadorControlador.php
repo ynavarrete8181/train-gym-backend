@@ -128,9 +128,10 @@ class EntrenadorControlador extends Controller
         return ApiResponse::exito('Entrenador actualizado correctamente.', (array) $entrenador);
     }
 
-    public function turnos(int $id): JsonResponse
+    public function turnos(Request $request, int $id): JsonResponse
     {
-        return ApiResponse::exito('Turnos consultados.', $this->servicio->listarTurnos($id));
+        $sedeId = $request->filled('sede_id') ? (int) $request->input('sede_id') : null;
+        return ApiResponse::exito('Turnos consultados.', $this->servicio->listarTurnos($id, $sedeId));
     }
 
     public function horariosDisponibles(int $id): JsonResponse

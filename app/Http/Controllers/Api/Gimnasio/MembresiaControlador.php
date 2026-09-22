@@ -95,7 +95,7 @@ class MembresiaControlador extends Controller
         $validados = $request->validate([
             'deportista_id' => 'required|exists:pgsql.gimnasio.deportistas,id',
             'plan_id' => 'required|exists:pgsql.gimnasio.planes,id',
-            'sede_id' => 'required|exists:pgsql.institucional.sedes,id_sede',
+            'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
             'sedes_habilitadas' => 'required|array|min:1',
             'sedes_habilitadas.*' => 'required|integer|distinct|exists:pgsql.institucional.sedes,id_sede',
             'asignaciones_entrenador' => 'nullable|array',
@@ -108,6 +108,7 @@ class MembresiaControlador extends Controller
             'generar_venta' => 'boolean',
         ]);
 
+        $validados['sede_id'] = (int) collect($validados['sedes_habilitadas'])->first();
         $this->validarDeportistaActual((int) $validados['deportista_id']);
         $this->validarConfiguracionMembresia((int) $validados['plan_id'], (int) $validados['sede_id'], $validados['sedes_habilitadas'], $validados['asignaciones_entrenador'] ?? []);
         $generarVenta = (bool) ($validados['generar_venta'] ?? false);
@@ -190,18 +191,8 @@ class MembresiaControlador extends Controller
             'fecha_congelacion_fin' => 'nullable|date|after_or_equal:fecha_congelacion_inicio',
         ]);
 
-        if ($membresia->sede_id === null) {
-            if (empty($validados['sede_id'])) {
-                throw ValidationException::withMessages(['sede_id' => 'Debes seleccionar una sede para completar esta membresía histórica.']);
-            }
-        } else {
-            if (array_key_exists('sede_id', $validados) && (int) $validados['sede_id'] !== (int) $membresia->sede_id) {
-                throw ValidationException::withMessages(['sede_id' => 'La sede de una membresía ya registrada no puede modificarse.']);
-            }
-            unset($validados['sede_id']);
-        }
-
-        $sedeValidacion = (int) ($validados['sede_id'] ?? $membresia->sede_id);
+        $validados['sede_id'] = (int) collect($validados['sedes_habilitadas'])->first();
+        $sedeValidacion = (int) $validados['sede_id'];
         $this->validarConfiguracionMembresia(
             (int) $membresia->plan_id,
             $sedeValidacion,

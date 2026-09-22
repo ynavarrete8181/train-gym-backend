@@ -258,14 +258,10 @@ class AgendaConfiguracionServicio
         return $despues;
     }
 
-    public function catalogosAsignacion(): array
+    public function catalogosAsignacion(?int $entrenadorId = null): array
     {
         return [
-            'entrenadores' => DB::table('gimnasio.entrenadores as e')
-                ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
-                ->where('e.estado', 'ACTIVO')
-                ->orderBy('u.name')
-                ->get(['e.id', 'u.name', 'e.especialidad']),
+            'entrenadores' => $this->buscarEntrenadores(null, $entrenadorId),
             'sedes' => DB::table('institucional.sedes')
                 ->where('activo', true)
                 ->orderBy('nombre')
@@ -276,6 +272,44 @@ class AgendaConfiguracionServicio
                 ->orderBy('hora_inicio')
                 ->get(),
         ];
+    }
+
+    public function buscarEntrenadores(?string $busqueda = null, ?int $entrenadorId = null, int $limite = 20)
+    {
+        $query = DB::table('gimnasio.entrenadores as e')
+            ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
+            ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
+            ->where('e.estado', 'ACTIVO')
+            ->where('r.role', 'ENTRENADOR')
+            ->select([
+                'e.id',
+                'e.tipo',
+                'e.especialidad',
+                'u.name',
+                'u.nombres',
+                'u.apellidos',
+                'u.cedula',
+                'u.email',
+            ]);
+
+        if ($entrenadorId) {
+            $query->where('e.id', $entrenadorId);
+        } elseif ($busqueda !== null && trim($busqueda) !== '') {
+            $texto = '%' . mb_strtolower(trim($busqueda)) . '%';
+            $query->where(function ($q) use ($texto): void {
+                $q->whereRaw("LOWER(COALESCE(u.name, '')) LIKE ?", [$texto])
+                    ->orWhereRaw("LOWER(COALESCE(u.nombres, '')) LIKE ?", [$texto])
+                    ->orWhereRaw("LOWER(COALESCE(u.apellidos, '')) LIKE ?", [$texto])
+                    ->orWhereRaw("LOWER(COALESCE(u.cedula, '')) LIKE ?", [$texto])
+                    ->orWhereRaw("LOWER(COALESCE(u.email, '')) LIKE ?", [$texto]);
+            });
+        }
+
+        return $query
+            ->orderByRaw("COALESCE(NULLIF(u.nombres, ''), u.name)")
+            ->orderBy('u.apellidos')
+            ->limit(max(1, min($limite, 30)))
+            ->get();
     }
 
     private function validarAsignacion(array $datos, ?int $ignorarId = null): void

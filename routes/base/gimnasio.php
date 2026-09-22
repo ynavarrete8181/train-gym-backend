@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\Gimnasio\AsignacionEntrenadorClienteControlador;
 use App\Http\Controllers\Api\Gimnasio\ClienteCatalogoControlador;
 use App\Http\Controllers\Api\Gimnasio\ServicioAgendaControlador;
 use App\Http\Controllers\Api\Gimnasio\MiTrabajoEntrenadorControlador;
+use App\Http\Controllers\Api\Gimnasio\AgendaConfiguracionControlador;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
@@ -107,12 +108,29 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
     });
 
     Route::middleware(['base.permiso:GIMNASIO-HORARIOS'])->group(function (): void {
+        Route::get('agenda/jornadas', [AgendaConfiguracionControlador::class, 'jornadas'])->name('gimnasio.agenda.jornadas.index');
+        Route::post('agenda/jornadas', [AgendaConfiguracionControlador::class, 'guardarJornada'])->name('gimnasio.agenda.jornadas.store');
+        Route::put('agenda/jornadas/{id}', [AgendaConfiguracionControlador::class, 'guardarJornada'])->name('gimnasio.agenda.jornadas.update');
+
         Route::get('horarios', [ServicioAgendaControlador::class, 'horarios'])->name('gimnasio.horarios.index');
         Route::get('horarios/{id}/detalle', [ServicioAgendaControlador::class, 'detalleHorario'])->name('gimnasio.horarios.detalle');
         Route::post('horarios', [ServicioAgendaControlador::class, 'guardarHorario'])->name('gimnasio.horarios.store');
         Route::put('horarios/{id}', [ServicioAgendaControlador::class, 'guardarHorario'])->name('gimnasio.horarios.update');
         Route::patch('horarios/{id}/desactivar', [ServicioAgendaControlador::class, 'desactivarHorario'])->name('gimnasio.horarios.desactivar');
         Route::delete('horarios/{id}', [ServicioAgendaControlador::class, 'eliminarHorario'])->name('gimnasio.horarios.destroy');
+    });
+
+    Route::middleware(['base.permiso:GIMNASIO-RECESOS'])->group(function (): void {
+        Route::get('agenda/recesos', [AgendaConfiguracionControlador::class, 'recesos'])->name('gimnasio.agenda.recesos.index');
+        Route::post('agenda/recesos', [AgendaConfiguracionControlador::class, 'guardarReceso'])->name('gimnasio.agenda.recesos.store');
+        Route::put('agenda/recesos/{id}', [AgendaConfiguracionControlador::class, 'guardarReceso'])->name('gimnasio.agenda.recesos.update');
+    });
+
+    Route::middleware(['base.permiso:GIMNASIO-ASIGNACION-HORARIOS'])->group(function (): void {
+        Route::get('agenda/asignaciones-horario', [AgendaConfiguracionControlador::class, 'asignaciones'])->name('gimnasio.agenda.asignaciones.index');
+        Route::get('agenda/asignaciones-horario/catalogos', [AgendaConfiguracionControlador::class, 'catalogosAsignacion'])->name('gimnasio.agenda.asignaciones.catalogos');
+        Route::post('agenda/asignaciones-horario', [AgendaConfiguracionControlador::class, 'guardarAsignacion'])->name('gimnasio.agenda.asignaciones.store');
+        Route::put('agenda/asignaciones-horario/{id}', [AgendaConfiguracionControlador::class, 'guardarAsignacion'])->name('gimnasio.agenda.asignaciones.update');
     });
 
     Route::middleware(['base.permiso:GIMNASIO-RESERVAS-DIA'])->group(function (): void {

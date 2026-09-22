@@ -72,7 +72,7 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         ->middleware('base.permiso:GIMNASIO-ENTRENADORES,GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
         ->name('gimnasio.entrenadores.index');
     Route::get('entrenadores/{id}/turnos', [EntrenadorControlador::class, 'turnos'])
-        ->middleware('base.permiso:GIMNASIO-ENTRENADORES,GIMNASIO-DEPORTISTAS')
+        ->middleware('base.permiso:GIMNASIO-ENTRENADORES,GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
         ->name('gimnasio.entrenadores.turnos.index');
     Route::get('entrenadores/{id}/horarios-disponibles', [EntrenadorControlador::class, 'horariosDisponibles'])
         ->middleware('base.permiso:GIMNASIO-ENTRENADORES,GIMNASIO-DEPORTISTAS')

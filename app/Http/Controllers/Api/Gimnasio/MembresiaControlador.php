@@ -34,8 +34,6 @@ class MembresiaControlador extends Controller
             ->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
             ->join('gimnasio.planes', 'gimnasio.membresias.plan_id', '=', 'gimnasio.planes.id')
             ->leftJoin('institucional.sedes', 'gimnasio.membresias.sede_id', '=', 'institucional.sedes.id_sede')
-            ->leftJoin('gimnasio.entrenadores as entrenador_membresia', 'gimnasio.membresias.entrenador_id', '=', 'entrenador_membresia.id')
-            ->leftJoin('seguridad.users as entrenador_user', 'entrenador_membresia.usuario_id', '=', 'entrenador_user.id')
             ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'gimnasio.membresias.estado_id', '=', 'estado_cfg.id')
             ->select(
                 'gimnasio.membresias.*',
@@ -46,9 +44,6 @@ class MembresiaControlador extends Controller
                 'gimnasio.planes.tipo_producto',
                 'gimnasio.planes.tipo_cobro',
                 'institucional.sedes.nombre as sede_nombre',
-                'entrenador_user.name as entrenador_nombre',
-                'entrenador_user.nombres as entrenador_nombres',
-                'entrenador_user.apellidos as entrenador_apellidos',
                 'estado_cfg.codigo as estado_codigo',
                 'estado_cfg.valor_interno as estado_valor',
                 'estado_cfg.nombre as estado_nombre',
@@ -80,7 +75,12 @@ class MembresiaControlador extends Controller
             ->orderBy('gimnasio.membresias.created_at', 'desc')
             ->paginate($porPagina, ['*'], 'page', $pagina);
 
-        return ApiResponse::exito('Membresías consultadas', $membresias->items(), [
+        $items = collect($membresias->items())
+            ->map(fn ($membresia) => $this->membresiaServicio->obtenerMembresiaConRelaciones((int) $membresia->id))
+            ->filter()
+            ->values();
+
+        return ApiResponse::exito('Membresías consultadas', $items, [
             'pagina_actual' => $membresias->currentPage(),
             'por_pagina' => $membresias->perPage(),
             'total' => $membresias->total(),
@@ -96,7 +96,12 @@ class MembresiaControlador extends Controller
             'deportista_id' => 'required|exists:pgsql.gimnasio.deportistas,id',
             'plan_id' => 'required|exists:pgsql.gimnasio.planes,id',
             'sede_id' => 'required|exists:pgsql.institucional.sedes,id_sede',
-            'entrenador_id' => 'nullable|exists:pgsql.gimnasio.entrenadores,id',
+            'sedes_habilitadas' => 'required|array|min:1',
+            'sedes_habilitadas.*' => 'required|integer|distinct|exists:pgsql.institucional.sedes,id_sede',
+            'asignaciones_entrenador' => 'nullable|array',
+            'asignaciones_entrenador.*.sede_id' => 'required|integer|exists:pgsql.institucional.sedes,id_sede',
+            'asignaciones_entrenador.*.entrenador_id' => 'required|integer|exists:pgsql.gimnasio.entrenadores,id',
+            'asignaciones_entrenador.*.horario_bloque_id' => 'required|integer|exists:pgsql.gimnasio.horario_bloques,id',
             'fecha_inicio' => 'required|date',
             'dias_gracia' => 'integer|min:0',
             'renovacion_automatica' => 'boolean',
@@ -104,7 +109,7 @@ class MembresiaControlador extends Controller
         ]);
 
         $this->validarDeportistaActual((int) $validados['deportista_id']);
-        $this->validarEntrenadorSede($validados['entrenador_id'] ?? null, (int) $validados['sede_id']);
+        $this->validarConfiguracionMembresia((int) $validados['plan_id'], (int) $validados['sede_id'], $validados['sedes_habilitadas'], $validados['asignaciones_entrenador'] ?? []);
         $generarVenta = (bool) ($validados['generar_venta'] ?? false);
         unset($validados['generar_venta']);
 
@@ -166,7 +171,12 @@ class MembresiaControlador extends Controller
 
         $validados = $request->validate([
             'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
-            'entrenador_id' => 'nullable|exists:pgsql.gimnasio.entrenadores,id',
+            'sedes_habilitadas' => 'required|array|min:1',
+            'sedes_habilitadas.*' => 'required|integer|distinct|exists:pgsql.institucional.sedes,id_sede',
+            'asignaciones_entrenador' => 'nullable|array',
+            'asignaciones_entrenador.*.sede_id' => 'required|integer|exists:pgsql.institucional.sedes,id_sede',
+            'asignaciones_entrenador.*.entrenador_id' => 'required|integer|exists:pgsql.gimnasio.entrenadores,id',
+            'asignaciones_entrenador.*.horario_bloque_id' => 'required|integer|exists:pgsql.gimnasio.horario_bloques,id',
             'fecha_inicio' => 'required|date',
             'estado' => [
                 'required',
@@ -192,12 +202,12 @@ class MembresiaControlador extends Controller
         }
 
         $sedeValidacion = (int) ($validados['sede_id'] ?? $membresia->sede_id);
-        $entrenadorNuevo = $validados['entrenador_id'] ?? $membresia->entrenador_id;
-        $cambioEntrenador = (int) ($entrenadorNuevo ?? 0) !== (int) ($membresia->entrenador_id ?? 0);
-        $cambioSede = array_key_exists('sede_id', $validados) && (int) $validados['sede_id'] !== (int) ($membresia->sede_id ?? 0);
-        if ($cambioEntrenador || $cambioSede) {
-            $this->validarEntrenadorSede($entrenadorNuevo, $sedeValidacion);
-        }
+        $this->validarConfiguracionMembresia(
+            (int) $membresia->plan_id,
+            $sedeValidacion,
+            $validados['sedes_habilitadas'],
+            $validados['asignaciones_entrenador'] ?? []
+        );
 
         $membresiaActualizada = $this->membresiaServicio->actualizar($id, $validados);
         return ApiResponse::exito('Membresía actualizada correctamente.', (array) $membresiaActualizada);
@@ -211,38 +221,62 @@ class MembresiaControlador extends Controller
         return ApiResponse::exito('Membresía eliminada correctamente.');
     }
 
-    private function validarEntrenadorSede(mixed $entrenadorId, int $sedeId): void
+    private function validarConfiguracionMembresia(int $planId, int $sedePrincipalId, array $sedesHabilitadas, array $asignaciones): void
     {
-        if (! $entrenadorId) {
-            return;
-        }
+        $sedes = collect($sedesHabilitadas)->map(fn ($id) => (int) $id)->unique()->values();
 
-        $entrenador = DB::table('gimnasio.entrenadores as e')
-            ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
-            ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
-            ->where('e.id', (int) $entrenadorId)
-            ->where('e.estado', 'ACTIVO')
-            ->where('r.role', 'ENTRENADOR')
-            ->first();
-
-        if (! $entrenador) {
+        if (! $sedes->contains($sedePrincipalId)) {
             throw ValidationException::withMessages([
-                'entrenador_id' => 'El entrenador seleccionado no está activo.',
+                'sedes_habilitadas' => 'La sede de contratación debe estar incluida entre las sedes habilitadas.',
             ]);
         }
 
-        $tieneHorarioSede = DB::table('gimnasio.horario_entrenadores as he')
-            ->join('gimnasio.horarios_servicio as hs', 'hs.horario_bloque_id', '=', 'he.horario_bloque_id')
-            ->where('he.entrenador_id', (int) $entrenadorId)
-            ->where('he.activo', true)
-            ->where('hs.activo', true)
-            ->where('hs.sede_id', $sedeId)
-            ->exists();
+        $plan = DB::table('gimnasio.planes')->where('id', $planId)->first();
+        if (! $plan) {
+            throw ValidationException::withMessages(['plan_id' => 'El plan seleccionado no existe.']);
+        }
 
-        if (! $tieneHorarioSede) {
+        if (($plan->requiere_entrenador ?? false) && empty($asignaciones)) {
             throw ValidationException::withMessages([
-                'entrenador_id' => 'El entrenador seleccionado no tiene horarios activos configurados en la sede de la membresía.',
+                'asignaciones_entrenador' => 'Este plan requiere al menos una asignación de entrenador.',
             ]);
+        }
+
+        foreach ($asignaciones as $indice => $asignacion) {
+            $sedeId = (int) ($asignacion['sede_id'] ?? 0);
+            $entrenadorId = (int) ($asignacion['entrenador_id'] ?? 0);
+            $horarioBloqueId = (int) ($asignacion['horario_bloque_id'] ?? 0);
+
+            if (! $sedes->contains($sedeId)) {
+                throw ValidationException::withMessages([
+                    "asignaciones_entrenador.{$indice}.sede_id" => 'La asignación debe pertenecer a una sede habilitada en la membresía.',
+                ]);
+            }
+
+            $valido = DB::table('gimnasio.entrenadores as e')
+                ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
+                ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
+                ->join('gimnasio.horario_entrenadores as he', function ($join) use ($horarioBloqueId): void {
+                    $join->on('he.entrenador_id', '=', 'e.id')
+                        ->where('he.horario_bloque_id', '=', $horarioBloqueId)
+                        ->where('he.activo', '=', true);
+                })
+                ->join('gimnasio.horarios_servicio as hs', function ($join) use ($sedeId, $horarioBloqueId): void {
+                    $join->on('hs.horario_bloque_id', '=', 'he.horario_bloque_id')
+                        ->where('hs.horario_bloque_id', '=', $horarioBloqueId)
+                        ->where('hs.sede_id', '=', $sedeId)
+                        ->where('hs.activo', '=', true);
+                })
+                ->where('e.id', $entrenadorId)
+                ->where('e.estado', 'ACTIVO')
+                ->where('r.role', 'ENTRENADOR')
+                ->exists();
+
+            if (! $valido) {
+                throw ValidationException::withMessages([
+                    "asignaciones_entrenador.{$indice}.entrenador_id" => 'El entrenador y horario seleccionados no están disponibles en esa sede.',
+                ]);
+            }
         }
     }
 

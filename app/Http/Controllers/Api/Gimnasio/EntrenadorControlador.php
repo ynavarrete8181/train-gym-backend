@@ -91,7 +91,19 @@ class EntrenadorControlador extends Controller
 
         $paginador = $query->orderBy('u.nombres')->paginate($porPagina);
 
-        return ApiResponse::exito('Entrenadores obtenidos', $paginador->items(), [
+        $items = collect($paginador->items())->map(function ($entrenador) {
+            $entrenador->servicio_ids = DB::table('gimnasio.entrenador_servicios')
+                ->where('entrenador_id', $entrenador->id)
+                ->where('activo', true)
+                ->pluck('servicio_id')
+                ->map(fn ($id) => (int) $id)
+                ->values()
+                ->all();
+
+            return $entrenador;
+        })->all();
+
+        return ApiResponse::exito('Entrenadores obtenidos', $items, [
             'pagina_actual' => $paginador->currentPage(),
             'por_pagina' => $paginador->perPage(),
             'total' => $paginador->total(),
@@ -106,11 +118,16 @@ class EntrenadorControlador extends Controller
             'especialidad' => 'nullable|string|max:150',
             'tipo' => 'nullable|string|max:50',
             'estado' => 'nullable|string|max:30',
+            'servicio_ids' => 'nullable|array',
+            'servicio_ids.*' => 'integer|distinct|exists:pgsql.gimnasio.servicios,id',
         ]);
+
+        $servicioIds = $datos['servicio_ids'] ?? [];
+        unset($datos['servicio_ids']);
 
         abort_if(! $this->usuarioTieneRolEntrenador((int) $datos['usuario_id']), 422, 'El usuario debe tener rol ENTRENADOR antes de crear el perfil de entrenador.');
 
-        $entrenador = $this->servicio->crear($datos);
+        $entrenador = $this->servicio->crear($datos, $servicioIds);
         
         return ApiResponse::exito('Entrenador creado correctamente.', (array) $entrenador, [], 201);
     }
@@ -121,11 +138,21 @@ class EntrenadorControlador extends Controller
             'especialidad' => 'nullable|string|max:150',
             'tipo' => 'nullable|string|max:50',
             'estado' => 'nullable|string|max:30',
+            'servicio_ids' => 'nullable|array',
+            'servicio_ids.*' => 'integer|distinct|exists:pgsql.gimnasio.servicios,id',
         ]);
 
-        $entrenador = $this->servicio->actualizar($id, $datos);
+        $servicioIds = array_key_exists('servicio_ids', $datos) ? $datos['servicio_ids'] : null;
+        unset($datos['servicio_ids']);
+
+        $entrenador = $this->servicio->actualizar($id, $datos, $servicioIds);
         
         return ApiResponse::exito('Entrenador actualizado correctamente.', (array) $entrenador);
+    }
+
+    public function serviciosCatalogo(): JsonResponse
+    {
+        return ApiResponse::exito('Servicios consultados.', $this->servicio->catalogoServicios());
     }
 
     public function turnos(Request $request, int $id): JsonResponse

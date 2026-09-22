@@ -76,6 +76,7 @@ class VentaPosServicio
         $productos = collect();
         if (Schema::connection('pgsql')->hasTable('inventario.productos')) {
             $productosQuery = DB::table('inventario.productos as p')
+                ->leftJoin('inventario.categorias_producto as cp', 'cp.id', '=', 'p.categoria_id')
                 ->where('p.activo', true);
 
             $columnasProductos = [
@@ -83,6 +84,8 @@ class VentaPosServicio
                 'p.codigo',
                 'p.nombre',
                 'p.descripcion',
+                'p.categoria_id',
+                'cp.nombre as categoria',
                 'p.precio_venta as precio_base',
                 'p.controla_stock',
             ];

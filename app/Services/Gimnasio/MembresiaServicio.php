@@ -7,6 +7,7 @@ use App\Services\Configuracion\EstadoCatalogoServicio;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class MembresiaServicio
 {
@@ -234,9 +235,9 @@ class MembresiaServicio
         $membresia = DB::table('gimnasio.membresias')->where('id', $membresiaId)->lockForUpdate()->first();
 
         if (! $membresia) {
-            throw new \Illuminate\Validation\ValidationException(
-                validator([], [])
-            );
+            throw ValidationException::withMessages([
+                'membresia_id' => 'La membresía no existe.',
+            ]);
         }
 
         $plan = DB::table('gimnasio.planes')->where('id', $membresia->plan_id)->first();

@@ -47,6 +47,7 @@ class VentaServicio
             ->leftJoin('seguridad.users as cliente_user', 'gimnasio.deportistas.usuario_id', '=', 'cliente_user.id')
             ->leftJoin('ventas.cajas', 'ventas.ventas.caja_id', '=', 'ventas.cajas.id')
             ->leftJoin('gimnasio.membresias as membresia_sede', 'ventas.ventas.membresia_id', '=', 'membresia_sede.id')
+            ->leftJoin('gimnasio.planes as plan_venta', 'plan_venta.id', '=', 'membresia_sede.plan_id')
             ->leftJoin('institucional.sedes as sede_operacion', DB::raw('COALESCE(ventas.cajas.sede_id, membresia_sede.sede_id)'), '=', 'sede_operacion.id_sede')
             ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'ventas.ventas.estado_id', '=', 'estado_cfg.id')
             ->select(
@@ -59,7 +60,11 @@ class VentaServicio
                 'estado_cfg.codigo as estado_codigo',
                 'estado_cfg.valor_interno as estado_valor',
                 'estado_cfg.nombre as estado_nombre',
-                'estado_cfg.color as estado_color'
+                'estado_cfg.color as estado_color',
+                'membresia_sede.codigo_contrato as membresia_codigo',
+                'plan_venta.nombre as plan_nombre',
+                'plan_venta.tipo_producto as plan_tipo_producto',
+                DB::raw("(ventas.ventas.total - COALESCE((SELECT SUM(p.monto) FROM ventas.pagos p WHERE p.venta_id = ventas.ventas.id AND p.estado = 'CONFIRMADO'), 0)) as saldo_pendiente")
             );
 
         $this->aplicarAlcanceVenta($query, $usuarioId);

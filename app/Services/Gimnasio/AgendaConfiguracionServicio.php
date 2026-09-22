@@ -276,6 +276,15 @@ class AgendaConfiguracionServicio
 
     public function buscarEntrenadores(?string $busqueda = null, ?int $entrenadorId = null, int $limite = 20)
     {
+        $termino = trim((string) $busqueda);
+
+        // Para altas nuevas no precargamos catálogos completos.
+        // Solo devolvemos resultados cuando el usuario busca (mínimo 2 caracteres)
+        // o cuando necesitamos recuperar el entrenador ya asignado al editar.
+        if (! $entrenadorId && mb_strlen($termino) < 2) {
+            return collect();
+        }
+
         $query = DB::table('gimnasio.entrenadores as e')
             ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
             ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
@@ -294,8 +303,8 @@ class AgendaConfiguracionServicio
 
         if ($entrenadorId) {
             $query->where('e.id', $entrenadorId);
-        } elseif ($busqueda !== null && trim($busqueda) !== '') {
-            $texto = '%' . mb_strtolower(trim($busqueda)) . '%';
+        } else {
+            $texto = '%' . mb_strtolower($termino) . '%';
             $query->where(function ($q) use ($texto): void {
                 $q->whereRaw("LOWER(COALESCE(u.name, '')) LIKE ?", [$texto])
                     ->orWhereRaw("LOWER(COALESCE(u.nombres, '')) LIKE ?", [$texto])
@@ -308,7 +317,7 @@ class AgendaConfiguracionServicio
         return $query
             ->orderByRaw("COALESCE(NULLIF(u.nombres, ''), u.name)")
             ->orderBy('u.apellidos')
-            ->limit(max(1, min($limite, 30)))
+            ->limit(max(1, min($limite, 20)))
             ->get();
     }
 

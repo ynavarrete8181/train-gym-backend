@@ -18,6 +18,10 @@ class PlanServicio
         $datos['updated_at'] = now();
 
         return DB::transaction(function () use ($datos, $preciosSede) {
+            if (empty($datos['codigo'])) {
+                $datos['codigo'] = $this->generarCodigo();
+            }
+
             $id = DB::table('gimnasio.planes')->insertGetId($datos);
 
             $this->sincronizarPreciosSede($id, $preciosSede);
@@ -69,4 +73,20 @@ class PlanServicio
             DB::table('gimnasio.plan_precios_sede')->insert($insertData);
         }
     }
+
+    private function generarCodigo(): string
+    {
+        DB::statement('LOCK TABLE gimnasio.planes IN SHARE ROW EXCLUSIVE MODE');
+
+        $siguiente = ((int) DB::table('gimnasio.planes')->max('id')) + 1;
+        $codigo = 'PLAN-' . $siguiente;
+
+        while (DB::table('gimnasio.planes')->where('codigo', $codigo)->exists()) {
+            $siguiente++;
+            $codigo = 'PLAN-' . $siguiente;
+        }
+
+        return $codigo;
+    }
+
 }

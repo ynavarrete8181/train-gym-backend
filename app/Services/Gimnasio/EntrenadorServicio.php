@@ -45,7 +45,7 @@ class EntrenadorServicio
     /**
      * Horarios (bloques configurados en Servicios y Agenda) ya asignados a este entrenador.
      */
-    public function listarTurnos(int $entrenadorId): array
+    public function listarTurnos(int $entrenadorId, ?int $sedeId = null): array
     {
         $items = DB::table('gimnasio.horario_entrenadores as he')
             ->join('gimnasio.horario_bloques as hb', 'he.horario_bloque_id', '=', 'hb.id')
@@ -56,6 +56,7 @@ class EntrenadorServicio
             ->leftJoin('institucional.sedes as sd', 'hs.sede_id', '=', 'sd.id_sede')
             ->where('he.entrenador_id', $entrenadorId)
             ->where('he.activo', true)
+            ->when($sedeId, fn ($q) => $q->where('hs.sede_id', $sedeId))
             ->groupBy('hb.id', 'hb.nombre', 'hb.activo', 'sv.nombre')
             ->select(
                 'hb.id',

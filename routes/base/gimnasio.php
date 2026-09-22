@@ -84,6 +84,7 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         ->name('gimnasio.entrenadores.servicios.catalogo');
 
     Route::middleware(['base.permiso:GIMNASIO-ENTRENADORES'])->group(function (): void {
+        Route::get('entrenadores/{id}/configuracion', [EntrenadorControlador::class, 'configuracion'])->name('gimnasio.entrenadores.configuracion');
         Route::post('entrenadores', [EntrenadorControlador::class, 'store'])->name('gimnasio.entrenadores.store');
         Route::put('entrenadores/{id}', [EntrenadorControlador::class, 'update'])->name('gimnasio.entrenadores.update');
         Route::post('entrenadores/{id}/turnos', [EntrenadorControlador::class, 'asignarHorario'])->name('gimnasio.entrenadores.turnos.store');

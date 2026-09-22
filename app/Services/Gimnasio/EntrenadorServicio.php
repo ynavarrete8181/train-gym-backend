@@ -12,26 +12,49 @@ class EntrenadorServicio
 
     private const ORDEN_DIAS = ['LUNES' => 1, 'MARTES' => 2, 'MIERCOLES' => 3, 'JUEVES' => 4, 'VIERNES' => 5, 'SABADO' => 6, 'DOMINGO' => 7];
 
-    public function crear(array $datos)
+    public function crear(array $datos, array $servicioIds = [])
     {
-        $datos['created_at'] = now();
-        $datos['updated_at'] = now();
+        return DB::transaction(function () use ($datos, $servicioIds) {
+            $datos['created_at'] = now();
+            $datos['updated_at'] = now();
 
-        $id = DB::table('gimnasio.entrenadores')->insertGetId($datos);
-        $entrenador = DB::table('gimnasio.entrenadores')->where('id', $id)->first();
-        $this->auditar('gimnasio', 'CREAR', 'gimnasio.entrenadores', $id, null, $entrenador);
-        return $entrenador;
+            $id = DB::table('gimnasio.entrenadores')->insertGetId($datos);
+            $this->sincronizarServicios($id, $servicioIds);
+
+            $entrenador = $this->obtenerConServicios($id);
+            $this->auditar('gimnasio', 'CREAR', 'gimnasio.entrenadores', $id, null, $entrenador);
+
+            return $entrenador;
+        });
     }
 
-    public function actualizar(int $id, array $datos)
+    public function actualizar(int $id, array $datos, ?array $servicioIds = null)
     {
-        $antes = DB::table('gimnasio.entrenadores')->where('id', $id)->first();
-        $datos['updated_at'] = now();
+        return DB::transaction(function () use ($id, $datos, $servicioIds) {
+            $antes = $this->obtenerConServicios($id);
+            $datos['updated_at'] = now();
 
-        DB::table('gimnasio.entrenadores')->where('id', $id)->update($datos);
-        $entrenador = DB::table('gimnasio.entrenadores')->where('id', $id)->first();
-        $this->auditar('gimnasio', 'ACTUALIZAR', 'gimnasio.entrenadores', $id, $antes, $entrenador);
-        return $entrenador;
+            DB::table('gimnasio.entrenadores')->where('id', $id)->update($datos);
+
+            if ($servicioIds !== null) {
+                $this->sincronizarServicios($id, $servicioIds);
+            }
+
+            $entrenador = $this->obtenerConServicios($id);
+            $this->auditar('gimnasio', 'ACTUALIZAR', 'gimnasio.entrenadores', $id, $antes, $entrenador);
+
+            return $entrenador;
+        });
+    }
+
+    public function catalogoServicios(): array
+    {
+        return DB::table('gimnasio.servicios')
+            ->where('activo', true)
+            ->where('requiere_reserva', true)
+            ->orderBy('nombre')
+            ->get(['id', 'nombre', 'duracion_minutos', 'capacidad_base'])
+            ->all();
     }
 
     public function obtenerPorUsuario(int $usuarioId): ?object
@@ -237,4 +260,45 @@ class EntrenadorServicio
             return $fila;
         })->values();
     }
+
+    private function sincronizarServicios(int $entrenadorId, array $servicioIds): void
+    {
+        $ids = collect($servicioIds)
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+
+        DB::table('gimnasio.entrenador_servicios')
+            ->where('entrenador_id', $entrenadorId)
+            ->whereNotIn('servicio_id', $ids->all() ?: [0])
+            ->update(['activo' => false, 'updated_at' => now()]);
+
+        foreach ($ids as $servicioId) {
+            DB::table('gimnasio.entrenador_servicios')->updateOrInsert(
+                ['entrenador_id' => $entrenadorId, 'servicio_id' => $servicioId],
+                ['activo' => true, 'created_at' => now(), 'updated_at' => now()]
+            );
+        }
+    }
+
+    private function obtenerConServicios(int $id): object
+    {
+        $entrenador = DB::table('gimnasio.entrenadores')->where('id', $id)->first();
+
+        if (! $entrenador) {
+            throw ValidationException::withMessages(['entrenador_id' => 'El entrenador no existe.']);
+        }
+
+        $entrenador->servicio_ids = DB::table('gimnasio.entrenador_servicios')
+            ->where('entrenador_id', $id)
+            ->where('activo', true)
+            ->pluck('servicio_id')
+            ->map(fn ($servicioId) => (int) $servicioId)
+            ->values()
+            ->all();
+
+        return $entrenador;
+    }
+
 }

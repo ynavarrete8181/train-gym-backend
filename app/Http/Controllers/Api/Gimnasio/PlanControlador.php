@@ -185,6 +185,19 @@ class PlanControlador extends Controller
             ]);
         }
 
+        if (! empty($servicioIds)) {
+            $serviciosActivos = DB::table('gimnasio.servicios')
+                ->whereIn('id', $servicioIds)
+                ->where('activo', true)
+                ->count();
+
+            if ($serviciosActivos !== count($servicioIds)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'servicio_ids' => 'Todos los servicios incluidos deben estar activos.',
+                ]);
+            }
+        }
+
         $datos['servicio_ids'] = $requiereEntrenador ? $servicioIds : [];
 
         if ($id) {

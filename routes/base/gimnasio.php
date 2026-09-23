@@ -23,6 +23,9 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         ->name('gimnasio.mi-entrenamiento.agenda');
 
     // Planes: Clientes y Membresías pueden consultar el catálogo; solo GIMNASIO-PLANES lo administra.
+    Route::get('planes/catalogos/servicios', [PlanControlador::class, 'serviciosCatalogo'])
+        ->middleware('base.permiso:GIMNASIO-PLANES,GIMNASIO-MEMBRESIAS')
+        ->name('gimnasio.planes.servicios.catalogo');
     Route::get('planes', [PlanControlador::class, 'index'])
         ->middleware('base.permiso:GIMNASIO-PLANES,GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
         ->name('gimnasio.planes.index');

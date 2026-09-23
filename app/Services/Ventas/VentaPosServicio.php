@@ -136,6 +136,48 @@ class VentaPosServicio
         ];
     }
 
+    public function cuentasAbiertas(int $usuarioId): array
+    {
+        $turno = $this->turnos->turnoAbiertoUsuario($usuarioId);
+        if (! $turno) {
+            return [];
+        }
+
+        $hoy = now()->toDateString();
+        $sedeId = (int) $turno->sede_id;
+
+        return DB::table('ventas.ventas as v')
+            ->leftJoin('gimnasio.deportistas as d', 'd.id', '=', 'v.cliente_id')
+            ->leftJoin('seguridad.users as u', 'u.id', '=', 'd.usuario_id')
+            ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
+            ->leftJoin('gimnasio.planes as p', 'p.id', '=', 'm.plan_id')
+            ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
+            ->leftJoin('institucional.sedes as s', 's.id_sede', '=', DB::raw('COALESCE(c.sede_id, m.sede_id)'))
+            ->whereIn('v.estado', ['PENDIENTE', 'PARCIAL'])
+            ->whereRaw('COALESCE(c.sede_id, m.sede_id) = ?', [$sedeId])
+            ->where(function ($query) use ($turno, $hoy): void {
+                $query
+                    ->where('v.turno_caja_id', $turno->id)
+                    ->orWhere(function ($q) use ($hoy): void {
+                        $q->whereNull('v.turno_caja_id')
+                            ->whereDate('v.fecha_venta', $hoy);
+                    });
+            })
+            ->orderBy('v.fecha_venta')
+            ->orderBy('v.id')
+            ->get([
+                'v.*',
+                'u.name as cliente_nombre',
+                'd.codigo_deportista',
+                's.nombre as sede_nombre',
+                'p.nombre as plan_nombre',
+                'p.tipo_producto as plan_tipo_producto',
+                DB::raw('(v.total - COALESCE((SELECT SUM(pg.monto) FROM ventas.pagos pg WHERE pg.venta_id = v.id AND pg.estado = \'CONFIRMADO\'), 0)) as saldo_pendiente'),
+            ])
+            ->map(fn ($venta) => (array) $venta)
+            ->all();
+    }
+
     public function guardar(array $datos, int $usuarioId, ?int $ventaId = null): object
     {
         $turno = $this->turnos->turnoAbiertoUsuario($usuarioId);

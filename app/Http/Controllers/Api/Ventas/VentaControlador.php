@@ -44,6 +44,14 @@ class VentaControlador extends Controller
         );
     }
 
+    public function cuentasAbiertasPos(Request $request)
+    {
+        return ApiResponse::exito(
+            'Cuentas abiertas del turno consultadas.',
+            $this->pos->cuentasAbiertas((int) $request->user()->id),
+        );
+    }
+
     public function contextoPos(Request $request)
     {
         return ApiResponse::exito(

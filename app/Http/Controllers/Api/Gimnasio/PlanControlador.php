@@ -32,8 +32,20 @@ class PlanControlador extends Controller
             ->get()
             ->groupBy('plan_id');
 
-        $items = collect($planes->items())->map(function ($plan) use ($precios) {
+        $servicios = DB::table('gimnasio.plan_servicios as ps')
+            ->join('gimnasio.servicios as s', 's.id', '=', 'ps.servicio_id')
+            ->leftJoin('gimnasio.categorias_servicio as c', 'c.id', '=', 's.categoria_id')
+            ->whereIn('ps.plan_id', $ids)
+            ->where('ps.activo', true)
+            ->select('ps.plan_id', 's.id', 's.nombre', 's.duracion_minutos', 'c.nombre as categoria')
+            ->orderBy('s.nombre')
+            ->get()
+            ->groupBy('plan_id');
+
+        $items = collect($planes->items())->map(function ($plan) use ($precios, $servicios) {
             $plan->precios_sede = $precios->get($plan->id, collect())->values();
+            $plan->servicios = $servicios->get($plan->id, collect())->values();
+            $plan->servicio_ids = $plan->servicios->pluck('id')->map(fn ($id) => (int) $id)->values();
             return $plan;
         });
 
@@ -43,6 +55,23 @@ class PlanControlador extends Controller
             'total' => $planes->total(),
             'ultima_pagina' => $planes->lastPage(),
         ]);
+    }
+
+    public function serviciosCatalogo()
+    {
+        $servicios = DB::table('gimnasio.servicios as s')
+            ->leftJoin('gimnasio.categorias_servicio as c', 'c.id', '=', 's.categoria_id')
+            ->where('s.activo', true)
+            ->orderBy('c.nombre')
+            ->orderBy('s.nombre')
+            ->get([
+                's.id',
+                's.nombre',
+                's.duracion_minutos',
+                'c.nombre as categoria',
+            ]);
+
+        return ApiResponse::exito('Servicios disponibles para planes consultados.', $servicios);
     }
 
     public function store(Request $request)
@@ -67,6 +96,15 @@ class PlanControlador extends Controller
             ->where('pps.activo', true)
             ->select('pps.*', 's.nombre as sede_nombre')
             ->get();
+
+        $plan->servicios = DB::table('gimnasio.plan_servicios as ps')
+            ->join('gimnasio.servicios as s', 's.id', '=', 'ps.servicio_id')
+            ->leftJoin('gimnasio.categorias_servicio as c', 'c.id', '=', 's.categoria_id')
+            ->where('ps.plan_id', $id)
+            ->where('ps.activo', true)
+            ->orderBy('s.nombre')
+            ->get(['s.id', 's.nombre', 's.duracion_minutos', 'c.nombre as categoria']);
+        $plan->servicio_ids = $plan->servicios->pluck('id')->map(fn ($servicioId) => (int) $servicioId)->values();
 
         return ApiResponse::exito('Plan consultado.', (array) $plan);
     }
@@ -121,6 +159,8 @@ class PlanControlador extends Controller
             'precios_sede' => 'nullable|array',
             'precios_sede.*.sede_id' => 'required|distinct|exists:pgsql.institucional.sedes,id_sede',
             'precios_sede.*.precio' => 'required|numeric|min:0',
+            'servicio_ids' => 'nullable|array',
+            'servicio_ids.*' => 'required|integer|distinct|exists:pgsql.gimnasio.servicios,id',
         ]);
 
         if (($datos['tipo_producto'] ?? null) === 'PASE_DIARIO') {
@@ -130,6 +170,22 @@ class PlanControlador extends Controller
             $datos['tarifa_inscripcion'] = 0;
             $datos['renovable'] = false;
         }
+
+        $requiereEntrenador = (bool) ($datos['requiere_entrenador'] ?? false);
+        $servicioIds = collect($datos['servicio_ids'] ?? [])
+            ->map(fn ($servicioId) => (int) $servicioId)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($requiereEntrenador && empty($servicioIds)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'servicio_ids' => 'Selecciona al menos un servicio incluido para un plan que requiere entrenador.',
+            ]);
+        }
+
+        $datos['servicio_ids'] = $requiereEntrenador ? $servicioIds : [];
 
         if ($id) {
             unset($datos['codigo']);

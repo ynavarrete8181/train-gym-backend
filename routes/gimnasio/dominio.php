@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Gimnasio\DeportistaControlador;
 use App\Http\Controllers\Api\Gimnasio\EntrenadorControlador;
+use App\Http\Controllers\Api\Gimnasio\HorarioEntrenadorControlador;
 use App\Http\Controllers\Api\Gimnasio\MembresiaControlador;
 use App\Http\Controllers\Api\Gimnasio\PlanControlador;
 use App\Http\Controllers\Api\Gimnasio\ServicioAgendaControlador;
@@ -38,6 +39,10 @@ Route::middleware(['base.auth'])->group(function (): void {
         Route::get('entrenadores', [EntrenadorControlador::class, 'index'])->name('dominio.entrenadores.index');
         Route::post('entrenadores', [EntrenadorControlador::class, 'store'])->name('dominio.entrenadores.store');
         Route::put('entrenadores/{id}', [EntrenadorControlador::class, 'update'])->name('dominio.entrenadores.update');
+        Route::get('entrenadores/horarios/catalogos', [HorarioEntrenadorControlador::class, 'catalogos'])->name('dominio.entrenadores.horarios.catalogos');
+        Route::get('entrenadores/{entrenadorId}/horarios', [HorarioEntrenadorControlador::class, 'index'])->name('dominio.entrenadores.horarios.index');
+        Route::post('entrenadores/{entrenadorId}/horarios', [HorarioEntrenadorControlador::class, 'store'])->name('dominio.entrenadores.horarios.store');
+        Route::put('entrenadores/{entrenadorId}/horarios/{id}', [HorarioEntrenadorControlador::class, 'update'])->name('dominio.entrenadores.horarios.update');
     });
 
     Route::middleware(['base.permiso:GIMNASIO-CATEGORIAS-SERVICIO'])->group(function (): void {

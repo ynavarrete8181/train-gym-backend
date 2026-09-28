@@ -4,6 +4,7 @@ namespace App\Services\Gimnasio;
 
 use App\Services\Concerns\RegistraAuditoria;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 
 class HorarioEntrenadorServicio
@@ -52,7 +53,9 @@ class HorarioEntrenadorServicio
 
         return DB::table('gimnasio.entrenador_horarios')
             ->where('entrenador_id', $entrenadorId)
-            ->orderByDesc('fecha_inicio')
+            ->orderByDesc('activo')
+            ->orderByDesc('version')
+            ->orderByDesc('created_at')
             ->get()
             ->map(fn ($horario) => $this->hidratar($horario))
             ->all();
@@ -63,76 +66,205 @@ class HorarioEntrenadorServicio
         $this->validarEntrenador($entrenadorId);
         $this->validarTipoHorario($datos);
         $this->validarFranjas($datos['franjas'] ?? [], $datos['recesos'] ?? []);
+
+        $esPersonalizado = ($datos['tipo_horario'] ?? 'PERSONALIZADO') === 'PERSONALIZADO';
+        $fechaInicioNueva = $esPersonalizado
+            ? ($datos['fecha_inicio'] ?? null)
+            : now()->toDateString();
+
+        $antes = $id
+            ? DB::table('gimnasio.entrenador_horarios')
+                ->where('id', $id)
+                ->where('entrenador_id', $entrenadorId)
+                ->first()
+            : null;
+
+        if ($id && ! $antes) {
+            throw ValidationException::withMessages([
+                'horario' => 'La configuración de horario no existe.',
+            ]);
+        }
+
+        if ($antes && $antes->fecha_inicio && $fechaInicioNueva && $fechaInicioNueva < (string) $antes->fecha_inicio) {
+            throw ValidationException::withMessages([
+                'fecha_inicio' => 'La nueva versión no puede iniciar antes que la versión actual.',
+            ]);
+        }
+
         $this->validarVigencia(
             $entrenadorId,
             $datos['tipo_horario'],
-            $datos['fecha_inicio'] ?? null,
-            $datos['fecha_fin'] ?? null,
+            $fechaInicioNueva,
+            $esPersonalizado ? ($datos['fecha_fin'] ?? null) : null,
             (bool) ($datos['activo'] ?? true),
             $id,
         );
 
-        return DB::transaction(function () use ($entrenadorId, $datos, $id): array {
-            $antes = $id ? DB::table('gimnasio.entrenador_horarios')->where('id', $id)->where('entrenador_id', $entrenadorId)->first() : null;
+        return DB::transaction(function () use (
+            $entrenadorId,
+            $datos,
+            $id,
+            $antes,
+            $esPersonalizado,
+            $fechaInicioNueva
+        ): array {
+            if ($antes) {
+                $actual = $this->hidratar($antes);
 
-            $esPersonalizado = ($datos['tipo_horario'] ?? 'PERSONALIZADO') === 'PERSONALIZADO';
+                if ($this->esMismaConfiguracion($actual, $datos)) {
+                    DB::table('gimnasio.entrenador_horarios')
+                        ->where('id', $antes->id)
+                        ->update([
+                            'observaciones' => $datos['observaciones'] ?? null,
+                            'updated_at' => now(),
+                        ]);
+
+                    $despues = DB::table('gimnasio.entrenador_horarios')->where('id', $antes->id)->first();
+                    $this->auditar(
+                        'gimnasio',
+                        'ACTUALIZAR',
+                        'gimnasio.entrenador_horarios',
+                        $antes->id,
+                        $antes,
+                        $despues
+                    );
+
+                    return $this->hidratar($despues);
+                }
+
+                $fechaCierre = $fechaInicioNueva ?: now()->toDateString();
+                if ($antes->fecha_inicio && $fechaCierre > (string) $antes->fecha_inicio) {
+                    $fechaCierre = Carbon::parse($fechaCierre)->subDay()->toDateString();
+                }
+
+                DB::table('gimnasio.entrenador_horarios')
+                    ->where('id', $antes->id)
+                    ->update([
+                        'fecha_fin' => $fechaCierre,
+                        'activo' => false,
+                        'updated_at' => now(),
+                    ]);
+
+                $anteriorCerrado = DB::table('gimnasio.entrenador_horarios')->where('id', $antes->id)->first();
+                $this->auditar(
+                    'gimnasio',
+                    'FINALIZAR_VERSION',
+                    'gimnasio.entrenador_horarios',
+                    $antes->id,
+                    $antes,
+                    $anteriorCerrado
+                );
+            }
+
+            $version = ((int) DB::table('gimnasio.entrenador_horarios')
+                ->where('entrenador_id', $entrenadorId)
+                ->max('version')) + 1;
 
             $cabecera = [
                 'entrenador_id' => $entrenadorId,
+                'version' => max(1, $version),
+                'version_anterior_id' => $antes?->id,
                 'tipo_horario' => $datos['tipo_horario'],
                 'jornada_id' => $esPersonalizado ? null : (int) $datos['jornada_id'],
-                'fecha_inicio' => $esPersonalizado ? ($datos['fecha_inicio'] ?? null) : null,
+                'fecha_inicio' => $fechaInicioNueva,
                 'fecha_fin' => $esPersonalizado ? ($datos['fecha_fin'] ?? null) : null,
                 'activo' => $datos['activo'] ?? true,
                 'observaciones' => $datos['observaciones'] ?? null,
+                'created_at' => now(),
                 'updated_at' => now(),
             ];
 
-            if ($id) {
-                if (! $antes) {
-                    throw ValidationException::withMessages(['horario' => 'La configuración de horario no existe.']);
-                }
-                DB::table('gimnasio.entrenador_horarios')->where('id', $id)->update($cabecera);
-                $horarioId = $id;
-            } else {
-                $cabecera['created_at'] = now();
-                $horarioId = DB::table('gimnasio.entrenador_horarios')->insertGetId($cabecera);
-            }
+            $horarioId = DB::table('gimnasio.entrenador_horarios')->insertGetId($cabecera);
 
-            DB::table('gimnasio.entrenador_horario_franjas')->where('entrenador_horario_id', $horarioId)->delete();
-            foreach ($datos['franjas'] as $franja) {
-                DB::table('gimnasio.entrenador_horario_franjas')->insert([
-                    'entrenador_horario_id' => $horarioId,
-                    'sede_id' => (int) $franja['sede_id'],
-                    'dia_semana' => $franja['dia_semana'],
-                    'hora_inicio' => $franja['hora_inicio'],
-                    'hora_fin' => $franja['hora_fin'],
-                    'activo' => true,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-            }
-
-            DB::table('gimnasio.entrenador_horario_recesos')->where('entrenador_horario_id', $horarioId)->delete();
-            foreach (($datos['recesos'] ?? []) as $receso) {
-                DB::table('gimnasio.entrenador_horario_recesos')->insert([
-                    'entrenador_horario_id' => $horarioId,
-                    'dia_semana' => $receso['dia_semana'],
-                    'tipo' => $receso['tipo'] ?? 'PAUSA',
-                    'descripcion' => $receso['descripcion'] ?? null,
-                    'hora_inicio' => $receso['hora_inicio'],
-                    'hora_fin' => $receso['hora_fin'],
-                    'activo' => true,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-            }
+            $this->insertarDetalles(
+                $horarioId,
+                $datos['franjas'] ?? [],
+                $datos['recesos'] ?? []
+            );
 
             $despues = DB::table('gimnasio.entrenador_horarios')->where('id', $horarioId)->first();
-            $this->auditar('gimnasio', $id ? 'ACTUALIZAR' : 'CREAR', 'gimnasio.entrenador_horarios', $horarioId, $antes, $despues);
+            $this->auditar(
+                'gimnasio',
+                $antes ? 'CREAR_VERSION' : 'CREAR',
+                'gimnasio.entrenador_horarios',
+                $horarioId,
+                $antes,
+                $despues
+            );
 
             return $this->hidratar($despues);
         });
+    }
+
+    private function insertarDetalles(int $horarioId, array $franjas, array $recesos): void
+    {
+        foreach ($franjas as $franja) {
+            DB::table('gimnasio.entrenador_horario_franjas')->insert([
+                'entrenador_horario_id' => $horarioId,
+                'sede_id' => (int) $franja['sede_id'],
+                'dia_semana' => $franja['dia_semana'],
+                'hora_inicio' => $franja['hora_inicio'],
+                'hora_fin' => $franja['hora_fin'],
+                'activo' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        foreach ($recesos as $receso) {
+            DB::table('gimnasio.entrenador_horario_recesos')->insert([
+                'entrenador_horario_id' => $horarioId,
+                'dia_semana' => $receso['dia_semana'],
+                'tipo' => $receso['tipo'] ?? 'PAUSA',
+                'descripcion' => $receso['descripcion'] ?? null,
+                'hora_inicio' => $receso['hora_inicio'],
+                'hora_fin' => $receso['hora_fin'],
+                'activo' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+    }
+
+    private function esMismaConfiguracion(array $actual, array $datos): bool
+    {
+        $tipo = $datos['tipo_horario'] ?? null;
+        $personalizado = $tipo === 'PERSONALIZADO';
+
+        $normalizarFranjas = static function (array $items): array {
+            $resultado = array_map(static fn ($item) => [
+                'dia_semana' => (string) ($item['dia_semana'] ?? ''),
+                'sede_id' => (int) ($item['sede_id'] ?? 0),
+                'hora_inicio' => substr((string) ($item['hora_inicio'] ?? ''), 0, 5),
+                'hora_fin' => substr((string) ($item['hora_fin'] ?? ''), 0, 5),
+            ], $items);
+
+            usort($resultado, static fn ($a, $b) => [$a['dia_semana'], $a['hora_inicio'], $a['sede_id']] <=> [$b['dia_semana'], $b['hora_inicio'], $b['sede_id']]);
+
+            return $resultado;
+        };
+
+        $normalizarRecesos = static function (array $items): array {
+            $resultado = array_map(static fn ($item) => [
+                'dia_semana' => (string) ($item['dia_semana'] ?? ''),
+                'tipo' => (string) ($item['tipo'] ?? 'PAUSA'),
+                'descripcion' => (string) ($item['descripcion'] ?? ''),
+                'hora_inicio' => substr((string) ($item['hora_inicio'] ?? ''), 0, 5),
+                'hora_fin' => substr((string) ($item['hora_fin'] ?? ''), 0, 5),
+            ], $items);
+
+            usort($resultado, static fn ($a, $b) => [$a['dia_semana'], $a['hora_inicio'], $a['tipo']] <=> [$b['dia_semana'], $b['hora_inicio'], $b['tipo']]);
+
+            return $resultado;
+        };
+
+        return ($actual['tipo_horario'] ?? null) === $tipo
+            && (int) ($actual['jornada_id'] ?? 0) === (int) ($datos['jornada_id'] ?? 0)
+            && (bool) ($actual['activo'] ?? false) === (bool) ($datos['activo'] ?? true)
+            && (! $personalizado || (string) ($actual['fecha_inicio'] ?? '') === (string) ($datos['fecha_inicio'] ?? ''))
+            && (! $personalizado || (string) ($actual['fecha_fin'] ?? '') === (string) ($datos['fecha_fin'] ?? ''))
+            && $normalizarFranjas($actual['franjas'] ?? []) === $normalizarFranjas($datos['franjas'] ?? [])
+            && $normalizarRecesos($actual['recesos'] ?? []) === $normalizarRecesos($datos['recesos'] ?? []);
     }
 
     private function hidratar(object $horario): array
@@ -159,6 +291,8 @@ class HorarioEntrenadorServicio
         return [
             'id' => $horario->id,
             'entrenador_id' => $horario->entrenador_id,
+            'version' => (int) ($horario->version ?? 1),
+            'version_anterior_id' => $horario->version_anterior_id ?? null,
             'tipo_horario' => $horario->tipo_horario ?? 'PERSONALIZADO',
             'jornada_id' => $horario->jornada_id ?? null,
             'jornada_nombre' => $jornadaNombre,
@@ -166,6 +300,9 @@ class HorarioEntrenadorServicio
             'fecha_fin' => $horario->fecha_fin,
             'activo' => (bool) $horario->activo,
             'observaciones' => $horario->observaciones,
+            'es_vigente' => (bool) $horario->activo,
+            'created_at' => $horario->created_at ?? null,
+            'updated_at' => $horario->updated_at ?? null,
             'franjas' => $franjas->all(),
             'recesos' => $recesos->all(),
         ];

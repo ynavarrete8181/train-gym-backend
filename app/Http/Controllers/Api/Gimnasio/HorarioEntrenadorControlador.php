@@ -35,7 +35,9 @@ class HorarioEntrenadorControlador extends Controller
     private function guardar(Request $request, int $entrenadorId, ?int $id): JsonResponse
     {
         $datos = $request->validate([
-            'fecha_inicio' => 'required|date',
+            'tipo_horario' => 'required|string|in:INSTITUCIONAL,PERSONALIZADO',
+            'jornada_id' => 'nullable|integer|exists:pgsql.gimnasio.jornadas,id',
+            'fecha_inicio' => 'nullable|date',
             'fecha_fin' => 'nullable|date|after_or_equal:fecha_inicio',
             'activo' => 'boolean',
             'observaciones' => 'nullable|string|max:1000',

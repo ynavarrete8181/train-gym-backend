@@ -14,11 +14,34 @@ class HorarioEntrenadorServicio
 
     public function catalogos(): array
     {
+        $jornadas = DB::table('gimnasio.jornadas')
+            ->where('activo', true)
+            ->orderBy('nombre')
+            ->get(['id', 'nombre', 'descripcion'])
+            ->map(function ($jornada) {
+                $jornada->detalles = DB::table('gimnasio.jornada_detalles')
+                    ->where('jornada_id', $jornada->id)
+                    ->where('activo', true)
+                    ->get(['dia_semana', 'hora_inicio', 'hora_fin'])
+                    ->sortBy(fn ($x) => self::ORDEN_DIAS[$x->dia_semana] ?? 99)
+                    ->values()
+                    ->map(fn ($x) => [
+                        'dia_semana' => $x->dia_semana,
+                        'hora_inicio' => substr((string) $x->hora_inicio, 0, 5),
+                        'hora_fin' => substr((string) $x->hora_fin, 0, 5),
+                    ])
+                    ->all();
+
+                return $jornada;
+            })
+            ->values();
+
         return [
             'sedes' => DB::table('institucional.sedes')
                 ->where('activo', true)
                 ->orderBy('nombre')
                 ->get(['id_sede as id', 'nombre']),
+            'jornadas' => $jornadas,
             'tipos_receso' => ['DESAYUNO','ALMUERZO','MERIENDA','PAUSA','OTRO'],
         ];
     }
@@ -38,16 +61,28 @@ class HorarioEntrenadorServicio
     public function guardar(int $entrenadorId, array $datos, ?int $id = null): array
     {
         $this->validarEntrenador($entrenadorId);
+        $this->validarTipoHorario($datos);
         $this->validarFranjas($datos['franjas'] ?? [], $datos['recesos'] ?? []);
-        $this->validarVigencia($entrenadorId, $datos['fecha_inicio'], $datos['fecha_fin'] ?? null, $id);
+        $this->validarVigencia(
+            $entrenadorId,
+            $datos['tipo_horario'],
+            $datos['fecha_inicio'] ?? null,
+            $datos['fecha_fin'] ?? null,
+            (bool) ($datos['activo'] ?? true),
+            $id,
+        );
 
         return DB::transaction(function () use ($entrenadorId, $datos, $id): array {
             $antes = $id ? DB::table('gimnasio.entrenador_horarios')->where('id', $id)->where('entrenador_id', $entrenadorId)->first() : null;
 
+            $esPersonalizado = ($datos['tipo_horario'] ?? 'PERSONALIZADO') === 'PERSONALIZADO';
+
             $cabecera = [
                 'entrenador_id' => $entrenadorId,
-                'fecha_inicio' => $datos['fecha_inicio'],
-                'fecha_fin' => $datos['fecha_fin'] ?? null,
+                'tipo_horario' => $datos['tipo_horario'],
+                'jornada_id' => $esPersonalizado ? null : (int) $datos['jornada_id'],
+                'fecha_inicio' => $esPersonalizado ? ($datos['fecha_inicio'] ?? null) : null,
+                'fecha_fin' => $esPersonalizado ? ($datos['fecha_fin'] ?? null) : null,
                 'activo' => $datos['activo'] ?? true,
                 'observaciones' => $datos['observaciones'] ?? null,
                 'updated_at' => now(),
@@ -117,9 +152,16 @@ class HorarioEntrenadorServicio
             ->orderBy('hora_inicio')
             ->get(['id','dia_semana','tipo','descripcion','hora_inicio','hora_fin']);
 
+        $jornadaNombre = ! empty($horario->jornada_id)
+            ? DB::table('gimnasio.jornadas')->where('id', $horario->jornada_id)->value('nombre')
+            : null;
+
         return [
             'id' => $horario->id,
             'entrenador_id' => $horario->entrenador_id,
+            'tipo_horario' => $horario->tipo_horario ?? 'PERSONALIZADO',
+            'jornada_id' => $horario->jornada_id ?? null,
+            'jornada_nombre' => $jornadaNombre,
             'fecha_inicio' => $horario->fecha_inicio,
             'fecha_fin' => $horario->fecha_fin,
             'activo' => (bool) $horario->activo,
@@ -136,19 +178,82 @@ class HorarioEntrenadorServicio
         }
     }
 
-    private function validarVigencia(int $entrenadorId, string $inicio, ?string $fin, ?int $ignorarId): void
+    private function validarTipoHorario(array $datos): void
     {
+        $tipo = $datos['tipo_horario'] ?? null;
+
+        if (! in_array($tipo, ['INSTITUCIONAL', 'PERSONALIZADO'], true)) {
+            throw ValidationException::withMessages(['tipo_horario' => 'Seleccione un tipo de horario válido.']);
+        }
+
+        if ($tipo === 'INSTITUCIONAL') {
+            $jornada = DB::table('gimnasio.jornadas')
+                ->where('id', (int) ($datos['jornada_id'] ?? 0))
+                ->where('activo', true)
+                ->first();
+
+            if (! $jornada) {
+                throw ValidationException::withMessages(['jornada_id' => 'Seleccione una jornada institucional activa.']);
+            }
+        }
+
+        if ($tipo === 'PERSONALIZADO') {
+            if (empty($datos['fecha_inicio']) || empty($datos['fecha_fin'])) {
+                throw ValidationException::withMessages([
+                    'fecha_inicio' => 'El horario personalizado requiere Vigente desde y Vigente hasta.',
+                ]);
+            }
+        }
+    }
+
+    private function validarVigencia(
+        int $entrenadorId,
+        string $tipoHorario,
+        ?string $inicio,
+        ?string $fin,
+        bool $activo,
+        ?int $ignorarId
+    ): void {
+        if (! $activo) {
+            return;
+        }
+
+        if ($tipoHorario === 'INSTITUCIONAL') {
+            $cruce = DB::table('gimnasio.entrenador_horarios')
+                ->where('entrenador_id', $entrenadorId)
+                ->where('activo', true)
+                ->when($ignorarId, fn ($q) => $q->where('id', '!=', $ignorarId))
+                ->exists();
+
+            if ($cruce) {
+                throw ValidationException::withMessages([
+                    'jornada_id' => 'El entrenador ya tiene una configuración de horario activa.',
+                ]);
+            }
+
+            return;
+        }
+
         $hasta = $fin ?: '9999-12-31';
         $cruce = DB::table('gimnasio.entrenador_horarios')
             ->where('entrenador_id', $entrenadorId)
             ->where('activo', true)
             ->when($ignorarId, fn ($q) => $q->where('id', '!=', $ignorarId))
-            ->whereDate('fecha_inicio', '<=', $hasta)
-            ->where(fn ($q) => $q->whereNull('fecha_fin')->orWhereDate('fecha_fin', '>=', $inicio))
+            ->where(function ($q) use ($inicio, $hasta): void {
+                $q->where(function ($fechas) use ($inicio, $hasta): void {
+                    $fechas->whereNotNull('fecha_inicio')
+                        ->whereDate('fecha_inicio', '<=', $hasta)
+                        ->where(function ($f) use ($inicio): void {
+                            $f->whereNull('fecha_fin')->orWhereDate('fecha_fin', '>=', $inicio);
+                        });
+                })->orWhere('tipo_horario', 'INSTITUCIONAL');
+            })
             ->exists();
 
         if ($cruce) {
-            throw ValidationException::withMessages(['fecha_inicio' => 'La vigencia se cruza con otra configuración activa del entrenador.']);
+            throw ValidationException::withMessages([
+                'fecha_inicio' => 'La vigencia se cruza con otra configuración activa del entrenador.',
+            ]);
         }
     }
 

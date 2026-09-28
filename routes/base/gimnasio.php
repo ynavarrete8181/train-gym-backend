@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Gimnasio\DeportistaControlador;
 use App\Http\Controllers\Api\Gimnasio\MembresiaControlador;
 use App\Http\Controllers\Api\Gimnasio\PlanControlador;
 use App\Http\Controllers\Api\Gimnasio\EntrenadorControlador;
+use App\Http\Controllers\Api\Gimnasio\HorarioEntrenadorControlador;
 use App\Http\Controllers\Api\Gimnasio\AsignacionEntrenadorClienteControlador;
 use App\Http\Controllers\Api\Gimnasio\ClienteCatalogoControlador;
 use App\Http\Controllers\Api\Gimnasio\ServicioAgendaControlador;
@@ -93,6 +94,10 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::put('entrenadores/{id}', [EntrenadorControlador::class, 'update'])->name('gimnasio.entrenadores.update');
         Route::post('entrenadores/{id}/turnos', [EntrenadorControlador::class, 'asignarHorario'])->name('gimnasio.entrenadores.turnos.store');
         Route::delete('entrenadores/{id}/turnos/{turnoId}', [EntrenadorControlador::class, 'eliminarTurno'])->name('gimnasio.entrenadores.turnos.destroy');
+        Route::get('entrenadores/horarios/catalogos', [HorarioEntrenadorControlador::class, 'catalogos'])->name('gimnasio.entrenadores.horarios.catalogos');
+        Route::get('entrenadores/{entrenadorId}/horarios', [HorarioEntrenadorControlador::class, 'index'])->name('gimnasio.entrenadores.horarios.index');
+        Route::post('entrenadores/{entrenadorId}/horarios', [HorarioEntrenadorControlador::class, 'store'])->name('gimnasio.entrenadores.horarios.store');
+        Route::put('entrenadores/{entrenadorId}/horarios/{id}', [HorarioEntrenadorControlador::class, 'update'])->name('gimnasio.entrenadores.horarios.update');
     });
 
     // Asignaciones entrenador - cliente: consulta desde la ficha, escritura solo para quien administra entrenadores.

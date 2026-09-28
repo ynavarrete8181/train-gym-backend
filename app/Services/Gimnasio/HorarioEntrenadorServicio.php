@@ -232,12 +232,16 @@ class HorarioEntrenadorServicio
         $personalizado = $tipo === 'PERSONALIZADO';
 
         $normalizarFranjas = static function (array $items): array {
-            $resultado = array_map(static fn ($item) => [
-                'dia_semana' => (string) ($item['dia_semana'] ?? ''),
-                'sede_id' => (int) ($item['sede_id'] ?? 0),
-                'hora_inicio' => substr((string) ($item['hora_inicio'] ?? ''), 0, 5),
-                'hora_fin' => substr((string) ($item['hora_fin'] ?? ''), 0, 5),
-            ], $items);
+            $resultado = array_map(static function ($item): array {
+                $item = is_object($item) ? (array) $item : $item;
+
+                return [
+                    'dia_semana' => (string) ($item['dia_semana'] ?? ''),
+                    'sede_id' => (int) ($item['sede_id'] ?? 0),
+                    'hora_inicio' => substr((string) ($item['hora_inicio'] ?? ''), 0, 5),
+                    'hora_fin' => substr((string) ($item['hora_fin'] ?? ''), 0, 5),
+                ];
+            }, $items);
 
             usort($resultado, static fn ($a, $b) => [$a['dia_semana'], $a['hora_inicio'], $a['sede_id']] <=> [$b['dia_semana'], $b['hora_inicio'], $b['sede_id']]);
 
@@ -245,13 +249,17 @@ class HorarioEntrenadorServicio
         };
 
         $normalizarRecesos = static function (array $items): array {
-            $resultado = array_map(static fn ($item) => [
-                'dia_semana' => (string) ($item['dia_semana'] ?? ''),
-                'tipo' => (string) ($item['tipo'] ?? 'PAUSA'),
-                'descripcion' => (string) ($item['descripcion'] ?? ''),
-                'hora_inicio' => substr((string) ($item['hora_inicio'] ?? ''), 0, 5),
-                'hora_fin' => substr((string) ($item['hora_fin'] ?? ''), 0, 5),
-            ], $items);
+            $resultado = array_map(static function ($item): array {
+                $item = is_object($item) ? (array) $item : $item;
+
+                return [
+                    'dia_semana' => (string) ($item['dia_semana'] ?? ''),
+                    'tipo' => (string) ($item['tipo'] ?? 'PAUSA'),
+                    'descripcion' => (string) ($item['descripcion'] ?? ''),
+                    'hora_inicio' => substr((string) ($item['hora_inicio'] ?? ''), 0, 5),
+                    'hora_fin' => substr((string) ($item['hora_fin'] ?? ''), 0, 5),
+                ];
+            }, $items);
 
             usort($resultado, static fn ($a, $b) => [$a['dia_semana'], $a['hora_inicio'], $a['tipo']] <=> [$b['dia_semana'], $b['hora_inicio'], $b['tipo']]);
 

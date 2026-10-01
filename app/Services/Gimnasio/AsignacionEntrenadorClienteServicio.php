@@ -37,7 +37,17 @@ class AsignacionEntrenadorClienteServicio
     public function asignar(array $datos): object
     {
         return DB::transaction(function () use ($datos) {
-            if (! empty($datos['horario_bloque_id'])) {
+            if (! empty($datos['entrenador_horario_id'])) {
+                $this->validarHorarioVigentePerteneceAEntrenador(
+                    (int) $datos['entrenador_id'],
+                    (int) $datos['entrenador_horario_id']
+                );
+                $this->validarDuplicadoHorarioVigente(
+                    (int) $datos['deportista_id'],
+                    (int) $datos['entrenador_id'],
+                    (int) $datos['entrenador_horario_id']
+                );
+            } elseif (! empty($datos['horario_bloque_id'])) {
                 $this->validarHorarioPerteneceAEntrenador((int) $datos['entrenador_id'], (int) $datos['horario_bloque_id']);
                 $this->validarDuplicado((int) $datos['deportista_id'], (int) $datos['horario_bloque_id']);
                 $this->validarCapacidad((int) $datos['horario_bloque_id']);
@@ -90,8 +100,26 @@ class AsignacionEntrenadorClienteServicio
                 DB::raw("STRING_AGG(DISTINCT hs.dia_semana, ',') as dias_text")
             );
 
+        $horariosVigentes = DB::table('agenda.entrenador_horarios as eh')
+            ->leftJoin('agenda.entrenador_horario_franjas as ehf', function ($join): void {
+                $join->on('ehf.entrenador_horario_id', '=', 'eh.id')->where('ehf.activo', true);
+            })
+            ->leftJoin('institucional.sedes as esd', 'esd.id_sede', '=', 'ehf.sede_id')
+            ->groupBy('eh.id', 'eh.tipo_horario', 'eh.fecha_inicio', 'eh.fecha_fin')
+            ->select(
+                'eh.id',
+                'eh.tipo_horario',
+                'eh.fecha_inicio',
+                'eh.fecha_fin',
+                DB::raw('MIN(ehf.hora_inicio) as hora_inicio'),
+                DB::raw('MAX(ehf.hora_fin) as hora_fin'),
+                DB::raw("STRING_AGG(DISTINCT ehf.dia_semana, ',') as dias_text"),
+                DB::raw("STRING_AGG(DISTINCT esd.nombre, ', ') as sede_nombre")
+            );
+
         return DB::table('entrenamiento.asignaciones_entrenador_cliente as a')
             ->leftJoinSub($bloques, 'hb', 'a.horario_bloque_id', '=', 'hb.id')
+            ->leftJoinSub($horariosVigentes, 'eh', 'a.entrenador_horario_id', '=', 'eh.id')
             ->join('entrenamiento.entrenadores as e', 'a.entrenador_id', '=', 'e.id')
             ->leftJoin('personas.personas as pe', 'e.persona_id', '=', 'pe.id')
             ->leftJoin('seguridad.users as ue', 'e.usuario_id', '=', 'ue.id')
@@ -100,11 +128,16 @@ class AsignacionEntrenadorClienteServicio
             ->leftJoin('seguridad.users as ud', 'd.usuario_id', '=', 'ud.id')
             ->select(
                 'a.*',
-                'hb.nombre as horario_nombre',
+                DB::raw("COALESCE(hb.nombre, CASE WHEN eh.id IS NOT NULL THEN 'Horario vigente' END) as horario_nombre"),
                 'hb.servicio_nombre',
-                'hb.dias_text',
-                'hb.hora_inicio', 'hb.hora_fin', 'hb.capacidad',
-                'hb.sede_nombre',
+                DB::raw('COALESCE(eh.dias_text, hb.dias_text) as dias_text'),
+                DB::raw('COALESCE(eh.hora_inicio, hb.hora_inicio) as hora_inicio'),
+                DB::raw('COALESCE(eh.hora_fin, hb.hora_fin) as hora_fin'),
+                'hb.capacidad',
+                DB::raw('COALESCE(eh.sede_nombre, hb.sede_nombre) as sede_nombre'),
+                'eh.tipo_horario as horario_tipo',
+                'eh.fecha_inicio as horario_fecha_inicio',
+                'eh.fecha_fin as horario_fecha_fin',
                 DB::raw('COALESCE(pe.nombre_completo, ue.name) as entrenador_nombre'),
                 DB::raw('COALESCE(pe.nombres, ue.nombres) as entrenador_nombres'),
                 DB::raw('COALESCE(pe.apellidos, ue.apellidos) as entrenador_apellidos'),
@@ -129,6 +162,45 @@ class AsignacionEntrenadorClienteServicio
 
             return $fila;
         })->values();
+    }
+
+    private function validarHorarioVigentePerteneceAEntrenador(int $entrenadorId, int $entrenadorHorarioId): void
+    {
+        $hoy = now()->toDateString();
+
+        $existe = DB::table('agenda.entrenador_horarios')
+            ->where('id', $entrenadorHorarioId)
+            ->where('entrenador_id', $entrenadorId)
+            ->where('activo', true)
+            ->where(function ($q) use ($hoy): void {
+                $q->whereNull('fecha_inicio')->orWhereDate('fecha_inicio', '<=', $hoy);
+            })
+            ->where(function ($q) use ($hoy): void {
+                $q->whereNull('fecha_fin')->orWhereDate('fecha_fin', '>=', $hoy);
+            })
+            ->exists();
+
+        if (! $existe) {
+            throw ValidationException::withMessages([
+                'entrenador_horario_id' => 'El horario seleccionado no pertenece al entrenador o no está vigente.',
+            ]);
+        }
+    }
+
+    private function validarDuplicadoHorarioVigente(int $deportistaId, int $entrenadorId, int $entrenadorHorarioId): void
+    {
+        $existe = DB::table('entrenamiento.asignaciones_entrenador_cliente')
+            ->where('deportista_id', $deportistaId)
+            ->where('entrenador_id', $entrenadorId)
+            ->where('entrenador_horario_id', $entrenadorHorarioId)
+            ->where('estado', 'ACTIVO')
+            ->exists();
+
+        if ($existe) {
+            throw ValidationException::withMessages([
+                'deportista_id' => 'El cliente ya está asignado a este entrenador con ese horario vigente.',
+            ]);
+        }
     }
 
     private function validarHorarioPerteneceAEntrenador(int $entrenadorId, int $horarioBloqueId): void

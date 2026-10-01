@@ -47,6 +47,10 @@ class AsignacionEntrenadorClienteServicio
                     (int) $datos['entrenador_id'],
                     (int) $datos['entrenador_horario_id']
                 );
+                $this->validarCapacidadHorarioVigente(
+                    (int) $datos['entrenador_id'],
+                    (int) $datos['entrenador_horario_id']
+                );
             } elseif (! empty($datos['horario_bloque_id'])) {
                 $this->validarHorarioPerteneceAEntrenador((int) $datos['entrenador_id'], (int) $datos['horario_bloque_id']);
                 $this->validarDuplicado((int) $datos['deportista_id'], (int) $datos['horario_bloque_id']);
@@ -162,6 +166,26 @@ class AsignacionEntrenadorClienteServicio
 
             return $fila;
         })->values();
+    }
+
+    private function validarCapacidadHorarioVigente(int $entrenadorId, int $entrenadorHorarioId): void
+    {
+        $capacidad = (int) (DB::table('agenda.entrenador_horarios')
+            ->where('id', $entrenadorHorarioId)
+            ->where('entrenador_id', $entrenadorId)
+            ->value('capacidad') ?? 15);
+
+        $asignados = DB::table('entrenamiento.asignaciones_entrenador_cliente')
+            ->where('entrenador_id', $entrenadorId)
+            ->where('entrenador_horario_id', $entrenadorHorarioId)
+            ->where('estado', 'ACTIVO')
+            ->count();
+
+        if ($asignados >= $capacidad) {
+            throw ValidationException::withMessages([
+                'entrenador_horario_id' => 'El horario del entrenador ya alcanzó su capacidad máxima.',
+            ]);
+        }
     }
 
     private function validarHorarioVigentePerteneceAEntrenador(int $entrenadorId, int $entrenadorHorarioId): void

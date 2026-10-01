@@ -114,7 +114,11 @@ class DeportistaControlador extends Controller
 
     public function show($id)
     {
-        $deportista = $this->deportistaServicio->obtenerDeportistaConRelaciones($id);
+        if (! is_numeric($id)) {
+            return response()->json(['mensaje' => 'Identificador de cliente inválido.'], 404);
+        }
+
+        $deportista = $this->deportistaServicio->obtenerDeportistaConRelaciones((int) $id);
         
         if (!$deportista) {
             return response()->json(['mensaje' => 'Cliente no encontrado'], 404);
@@ -133,6 +137,11 @@ class DeportistaControlador extends Controller
 
     public function update(Request $request, $id)
     {
+        if (! is_numeric($id)) {
+            return response()->json(['mensaje' => 'Identificador de cliente inválido.'], 404);
+        }
+
+        $id = (int) $id;
         $deportista = DB::table('clientes.deportistas')->where('id', $id)->first();
 
         if (! $deportista) {

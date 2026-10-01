@@ -64,6 +64,16 @@ class AsignacionEntrenadorClienteControlador extends Controller
         return ApiResponse::exito('Observaciones actualizadas correctamente.', (array) $asignacion);
     }
 
+    public function inactivar(int $id): JsonResponse
+    {
+        $asignacion = $this->servicio->inactivar($id);
+
+        return ApiResponse::exito(
+            'Asignación inactivada correctamente. El registro se conserva para trazabilidad.',
+            (array) $asignacion
+        );
+    }
+
     public function finalizar(int $id): JsonResponse
     {
         $asignacion = $this->servicio->finalizar($id);

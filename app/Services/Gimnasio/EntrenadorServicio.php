@@ -231,6 +231,21 @@ class EntrenadorServicio
                 'tipo_horario' => $horario->tipo_horario,
                 'fecha_inicio' => $horario->fecha_inicio,
                 'fecha_fin' => $horario->fecha_fin,
+                'capacidad' => (int) ($horario->capacidad ?? 15),
+                'asignados' => (int) DB::table('entrenamiento.asignaciones_entrenador_cliente')
+                    ->where('entrenador_id', $entrenadorId)
+                    ->where('entrenador_horario_id', $horario->id)
+                    ->where('estado', 'ACTIVO')
+                    ->count(),
+                'disponibles' => max(
+                    0,
+                    (int) ($horario->capacidad ?? 15)
+                    - (int) DB::table('entrenamiento.asignaciones_entrenador_cliente')
+                        ->where('entrenador_id', $entrenadorId)
+                        ->where('entrenador_horario_id', $horario->id)
+                        ->where('estado', 'ACTIVO')
+                        ->count()
+                ),
                 'dia_semana' => $dias->implode(', '),
                 'hora_inicio' => $inicio,
                 'hora_fin' => $fin,

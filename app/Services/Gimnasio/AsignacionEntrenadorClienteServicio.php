@@ -49,32 +49,32 @@ class AsignacionEntrenadorClienteServicio
             $datos['created_at'] = now();
             $datos['updated_at'] = now();
 
-            $id = DB::table('gimnasio.asignaciones_entrenador_cliente')->insertGetId($datos);
+            $id = DB::table('entrenamiento.asignaciones_entrenador_cliente')->insertGetId($datos);
 
             $asignacion = $this->mapearDias(collect([$this->consultaBase()->where('a.id', $id)->first()]))->first();
-            $this->auditar('gimnasio', 'CREAR', 'gimnasio.asignaciones_entrenador_cliente', $id, null, $asignacion);
+            $this->auditar('entrenamiento', 'CREAR', 'entrenamiento.asignaciones_entrenador_cliente', $id, null, $asignacion);
             return $asignacion;
         });
     }
 
     public function finalizar(int $id): object
     {
-        $antes = DB::table('gimnasio.asignaciones_entrenador_cliente')->where('id', $id)->first();
+        $antes = DB::table('entrenamiento.asignaciones_entrenador_cliente')->where('id', $id)->first();
 
-        DB::table('gimnasio.asignaciones_entrenador_cliente')
+        DB::table('entrenamiento.asignaciones_entrenador_cliente')
             ->where('id', $id)
             ->update(['estado' => 'FINALIZADO', 'fecha_fin' => now()->toDateString(), 'updated_at' => now()]);
 
-        $despues = DB::table('gimnasio.asignaciones_entrenador_cliente')->where('id', $id)->first();
-        $this->auditar('gimnasio', 'ACTUALIZAR', 'gimnasio.asignaciones_entrenador_cliente', $id, $antes, $despues, 'Asignación finalizada.');
+        $despues = DB::table('entrenamiento.asignaciones_entrenador_cliente')->where('id', $id)->first();
+        $this->auditar('entrenamiento', 'ACTUALIZAR', 'entrenamiento.asignaciones_entrenador_cliente', $id, $antes, $despues, 'Asignación finalizada.');
         return $despues;
     }
 
     private function consultaBase()
     {
-        $bloques = DB::table('gimnasio.horario_bloques as hb')
-            ->join('gimnasio.servicios as sv', 'hb.servicio_id', '=', 'sv.id')
-            ->leftJoin('gimnasio.horarios_servicio as hs', function ($join): void {
+        $bloques = DB::table('agenda.horario_bloques as hb')
+            ->join('servicios.servicios as sv', 'hb.servicio_id', '=', 'sv.id')
+            ->leftJoin('agenda.horarios_servicio as hs', function ($join): void {
                 $join->on('hs.horario_bloque_id', '=', 'hb.id')->where('hs.activo', true);
             })
             ->leftJoin('institucional.sedes as sd', 'hs.sede_id', '=', 'sd.id_sede')
@@ -90,12 +90,14 @@ class AsignacionEntrenadorClienteServicio
                 DB::raw("STRING_AGG(DISTINCT hs.dia_semana, ',') as dias_text")
             );
 
-        return DB::table('gimnasio.asignaciones_entrenador_cliente as a')
+        return DB::table('entrenamiento.asignaciones_entrenador_cliente as a')
             ->leftJoinSub($bloques, 'hb', 'a.horario_bloque_id', '=', 'hb.id')
-            ->join('gimnasio.entrenadores as e', 'a.entrenador_id', '=', 'e.id')
-            ->join('seguridad.users as ue', 'e.usuario_id', '=', 'ue.id')
-            ->join('gimnasio.deportistas as d', 'a.deportista_id', '=', 'd.id')
-            ->join('seguridad.users as ud', 'd.usuario_id', '=', 'ud.id')
+            ->join('entrenamiento.entrenadores as e', 'a.entrenador_id', '=', 'e.id')
+            ->leftJoin('personas.personas as pe', 'e.persona_id', '=', 'pe.id')
+            ->leftJoin('seguridad.users as ue', 'e.usuario_id', '=', 'ue.id')
+            ->join('clientes.deportistas as d', 'a.deportista_id', '=', 'd.id')
+            ->leftJoin('personas.personas as pd', 'd.persona_id', '=', 'pd.id')
+            ->leftJoin('seguridad.users as ud', 'd.usuario_id', '=', 'ud.id')
             ->select(
                 'a.*',
                 'hb.nombre as horario_nombre',
@@ -103,8 +105,12 @@ class AsignacionEntrenadorClienteServicio
                 'hb.dias_text',
                 'hb.hora_inicio', 'hb.hora_fin', 'hb.capacidad',
                 'hb.sede_nombre',
-                'ue.name as entrenador_nombre', 'ue.nombres as entrenador_nombres', 'ue.apellidos as entrenador_apellidos',
-                'ud.name as deportista_nombre', 'ud.nombres as deportista_nombres', 'ud.apellidos as deportista_apellidos',
+                DB::raw('COALESCE(pe.nombre_completo, ue.name) as entrenador_nombre'),
+                DB::raw('COALESCE(pe.nombres, ue.nombres) as entrenador_nombres'),
+                DB::raw('COALESCE(pe.apellidos, ue.apellidos) as entrenador_apellidos'),
+                DB::raw('COALESCE(pd.nombre_completo, ud.name) as deportista_nombre'),
+                DB::raw('COALESCE(pd.nombres, pd.nombre_completo, ud.nombres) as deportista_nombres'),
+                DB::raw('COALESCE(pd.apellidos, ud.apellidos) as deportista_apellidos'),
                 'd.codigo_deportista'
             );
     }
@@ -127,7 +133,7 @@ class AsignacionEntrenadorClienteServicio
 
     private function validarHorarioPerteneceAEntrenador(int $entrenadorId, int $horarioBloqueId): void
     {
-        $existe = DB::table('gimnasio.horario_entrenadores')
+        $existe = DB::table('agenda.horario_entrenadores')
             ->where('entrenador_id', $entrenadorId)
             ->where('horario_bloque_id', $horarioBloqueId)
             ->where('activo', true)
@@ -142,7 +148,7 @@ class AsignacionEntrenadorClienteServicio
 
     private function validarDuplicado(int $deportistaId, int $horarioBloqueId): void
     {
-        $existe = DB::table('gimnasio.asignaciones_entrenador_cliente')
+        $existe = DB::table('entrenamiento.asignaciones_entrenador_cliente')
             ->where('deportista_id', $deportistaId)
             ->where('horario_bloque_id', $horarioBloqueId)
             ->where('estado', 'ACTIVO')
@@ -150,14 +156,14 @@ class AsignacionEntrenadorClienteServicio
 
         if ($existe) {
             throw ValidationException::withMessages([
-                'deportista_id' => 'El cliente ya está asignado a este entrenador en ese horario.',
+                'deportista_id' => 'El cliente ya tiene una asignación activa en ese horario.',
             ]);
         }
     }
 
     private function validarCapacidad(int $horarioBloqueId): void
     {
-        $capacidad = DB::table('gimnasio.horarios_servicio')
+        $capacidad = DB::table('agenda.horarios_servicio')
             ->where('horario_bloque_id', $horarioBloqueId)
             ->where('activo', true)
             ->max('capacidad');
@@ -166,7 +172,7 @@ class AsignacionEntrenadorClienteServicio
             return;
         }
 
-        $ocupados = DB::table('gimnasio.asignaciones_entrenador_cliente')
+        $ocupados = DB::table('entrenamiento.asignaciones_entrenador_cliente')
             ->where('horario_bloque_id', $horarioBloqueId)
             ->where('estado', 'ACTIVO')
             ->count();

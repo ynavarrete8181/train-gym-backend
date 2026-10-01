@@ -190,7 +190,7 @@ class EntrenadorServicio
             ->orderByDesc('eh.version')
             ->get();
 
-        return $horarios->map(function ($horario) use ($sedeId) {
+        return $horarios->map(function ($horario) use ($sedeId, $entrenadorId) {
             $franjas = DB::table('agenda.entrenador_horario_franjas as f')
                 ->join('institucional.sedes as s', 's.id_sede', '=', 'f.sede_id')
                 ->where('f.entrenador_horario_id', $horario->id)

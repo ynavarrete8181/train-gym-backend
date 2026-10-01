@@ -97,16 +97,9 @@ class DeportistaControlador extends Controller
 
         if (! empty($validados['usuario_id'])) {
             $this->validarRolDeportista((int) $validados['usuario_id']);
-            $validados['persona_id'] = $validados['persona_id']
-                ?? DB::table('seguridad.users')->where('id', $validados['usuario_id'])->value('persona_id');
         }
 
-        if (empty($validados['persona_id'])) {
-            throw ValidationException::withMessages([
-                'persona_id' => 'El cliente debe estar vinculado a una persona o a un usuario con persona asociada.',
-            ]);
-        }
-
+        $validados['usuario_id'] = $validados['usuario_id'] ?? null;
         $deportista = $this->deportistaServicio->crear($validados);
 
         return ApiResponse::exito('Cliente creado correctamente.', (array) $deportista, [], 201);
@@ -152,12 +145,10 @@ class DeportistaControlador extends Controller
 
         if (! empty($validados['usuario_id'])) {
             $this->validarRolDeportista((int) $validados['usuario_id']);
-            $validados['persona_id'] = $validados['persona_id']
-                ?? DB::table('seguridad.users')->where('id', $validados['usuario_id'])->value('persona_id');
         }
 
-        $validados['persona_id'] = $validados['persona_id'] ?? $deportista->persona_id;
-
+        $validados['persona_id'] = $deportista->persona_id;
+        $validados['usuario_id'] = $deportista->usuario_id;
         $deportistaActualizado = $this->deportistaServicio->actualizar((int) $id, $validados);
 
         return ApiResponse::exito('Cliente actualizado correctamente.', (array) $deportistaActualizado);
@@ -170,6 +161,17 @@ class DeportistaControlador extends Controller
         $sufijoCodigo = $id ? ',codigo_deportista,' . $id : '';
 
         $validados = $request->validate([
+            'persona' => 'required|array',
+            'persona.tipo_identificacion' => 'nullable|string|max:30',
+            'persona.identificacion' => 'nullable|string|max:50',
+            'persona.nombres' => 'required|string|max:150',
+            'persona.apellidos' => 'nullable|string|max:150',
+            'persona.fecha_nacimiento' => 'nullable|date',
+            'persona.genero' => 'nullable|string|max:30',
+            'persona.telefono' => 'nullable|string|max:30',
+            'persona.email' => 'nullable|email|max:190',
+            'persona.direccion' => 'nullable|string',
+
             'persona_id' => 'nullable|exists:pgsql.personas.personas,id|unique:pgsql.clientes.deportistas' . $sufijoPersona,
             'usuario_id' => 'nullable|exists:pgsql.seguridad.users,id|unique:pgsql.clientes.deportistas' . $sufijoUsuario,
             'codigo_deportista' => 'required|string|max:40|unique:pgsql.clientes.deportistas' . $sufijoCodigo,

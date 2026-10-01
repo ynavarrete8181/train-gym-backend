@@ -12,20 +12,20 @@ Route::middleware(['base.auth'])->group(function (): void {
     Route::middleware(['base.permiso:GIMNASIO-PLANES'])->group(function (): void {
         Route::get('planes', [PlanControlador::class, 'index'])->name('dominio.planes.index');
         Route::post('planes', [PlanControlador::class, 'store'])->name('dominio.planes.store');
-        Route::get('planes/{id}', [PlanControlador::class, 'show'])->name('dominio.planes.show');
-        Route::put('planes/{id}', [PlanControlador::class, 'update'])->name('dominio.planes.update');
-        Route::delete('planes/{id}', [PlanControlador::class, 'destroy'])->name('dominio.planes.destroy');
+        Route::get('planes/{id}', [PlanControlador::class, 'show'])->whereNumber('id')->name('dominio.planes.show');
+        Route::put('planes/{id}', [PlanControlador::class, 'update'])->whereNumber('id')->name('dominio.planes.update');
+        Route::delete('planes/{id}', [PlanControlador::class, 'destroy'])->whereNumber('id')->name('dominio.planes.destroy');
     });
 
     Route::middleware(['base.permiso:GIMNASIO-DEPORTISTAS'])->group(function (): void {
         Route::get('clientes', [DeportistaControlador::class, 'index'])->name('dominio.clientes.index');
         Route::post('clientes', [DeportistaControlador::class, 'store'])->name('dominio.clientes.store');
-        Route::get('clientes/{id}', [DeportistaControlador::class, 'show'])->name('dominio.clientes.show');
-        Route::put('clientes/{id}', [DeportistaControlador::class, 'update'])->name('dominio.clientes.update');
+        Route::get('clientes/{id}', [DeportistaControlador::class, 'show'])->whereNumber('id')->name('dominio.clientes.show');
+        Route::put('clientes/{id}', [DeportistaControlador::class, 'update'])->whereNumber('id')->name('dominio.clientes.update');
         Route::get('deportistas', [DeportistaControlador::class, 'index'])->name('dominio.deportistas.index');
         Route::post('deportistas', [DeportistaControlador::class, 'store'])->name('dominio.deportistas.store');
-        Route::get('deportistas/{id}', [DeportistaControlador::class, 'show'])->name('dominio.deportistas.show');
-        Route::put('deportistas/{id}', [DeportistaControlador::class, 'update'])->name('dominio.deportistas.update');
+        Route::get('deportistas/{id}', [DeportistaControlador::class, 'show'])->whereNumber('id')->name('dominio.deportistas.show');
+        Route::put('deportistas/{id}', [DeportistaControlador::class, 'update'])->whereNumber('id')->name('dominio.deportistas.update');
     });
 
     Route::middleware(['base.permiso:GIMNASIO-MEMBRESIAS'])->group(function (): void {

@@ -91,6 +91,7 @@ class UsuarioService
     {
         return DB::transaction(function () use ($datos): User {
             $usuario = User::create([
+                'persona_id' => $datos['persona_id'],
                 'name' => $this->resolverNombreCompleto($datos),
                 'email' => mb_strtolower(trim($datos['email'])),
                 'password' => Hash::make($datos['password']),
@@ -133,6 +134,7 @@ class UsuarioService
             $rolNuevo = (int) ($datos['usr_tipo'] ?? $usuario->usr_tipo);
 
             $payload = [
+                'persona_id' => $datos['persona_id'] ?? $usuario->persona_id,
                 'name' => $this->resolverNombreCompleto($datos, $usuario),
                 'email' => mb_strtolower(trim($datos['email'] ?? $usuario->email)),
                 'cedula' => $datos['cedula'] ?? $usuario->cedula,

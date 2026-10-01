@@ -26,10 +26,14 @@ return new class extends Migration
 
         $mapa = $this->mapaTablas();
 
-        // Primero se eliminan vistas de compatibilidad previas, si existieran.
+        // Primero se eliminan exclusivamente vistas de compatibilidad previas.
+        // No usamos DROP VIEW IF EXISTS directamente porque PostgreSQL falla
+        // si en ese nombre existe una tabla real.
         foreach ($mapa as $destino => $tablas) {
             foreach ($tablas as $tabla) {
-                DB::statement("DROP VIEW IF EXISTS gimnasio.{$tabla}");
+                if ($this->esVista('gimnasio', $tabla)) {
+                    DB::statement("DROP VIEW gimnasio.{$tabla}");
+                }
             }
         }
 
@@ -58,7 +62,9 @@ return new class extends Migration
 
         foreach ($mapa as $destino => $tablas) {
             foreach ($tablas as $tabla) {
-                DB::statement("DROP VIEW IF EXISTS gimnasio.{$tabla}");
+                if ($this->esVista('gimnasio', $tabla)) {
+                    DB::statement("DROP VIEW gimnasio.{$tabla}");
+                }
             }
         }
 
@@ -189,6 +195,16 @@ return new class extends Migration
             ->where('n.nspname', $schema)
             ->where('c.relname', $tabla)
             ->whereIn('c.relkind', ['r', 'p'])
+            ->exists();
+    }
+
+    private function esVista(string $schema, string $tabla): bool
+    {
+        return DB::table('pg_class as c')
+            ->join('pg_namespace as n', 'n.oid', '=', 'c.relnamespace')
+            ->where('n.nspname', $schema)
+            ->where('c.relname', $tabla)
+            ->whereIn('c.relkind', ['v', 'm'])
             ->exists();
     }
 

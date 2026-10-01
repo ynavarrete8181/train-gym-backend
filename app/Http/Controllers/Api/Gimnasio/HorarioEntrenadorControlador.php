@@ -40,6 +40,7 @@ class HorarioEntrenadorControlador extends Controller
             'fecha_inicio' => 'nullable|date',
             'fecha_fin' => 'nullable|date|after_or_equal:fecha_inicio',
             'activo' => 'boolean',
+            'capacidad' => 'required|integer|min:1|max:500',
             'observaciones' => 'nullable|string|max:1000',
             'franjas' => 'required|array|min:1',
             'franjas.*.dia_semana' => 'required|string|in:LUNES,MARTES,MIERCOLES,JUEVES,VIERNES,SABADO,DOMINGO',

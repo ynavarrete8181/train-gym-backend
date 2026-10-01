@@ -39,20 +39,8 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::delete('planes/{id}', [PlanControlador::class, 'destroy'])->name('gimnasio.planes.destroy');
     });
 
-    // Clientes / deportistas: Membresías solo necesita lectura del catálogo de clientes.
-    Route::get('clientes', [DeportistaControlador::class, 'index'])
-        ->middleware('base.permiso:GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
-        ->name('gimnasio.clientes.index');
-    Route::get('clientes/{id}', [DeportistaControlador::class, 'show'])
-        ->middleware('base.permiso:GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
-        ->name('gimnasio.clientes.show');
-    Route::get('deportistas', [DeportistaControlador::class, 'index'])
-        ->middleware('base.permiso:GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
-        ->name('gimnasio.deportistas.index');
-    Route::get('deportistas/{id}', [DeportistaControlador::class, 'show'])
-        ->middleware('base.permiso:GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
-        ->name('gimnasio.deportistas.show');
-
+    // Clientes / deportistas: rutas estáticas antes de {id} para evitar que Laravel
+    // interprete "usuarios-disponibles" o "capacidades" como un identificador.
     Route::middleware(['base.permiso:GIMNASIO-DEPORTISTAS'])->group(function (): void {
         Route::get('clientes/capacidades', [ClienteCatalogoControlador::class, 'capacidades'])
             ->name('gimnasio.clientes.capacidades');
@@ -63,6 +51,21 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::post('deportistas', [DeportistaControlador::class, 'store'])->name('gimnasio.deportistas.store');
         Route::put('deportistas/{id}', [DeportistaControlador::class, 'update'])->name('gimnasio.deportistas.update');
     });
+
+    Route::get('clientes', [DeportistaControlador::class, 'index'])
+        ->middleware('base.permiso:GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
+        ->name('gimnasio.clientes.index');
+    Route::get('clientes/{id}', [DeportistaControlador::class, 'show'])
+        ->whereNumber('id')
+        ->middleware('base.permiso:GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
+        ->name('gimnasio.clientes.show');
+    Route::get('deportistas', [DeportistaControlador::class, 'index'])
+        ->middleware('base.permiso:GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
+        ->name('gimnasio.deportistas.index');
+    Route::get('deportistas/{id}', [DeportistaControlador::class, 'show'])
+        ->whereNumber('id')
+        ->middleware('base.permiso:GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
+        ->name('gimnasio.deportistas.show');
 
     // Membresías
     Route::middleware(['base.permiso:GIMNASIO-MEMBRESIAS'])->group(function (): void {

@@ -65,6 +65,8 @@ Route::middleware('base.auth')->prefix('seguridad')->group(function (): void {
     });
 
     Route::middleware('base.permiso:SEGURIDAD-USUARIOS')->group(function (): void {
+        Route::get('/usuarios/clientes-disponibles', [UsuarioController::class, 'clientesDisponibles'])
+            ->name('base.seguridad.usuarios.clientes-disponibles');
         Route::get('/usuarios/carga-masiva/plantilla', [CargaMasivaUsuarioController::class, 'plantilla'])->name('base.seguridad.usuarios.carga.plantilla');
         Route::post('/usuarios/carga-masiva/validar', [CargaMasivaUsuarioController::class, 'validar'])->name('base.seguridad.usuarios.carga.validar');
         Route::post('/usuarios/carga-masiva/procesar', [CargaMasivaUsuarioController::class, 'procesar'])->name('base.seguridad.usuarios.carga.procesar');

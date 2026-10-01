@@ -71,6 +71,50 @@ class AsignacionEntrenadorClienteServicio
         });
     }
 
+    public function actualizarObservaciones(int $id, ?string $observaciones): object
+    {
+        return DB::transaction(function () use ($id, $observaciones) {
+            $antes = DB::table('entrenamiento.asignaciones_entrenador_cliente')
+                ->where('id', $id)
+                ->first();
+
+            if (! $antes) {
+                throw ValidationException::withMessages([
+                    'id' => 'La asignación no existe.',
+                ]);
+            }
+
+            if (strtoupper((string) $antes->estado) !== 'ACTIVO') {
+                throw ValidationException::withMessages([
+                    'id' => 'Solo se pueden editar las observaciones de la asignación vigente.',
+                ]);
+            }
+
+            DB::table('entrenamiento.asignaciones_entrenador_cliente')
+                ->where('id', $id)
+                ->update([
+                    'observaciones' => $observaciones,
+                    'updated_at' => now(),
+                ]);
+
+            $despues = $this->mapearDias(
+                collect([$this->consultaBase()->where('a.id', $id)->first()])
+            )->first();
+
+            $this->auditar(
+                'entrenamiento',
+                'ACTUALIZAR',
+                'entrenamiento.asignaciones_entrenador_cliente',
+                $id,
+                $antes,
+                $despues,
+                'Observaciones de asignación actualizadas.'
+            );
+
+            return $despues;
+        });
+    }
+
     public function finalizar(int $id): object
     {
         $antes = DB::table('entrenamiento.asignaciones_entrenador_cliente')->where('id', $id)->first();

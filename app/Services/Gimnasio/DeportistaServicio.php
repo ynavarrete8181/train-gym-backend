@@ -12,9 +12,13 @@ class DeportistaServicio
     public function crear(array $datos)
     {
         $representante = $datos['representante_legal'] ?? null;
-        unset($datos['representante_legal']);
+        $persona = $datos['persona'] ?? null;
+        unset($datos['representante_legal'], $datos['persona']);
 
-        return DB::transaction(function () use ($datos, $representante) {
+        return DB::transaction(function () use ($datos, $representante, $persona) {
+            $personaId = $this->resolverPersonaCliente($persona ?? []);
+            $datos['persona_id'] = $personaId;
+            $datos['usuario_id'] = $datos['usuario_id'] ?? null;
             $datos['created_at'] = now();
             $datos['updated_at'] = now();
 
@@ -31,10 +35,17 @@ class DeportistaServicio
     public function actualizar(int $id, array $datos)
     {
         $representante = $datos['representante_legal'] ?? null;
-        unset($datos['representante_legal']);
+        $persona = $datos['persona'] ?? null;
+        unset($datos['representante_legal'], $datos['persona']);
 
-        return DB::transaction(function () use ($id, $datos, $representante) {
+        return DB::transaction(function () use ($id, $datos, $representante, $persona) {
             $antes = $this->obtenerDeportistaConRelaciones($id);
+            $actual = DB::table('clientes.deportistas')->where('id', $id)->first();
+
+            if ($persona && $actual?->persona_id) {
+                $this->actualizarPersonaCliente((int) $actual->persona_id, $persona);
+            }
+
             $datos['updated_at'] = now();
 
             DB::table('clientes.deportistas')->where('id', $id)->update($datos);
@@ -59,8 +70,11 @@ class DeportistaServicio
                 'p.nombres',
                 'p.apellidos',
                 'p.nombre_completo',
+                'p.fecha_nacimiento as persona_fecha_nacimiento',
+                'p.genero as persona_genero',
                 'p.telefono as persona_telefono',
                 'p.email as persona_email',
+                'p.direccion as persona_direccion',
                 'u.name as usuario_nombre',
                 'u.email as usuario_email',
                 's.nombre as sede_nombre'
@@ -140,6 +154,78 @@ class DeportistaServicio
                 'created_at' => now(),
             ]
         );
+    }
+
+    private function resolverPersonaCliente(array $datos): int
+    {
+        $identificacion = trim((string) ($datos['identificacion'] ?? ''));
+        $email = trim((string) ($datos['email'] ?? ''));
+        $nombres = trim((string) ($datos['nombres'] ?? ''));
+        $apellidos = trim((string) ($datos['apellidos'] ?? ''));
+        $nombreCompleto = trim($nombres . ' ' . $apellidos);
+
+        $persona = null;
+
+        if ($identificacion !== '') {
+            $persona = DB::table('personas.personas')
+                ->whereRaw('LOWER(TRIM(identificacion)) = LOWER(TRIM(?))', [$identificacion])
+                ->first();
+        }
+
+        if (! $persona && $email !== '') {
+            $persona = DB::table('personas.personas')
+                ->whereNotNull('email')
+                ->whereRaw('LOWER(TRIM(email)) = LOWER(TRIM(?))', [$email])
+                ->first();
+        }
+
+        if ($persona) {
+            if (DB::table('clientes.deportistas')->where('persona_id', $persona->id)->exists()) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'persona.identificacion' => 'Esta persona ya está registrada como cliente.',
+                ]);
+            }
+
+            $this->actualizarPersonaCliente((int) $persona->id, $datos);
+            return (int) $persona->id;
+        }
+
+        return (int) DB::table('personas.personas')->insertGetId([
+            'tipo_identificacion' => $datos['tipo_identificacion'] ?? ($identificacion !== '' ? 'CEDULA' : null),
+            'identificacion' => $identificacion !== '' ? $identificacion : null,
+            'nombres' => $nombres !== '' ? $nombres : null,
+            'apellidos' => $apellidos !== '' ? $apellidos : null,
+            'nombre_completo' => $nombreCompleto,
+            'fecha_nacimiento' => $datos['fecha_nacimiento'] ?? null,
+            'genero' => $datos['genero'] ?? null,
+            'telefono' => trim((string) ($datos['telefono'] ?? '')) ?: null,
+            'email' => $email !== '' ? mb_strtolower($email) : null,
+            'direccion' => trim((string) ($datos['direccion'] ?? '')) ?: null,
+            'activo' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function actualizarPersonaCliente(int $personaId, array $datos): void
+    {
+        $nombres = trim((string) ($datos['nombres'] ?? ''));
+        $apellidos = trim((string) ($datos['apellidos'] ?? ''));
+        $nombreCompleto = trim($nombres . ' ' . $apellidos);
+
+        DB::table('personas.personas')->where('id', $personaId)->update([
+            'tipo_identificacion' => $datos['tipo_identificacion'] ?? null,
+            'identificacion' => trim((string) ($datos['identificacion'] ?? '')) ?: null,
+            'nombres' => $nombres !== '' ? $nombres : null,
+            'apellidos' => $apellidos !== '' ? $apellidos : null,
+            'nombre_completo' => $nombreCompleto,
+            'fecha_nacimiento' => $datos['fecha_nacimiento'] ?? null,
+            'genero' => $datos['genero'] ?? null,
+            'telefono' => trim((string) ($datos['telefono'] ?? '')) ?: null,
+            'email' => trim((string) ($datos['email'] ?? '')) ?: null,
+            'direccion' => trim((string) ($datos['direccion'] ?? '')) ?: null,
+            'updated_at' => now(),
+        ]);
     }
 
     private function resolverPersonaRepresentante(array $datos): int

@@ -15,8 +15,8 @@ class AsignacionEntrenadorClienteControlador extends Controller
     public function index(Request $request): JsonResponse
     {
         $datos = $request->validate([
-            'entrenador_id' => 'nullable|integer|exists:pgsql.gimnasio.entrenadores,id',
-            'deportista_id' => 'nullable|integer|exists:pgsql.gimnasio.deportistas,id',
+            'entrenador_id' => 'nullable|integer|exists:pgsql.entrenamiento.entrenadores,id',
+            'deportista_id' => 'nullable|integer|exists:pgsql.clientes.deportistas,id',
             'estado' => 'nullable|string',
         ]);
 
@@ -35,10 +35,11 @@ class AsignacionEntrenadorClienteControlador extends Controller
     public function store(Request $request): JsonResponse
     {
         $datos = $request->validate([
-            'entrenador_id' => 'required|integer|exists:pgsql.gimnasio.entrenadores,id',
-            'deportista_id' => 'required|integer|exists:pgsql.gimnasio.deportistas,id',
-            'horario_bloque_id' => 'nullable|integer|exists:pgsql.gimnasio.horario_bloques,id',
-            'membresia_id' => 'nullable|integer|exists:pgsql.gimnasio.membresias,id',
+            'entrenador_id' => 'required|integer|exists:pgsql.entrenamiento.entrenadores,id',
+            'deportista_id' => 'required|integer|exists:pgsql.clientes.deportistas,id',
+            'entrenador_horario_id' => 'required|integer|exists:pgsql.agenda.entrenador_horarios,id',
+            'horario_bloque_id' => 'nullable|integer|exists:pgsql.agenda.horario_bloques,id',
+            'membresia_id' => 'nullable|integer|exists:pgsql.membresias.membresias,id',
             'tipo_asignacion' => 'nullable|string|max:30',
             'fecha_inicio' => 'nullable|date',
             'observaciones' => 'nullable|string',

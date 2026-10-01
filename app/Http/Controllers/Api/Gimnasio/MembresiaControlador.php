@@ -105,7 +105,11 @@ class MembresiaControlador extends Controller
             'asignaciones_entrenador.*.horario_bloque_id' => 'required|integer|exists:pgsql.agenda.horario_bloques,id',
             'fecha_inicio' => 'required|date',
             'dias_gracia' => 'integer|min:0',
+            'dia_pago' => 'nullable|integer|min:1|max:31|required_if:generar_venta_automatica,true',
+            'generar_venta_automatica' => 'boolean',
             'renovacion_automatica' => 'boolean',
+            'fecha_congelacion_inicio' => 'nullable|required_with:fecha_congelacion_fin|date',
+            'fecha_congelacion_fin' => 'nullable|required_with:fecha_congelacion_inicio|date|after_or_equal:fecha_congelacion_inicio',
             'generar_venta' => 'boolean',
         ]);
 
@@ -289,6 +293,8 @@ class MembresiaControlador extends Controller
                     ->where(fn ($q) => $q->where('entidad', 'MEMBRESIA')->where('activo', true)),
             ],
             'dias_gracia' => 'integer|min:0',
+            'dia_pago' => 'nullable|integer|min:1|max:31|required_if:generar_venta_automatica,true',
+            'generar_venta_automatica' => 'boolean',
             'renovacion_automatica' => 'boolean',
             'generar_venta' => 'boolean',
             'fecha_congelacion_inicio' => 'nullable|required_with:fecha_congelacion_fin|date',

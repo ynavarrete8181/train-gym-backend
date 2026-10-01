@@ -63,13 +63,15 @@ class VentaControlador extends Controller
     public function guardarVentaPos(Request $request)
     {
         $datos = $request->validate([
-            'cliente_id' => 'nullable|exists:pgsql.gimnasio.deportistas,id',
+            'cliente_id' => 'nullable|exists:pgsql.clientes.deportistas,id',
+            'membresia_id' => 'nullable|exists:pgsql.membresias.membresias,id',
             'descuento' => 'nullable|numeric|min:0',
             'impuesto' => 'nullable|numeric|min:0',
             'observaciones' => 'nullable|string|max:1000',
             'detalles' => 'required|array|min:1',
             'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO',
             'detalles.*.referencia_id' => 'nullable|integer',
+            'detalles.*.membresia_id' => 'nullable|exists:pgsql.membresias.membresias,id',
             'detalles.*.producto_id' => 'nullable|exists:pgsql.inventario.productos,id',
             'detalles.*.descripcion' => 'required|string|max:180',
             'detalles.*.cantidad' => 'required|numeric|min:0.01',
@@ -88,13 +90,15 @@ class VentaControlador extends Controller
     public function actualizarVentaPos(Request $request, int $id)
     {
         $datos = $request->validate([
-            'cliente_id' => 'nullable|exists:pgsql.gimnasio.deportistas,id',
+            'cliente_id' => 'nullable|exists:pgsql.clientes.deportistas,id',
+            'membresia_id' => 'nullable|exists:pgsql.membresias.membresias,id',
             'descuento' => 'nullable|numeric|min:0',
             'impuesto' => 'nullable|numeric|min:0',
             'observaciones' => 'nullable|string|max:1000',
             'detalles' => 'required|array|min:1',
             'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO',
             'detalles.*.referencia_id' => 'nullable|integer',
+            'detalles.*.membresia_id' => 'nullable|exists:pgsql.membresias.membresias,id',
             'detalles.*.producto_id' => 'nullable|exists:pgsql.inventario.productos,id',
             'detalles.*.descripcion' => 'required|string|max:180',
             'detalles.*.cantidad' => 'required|numeric|min:0.01',
@@ -111,7 +115,8 @@ class VentaControlador extends Controller
     public function cobrarVentaPos(Request $request)
     {
         $datos = $request->validate([
-            'cliente_id' => 'nullable|exists:pgsql.gimnasio.deportistas,id',
+            'cliente_id' => 'nullable|exists:pgsql.clientes.deportistas,id',
+            'membresia_id' => 'nullable|exists:pgsql.membresias.membresias,id',
             'descuento' => 'nullable|numeric|min:0',
             'impuesto' => 'nullable|numeric|min:0',
             'observaciones' => 'nullable|string|max:1000',
@@ -121,6 +126,7 @@ class VentaControlador extends Controller
             'detalles' => 'required|array|min:1',
             'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO',
             'detalles.*.referencia_id' => 'nullable|integer',
+            'detalles.*.membresia_id' => 'nullable|exists:pgsql.membresias.membresias,id',
             'detalles.*.producto_id' => 'nullable|integer',
             'detalles.*.descripcion' => 'nullable|string|max:180',
             'detalles.*.cantidad' => 'required|numeric|min:0.01',
@@ -139,7 +145,8 @@ class VentaControlador extends Controller
     public function cobrarVentaPosExistente(Request $request, int $id)
     {
         $datos = $request->validate([
-            'cliente_id' => 'nullable|exists:pgsql.gimnasio.deportistas,id',
+            'cliente_id' => 'nullable|exists:pgsql.clientes.deportistas,id',
+            'membresia_id' => 'nullable|exists:pgsql.membresias.membresias,id',
             'descuento' => 'nullable|numeric|min:0',
             'impuesto' => 'nullable|numeric|min:0',
             'observaciones' => 'nullable|string|max:1000',
@@ -149,6 +156,7 @@ class VentaControlador extends Controller
             'detalles' => 'required|array|min:1',
             'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO',
             'detalles.*.referencia_id' => 'nullable|integer',
+            'detalles.*.membresia_id' => 'nullable|exists:pgsql.membresias.membresias,id',
             'detalles.*.producto_id' => 'nullable|integer',
             'detalles.*.descripcion' => 'nullable|string|max:180',
             'detalles.*.cantidad' => 'required|numeric|min:0.01',

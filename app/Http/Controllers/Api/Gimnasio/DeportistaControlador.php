@@ -195,7 +195,9 @@ class DeportistaControlador extends Controller
             'representante_legal.responsable_pago' => 'boolean',
         ]);
 
-        if (($validados['requiere_representante_legal'] ?? false) === true) {
+        $validados['requiere_representante_legal'] = (bool) ($validados['requiere_representante_legal'] ?? false);
+
+        if ($validados['requiere_representante_legal'] === true) {
             $representante = $validados['representante_legal'] ?? [];
             $nombre = trim((string) ($representante['nombres'] ?? ''));
             $apellidos = trim((string) ($representante['apellidos'] ?? ''));
@@ -205,6 +207,8 @@ class DeportistaControlador extends Controller
                     'representante_legal.nombres' => 'Ingresa los nombres o apellidos del representante legal.',
                 ]);
             }
+        } else {
+            unset($validados['representante_legal']);
         }
 
         return $validados;

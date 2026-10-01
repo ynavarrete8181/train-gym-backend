@@ -14,26 +14,26 @@ class DeportistaServicio
         $datos['created_at'] = now();
         $datos['updated_at'] = now();
 
-        $id = DB::table('gimnasio.deportistas')->insertGetId($datos);
+        $id = DB::table('clientes.deportistas')->insertGetId($datos);
         $cliente = $this->obtenerDeportistaConRelaciones($id);
-        $this->auditar('gimnasio', 'CREAR', 'gimnasio.deportistas', $id, null, $cliente);
+        $this->auditar('gimnasio', 'CREAR', 'clientes.deportistas', $id, null, $cliente);
         return $cliente;
     }
 
     public function actualizar(int $id, array $datos)
     {
-        $antes = DB::table('gimnasio.deportistas')->where('id', $id)->first();
+        $antes = DB::table('clientes.deportistas')->where('id', $id)->first();
         $datos['updated_at'] = now();
 
-        DB::table('gimnasio.deportistas')->where('id', $id)->update($datos);
+        DB::table('clientes.deportistas')->where('id', $id)->update($datos);
         $cliente = $this->obtenerDeportistaConRelaciones($id);
-        $this->auditar('gimnasio', 'ACTUALIZAR', 'gimnasio.deportistas', $id, $antes, $cliente);
+        $this->auditar('gimnasio', 'ACTUALIZAR', 'clientes.deportistas', $id, $antes, $cliente);
         return $cliente;
     }
 
     public function obtenerDeportistaConRelaciones(int $id)
     {
-        $deportista = DB::table('gimnasio.deportistas')
+        $deportista = DB::table('clientes.deportistas')
             ->leftJoin('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
             ->leftJoin('institucional.sedes', 'gimnasio.deportistas.sede_principal_id', '=', 'institucional.sedes.id_sede')
             ->select(

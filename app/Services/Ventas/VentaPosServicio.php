@@ -23,17 +23,19 @@ class VentaPosServicio
 
         $sedeId = (int) $turno->sede_id;
 
-        $clientes = DB::table('gimnasio.deportistas as d')
-            ->join('seguridad.users as u', 'u.id', '=', 'd.usuario_id')
+        $clientes = DB::table('clientes.deportistas as d')
+            ->leftJoin('personas.personas as p', 'p.id', '=', 'd.persona_id')
+            ->leftJoin('seguridad.users as u', 'u.id', '=', 'd.usuario_id')
             ->where('d.estado', 'ACTIVO')
-            ->orderBy('u.name')
+            ->orderByRaw('COALESCE(p.nombre_completo, u.name, d.codigo_deportista)')
             ->get([
                 'd.id',
                 'd.codigo_deportista as codigo',
                 'd.telefono',
                 'd.sede_principal_id',
-                'u.name as nombre',
-                'u.email',
+                DB::raw('COALESCE(p.nombre_completo, u.name) as nombre'),
+                DB::raw('COALESCE(p.email, u.email) as email'),
+                DB::raw('COALESCE(p.identificacion, u.cedula) as identificacion'),
             ]);
 
         $serviciosQuery = DB::table('gimnasio.servicios as s')
@@ -72,6 +74,30 @@ class VentaPosServicio
             ->get();
 
         $planes = $this->planesPorSede($sedeId);
+
+        $membresias = DB::table('membresias.membresias as m')
+            ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
+            ->where('m.sede_id', $sedeId)
+            ->whereNotIn('m.estado', ['CANCELADA', 'VENCIDA'])
+            ->whereNotExists(function ($query): void {
+                $query->selectRaw('1')
+                    ->from('ventas.ventas as v')
+                    ->whereColumn('v.membresia_id', 'm.id')
+                    ->whereIn('v.estado', ['PENDIENTE', 'PARCIAL', 'PAGADA']);
+            })
+            ->orderBy('p.nombre')
+            ->get([
+                'm.id',
+                'm.deportista_id as cliente_id',
+                'm.plan_id',
+                'm.codigo_contrato as codigo',
+                'm.fecha_inicio',
+                'm.fecha_fin',
+                'm.estado',
+                'm.precio_aplicado as precio',
+                'p.nombre',
+                'p.tipo_producto',
+            ]);
 
         $productos = collect();
         if (Schema::connection('pgsql')->hasTable('inventario.productos')) {
@@ -132,6 +158,7 @@ class VentaPosServicio
             'clientes' => $clientes,
             'servicios' => $servicios,
             'planes' => $planes,
+            'membresias' => $membresias,
             'productos' => $productos,
         ];
     }
@@ -192,6 +219,44 @@ class VentaPosServicio
             throw ValidationException::withMessages(['detalles' => 'Agrega al menos un ítem a la venta.']);
         }
 
+        $membresiaId = $datos['membresia_id']
+            ?? $detallesEntrada->pluck('membresia_id')->filter()->first();
+
+        if ($membresiaId) {
+            $membresia = DB::table('membresias.membresias')
+                ->where('id', $membresiaId)
+                ->first();
+
+            if (! $membresia) {
+                throw ValidationException::withMessages(['membresia_id' => 'La membresía seleccionada no existe.']);
+            }
+
+            if (! empty($datos['cliente_id']) && (int) $membresia->deportista_id !== (int) $datos['cliente_id']) {
+                throw ValidationException::withMessages(['membresia_id' => 'La membresía no pertenece al cliente seleccionado.']);
+            }
+
+            if ((int) $membresia->sede_id !== (int) $turno->sede_id) {
+                throw ValidationException::withMessages(['membresia_id' => 'La membresía pertenece a otra sede.']);
+            }
+
+            if (in_array(strtoupper((string) $membresia->estado), ['CANCELADA', 'VENCIDA'], true)) {
+                throw ValidationException::withMessages(['membresia_id' => 'La membresía ya no está vigente.']);
+            }
+
+            $ventaPendiente = DB::table('ventas.ventas')
+                ->where('membresia_id', $membresiaId)
+                ->whereIn('estado', ['PENDIENTE', 'PARCIAL'])
+                ->exists();
+
+            if ($ventaPendiente && ! $ventaId) {
+                throw ValidationException::withMessages([
+                    'membresia_id' => 'Esta membresía ya tiene una venta pendiente. Abre la cuenta existente para cobrarla.',
+                ]);
+            }
+
+            $datos['membresia_id'] = (int) $membresiaId;
+        }
+
         $detalles = $this->resolverDetalles($detallesEntrada, (int) $turno->sede_id);
         $subtotal = round((float) $detalles->sum('total_linea'), 2);
         $descuento = round((float) ($datos['descuento'] ?? 0), 2);
@@ -220,6 +285,7 @@ class VentaPosServicio
             $primero = $detalles->first();
             $venta = $this->ventas->guardarVenta([
                 'cliente_id' => $datos['cliente_id'] ?? null,
+                'membresia_id' => $datos['membresia_id'] ?? $ventaExistente?->membresia_id,
                 'caja_id' => (int) $turno->caja_id,
                 'turno_caja_id' => (int) $turno->id,
                 'tipo_venta' => $ventaExistente?->tipo_venta ?? $this->tipoVentaGeneral($detalles->all()),
@@ -473,6 +539,7 @@ class VentaPosServicio
             'clientes' => [],
             'servicios' => [],
             'planes' => [],
+            'membresias' => [],
             'productos' => [],
         ];
     }

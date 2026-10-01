@@ -29,53 +29,57 @@ class DeportistaControlador extends Controller
         $sede = $request->input('sede');
         $estado = $request->input('estado');
 
-        $deportistas = DB::table('gimnasio.deportistas')
-            ->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
-            ->join('seguridad.cpu_userrole', 'seguridad.cpu_userrole.id_userrole', '=', 'seguridad.users.usr_tipo')
-            ->leftJoin('institucional.sedes', 'gimnasio.deportistas.sede_principal_id', '=', 'institucional.sedes.id_sede')
-            ->where('seguridad.cpu_userrole.role', 'DEPORTISTA')
+        $deportistas = DB::table('clientes.deportistas')
+            ->leftJoin('personas.personas as p', 'clientes.deportistas.persona_id', '=', 'p.id')
+            ->leftJoin('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
+            ->leftJoin('seguridad.cpu_userrole', 'seguridad.cpu_userrole.id_userrole', '=', 'seguridad.users.usr_tipo')
+            ->leftJoin('institucional.sedes', 'clientes.deportistas.sede_principal_id', '=', 'institucional.sedes.id_sede')
+            ->where(function ($q) {
+                $q->whereNull('clientes.deportistas.usuario_id')
+                    ->orWhere('seguridad.cpu_userrole.role', 'DEPORTISTA');
+            })
             ->select(
-                'gimnasio.deportistas.*',
-                'seguridad.users.name',
-                'seguridad.users.nombres',
-                'seguridad.users.apellidos',
-                'seguridad.users.cedula',
-                'seguridad.users.name as usuario_nombre',
-                'seguridad.users.email as usuario_email',
+                'clientes.deportistas.*',
+                'p.identificacion as cedula',
+                'p.nombres',
+                'p.apellidos',
+                'p.nombre_completo as name',
+                'p.nombre_completo as usuario_nombre',
+                'p.email as usuario_email',
                 'institucional.sedes.nombre as sede_nombre'
             );
 
         if (!empty($busqueda)) {
             $busqueda = mb_strtolower($busqueda);
             $deportistas->where(function ($q) use ($busqueda) {
-                $q->whereRaw('LOWER(gimnasio.deportistas.codigo_deportista) LIKE ?', ["%{$busqueda}%"])
-                  ->orWhereRaw('LOWER(seguridad.users.name) LIKE ?', ["%{$busqueda}%"])
-                  ->orWhereRaw('LOWER(seguridad.users.nombres) LIKE ?', ["%{$busqueda}%"])
-                  ->orWhereRaw('LOWER(seguridad.users.apellidos) LIKE ?', ["%{$busqueda}%"])
-                  ->orWhereRaw('LOWER(seguridad.users.cedula) LIKE ?', ["%{$busqueda}%"])
-                  ->orWhereRaw('LOWER(seguridad.users.email) LIKE ?', ["%{$busqueda}%"])
-                  ->orWhereRaw('LOWER(gimnasio.deportistas.telefono) LIKE ?', ["%{$busqueda}%"]);
+                $q->whereRaw('LOWER(clientes.deportistas.codigo_deportista) LIKE ?', ["%{$busqueda}%"])
+                  ->orWhereRaw('LOWER(COALESCE(p.nombre_completo, seguridad.users.name)) LIKE ?', ["%{$busqueda}%"])
+                  ->orWhereRaw('LOWER(COALESCE(p.nombres, seguridad.users.nombres)) LIKE ?', ["%{$busqueda}%"])
+                  ->orWhereRaw('LOWER(COALESCE(p.apellidos, seguridad.users.apellidos)) LIKE ?', ["%{$busqueda}%"])
+                  ->orWhereRaw('LOWER(COALESCE(p.identificacion, seguridad.users.cedula)) LIKE ?', ["%{$busqueda}%"])
+                  ->orWhereRaw('LOWER(COALESCE(p.email, seguridad.users.email)) LIKE ?', ["%{$busqueda}%"])
+                  ->orWhereRaw('LOWER(clientes.deportistas.telefono) LIKE ?', ["%{$busqueda}%"]);
             });
         }
 
-        $this->aplicarFiltro($deportistas, 'gimnasio.deportistas.codigo_deportista', $codigo);
-        $this->aplicarFiltro($deportistas, 'gimnasio.deportistas.telefono', $telefono);
+        $this->aplicarFiltro($deportistas, 'clientes.deportistas.codigo_deportista', $codigo);
+        $this->aplicarFiltro($deportistas, 'clientes.deportistas.telefono', $telefono);
         $this->aplicarFiltro($deportistas, 'institucional.sedes.nombre', $sede);
-        $this->aplicarFiltro($deportistas, 'gimnasio.deportistas.estado', $estado);
+        $this->aplicarFiltro($deportistas, 'clientes.deportistas.estado', $estado);
 
         if (!empty($nombres)) {
             $valores = is_array($nombres) ? $nombres : [$nombres];
             $deportistas->where(function ($q) use ($valores) {
                 foreach ($valores as $valor) {
                     $texto = mb_strtolower($valor);
-                    $q->orWhereRaw('LOWER(seguridad.users.name) LIKE ?', ["%{$texto}%"])
+                    $q->orWhereRaw('LOWER(COALESCE(p.nombre_completo, seguridad.users.name)) LIKE ?', ["%{$texto}%"])
                       ->orWhereRaw("LOWER(CONCAT(COALESCE(seguridad.users.nombres, ''), ' ', COALESCE(seguridad.users.apellidos, ''))) LIKE ?", ["%{$texto}%"]);
                 }
             });
         }
 
         $paginador = $deportistas
-            ->orderBy('gimnasio.deportistas.created_at', 'desc')
+            ->orderBy('clientes.deportistas.created_at', 'desc')
             ->paginate($porPagina, ['*'], 'page', $pagina);
 
         return ApiResponse::exito('Clientes consultados', $paginador->items(), [
@@ -90,8 +94,9 @@ class DeportistaControlador extends Controller
     public function store(Request $request)
     {
         $validados = $request->validate([
-            'usuario_id' => 'required|exists:pgsql.seguridad.users,id|unique:pgsql.gimnasio.deportistas',
-            'codigo_deportista' => 'required|string|max:40|unique:pgsql.gimnasio.deportistas',
+            'persona_id' => 'required|exists:pgsql.personas.personas,id|unique:pgsql.clientes.deportistas',
+            'usuario_id' => 'nullable|exists:pgsql.seguridad.users,id|unique:pgsql.clientes.deportistas',
+            'codigo_deportista' => 'required|string|max:40|unique:pgsql.clientes.deportistas',
             'fecha_nacimiento' => 'nullable|date',
             'genero' => 'nullable|string|max:20',
             'telefono' => 'nullable|string|max:30',
@@ -102,7 +107,11 @@ class DeportistaControlador extends Controller
             'estado' => 'string|in:PROSPECTO,ACTIVO,INACTIVO,SUSPENDIDO'
         ]);
 
-        $this->validarRolDeportista((int) $validados['usuario_id']);
+        if (! empty($validados['usuario_id'])) {
+            if (! empty($validados['usuario_id'])) {
+            $this->validarRolDeportista((int) $validados['usuario_id']);
+        }
+        }
 
         $deportista = $this->deportistaServicio->crear($validados);
         
@@ -130,15 +139,16 @@ class DeportistaControlador extends Controller
 
     public function update(Request $request, $id)
     {
-        $deportista = DB::table('gimnasio.deportistas')->where('id', $id)->first();
+        $deportista = DB::table('clientes.deportistas')->where('id', $id)->first();
         
         if (!$deportista) {
             return response()->json(['mensaje' => 'Cliente no encontrado'], 404);
         }
 
         $validados = $request->validate([
-            'usuario_id' => 'required|exists:pgsql.seguridad.users,id|unique:pgsql.gimnasio.deportistas,usuario_id,' . $id,
-            'codigo_deportista' => 'required|string|max:40|unique:pgsql.gimnasio.deportistas,codigo_deportista,' . $id,
+            'persona_id' => 'required|exists:pgsql.personas.personas,id|unique:pgsql.clientes.deportistas,persona_id,' . $id,
+            'usuario_id' => 'nullable|exists:pgsql.seguridad.users,id|unique:pgsql.clientes.deportistas,usuario_id,' . $id,
+            'codigo_deportista' => 'required|string|max:40|unique:pgsql.clientes.deportistas,codigo_deportista,' . $id,
             'fecha_nacimiento' => 'nullable|date',
             'genero' => 'nullable|string|max:20',
             'telefono' => 'nullable|string|max:30',
@@ -193,30 +203,34 @@ class DeportistaControlador extends Controller
 
     private function opcionesFiltro(): array
     {
-        $base = DB::table('gimnasio.deportistas')
-            ->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
-            ->join('seguridad.cpu_userrole', 'seguridad.cpu_userrole.id_userrole', '=', 'seguridad.users.usr_tipo')
-            ->leftJoin('institucional.sedes', 'gimnasio.deportistas.sede_principal_id', '=', 'institucional.sedes.id_sede')
-            ->where('seguridad.cpu_userrole.role', 'DEPORTISTA');
+        $base = DB::table('clientes.deportistas')
+            ->leftJoin('personas.personas as p', 'clientes.deportistas.persona_id', '=', 'p.id')
+            ->leftJoin('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
+            ->leftJoin('seguridad.cpu_userrole', 'seguridad.cpu_userrole.id_userrole', '=', 'seguridad.users.usr_tipo')
+            ->leftJoin('institucional.sedes', 'clientes.deportistas.sede_principal_id', '=', 'institucional.sedes.id_sede')
+            ->where(function ($q) {
+                $q->whereNull('clientes.deportistas.usuario_id')
+                    ->orWhere('seguridad.cpu_userrole.role', 'DEPORTISTA');
+            });
 
         return [
             'codigo' => (clone $base)
-                ->whereNotNull('gimnasio.deportistas.codigo_deportista')
+                ->whereNotNull('clientes.deportistas.codigo_deportista')
                 ->distinct()
-                ->orderBy('gimnasio.deportistas.codigo_deportista')
-                ->pluck('gimnasio.deportistas.codigo_deportista')
+                ->orderBy('clientes.deportistas.codigo_deportista')
+                ->pluck('clientes.deportistas.codigo_deportista')
                 ->values(),
             'nombres' => (clone $base)
-                ->whereNotNull('seguridad.users.name')
+                ->whereNotNull('p.nombre_completo')
                 ->distinct()
-                ->orderBy('seguridad.users.name')
-                ->pluck('seguridad.users.name')
+                ->orderBy('p.nombre_completo')
+                ->pluck('p.nombre_completo')
                 ->values(),
             'telefono' => (clone $base)
-                ->whereNotNull('gimnasio.deportistas.telefono')
+                ->whereNotNull('clientes.deportistas.telefono')
                 ->distinct()
-                ->orderBy('gimnasio.deportistas.telefono')
-                ->pluck('gimnasio.deportistas.telefono')
+                ->orderBy('clientes.deportistas.telefono')
+                ->pluck('clientes.deportistas.telefono')
                 ->values(),
             'sede' => (clone $base)
                 ->whereNotNull('institucional.sedes.nombre')

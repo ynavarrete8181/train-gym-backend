@@ -81,9 +81,11 @@ class VentaPosServicio
             ->whereNotIn('m.estado', ['CANCELADA', 'VENCIDA'])
             ->whereNotExists(function ($query): void {
                 $query->selectRaw('1')
-                    ->from('ventas.ventas as v')
-                    ->whereColumn('v.membresia_id', 'm.id')
-                    ->whereIn('v.estado', ['PENDIENTE', 'PARCIAL', 'PAGADA']);
+                    ->from('membresias.membresia_periodos as mp')
+                    ->join('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
+                    ->whereColumn('mp.membresia_id', 'm.id')
+                    ->whereRaw('mp.numero_periodo = (SELECT MAX(mp2.numero_periodo) FROM membresias.membresia_periodos mp2 WHERE mp2.membresia_id = m.id)')
+                    ->where('v.estado', '!=', 'ANULADA');
             })
             ->orderBy('p.nombre')
             ->get([

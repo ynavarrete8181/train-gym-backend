@@ -176,32 +176,72 @@ class EntrenadorServicio
      */
     public function listarTurnos(int $entrenadorId, ?int $sedeId = null): array
     {
-        $items = DB::table('gimnasio.horario_entrenadores as he')
-            ->join('gimnasio.horario_bloques as hb', 'he.horario_bloque_id', '=', 'hb.id')
-            ->join('gimnasio.servicios as sv', 'hb.servicio_id', '=', 'sv.id')
-            ->leftJoin('gimnasio.horarios_servicio as hs', function ($join): void {
-                $join->on('hs.horario_bloque_id', '=', 'hb.id')->where('hs.activo', true);
+        $hoy = now()->toDateString();
+
+        $horarios = DB::table('agenda.entrenador_horarios as eh')
+            ->where('eh.entrenador_id', $entrenadorId)
+            ->where('eh.activo', true)
+            ->where(function ($q) use ($hoy): void {
+                $q->whereNull('eh.fecha_inicio')->orWhereDate('eh.fecha_inicio', '<=', $hoy);
             })
-            ->leftJoin('institucional.sedes as sd', 'hs.sede_id', '=', 'sd.id_sede')
-            ->where('he.entrenador_id', $entrenadorId)
-            ->where('he.activo', true)
-            ->when($sedeId, fn ($q) => $q->where('hs.sede_id', $sedeId))
-            ->groupBy('hb.id', 'hb.nombre', 'hb.activo', 'sv.nombre')
-            ->select(
-                'hb.id',
-                'hb.nombre',
-                'hb.activo',
-                'sv.nombre as servicio_nombre',
-                DB::raw('MIN(hs.hora_inicio) as hora_inicio'),
-                DB::raw('MAX(hs.hora_fin) as hora_fin'),
-                DB::raw('MAX(hs.capacidad) as capacidad'),
-                DB::raw("STRING_AGG(DISTINCT sd.nombre, ', ') as sede_nombre"),
-                DB::raw("STRING_AGG(DISTINCT hs.dia_semana, ',') as dias_text")
-            )
-            ->orderBy('hora_inicio')
+            ->where(function ($q) use ($hoy): void {
+                $q->whereNull('eh.fecha_fin')->orWhereDate('eh.fecha_fin', '>=', $hoy);
+            })
+            ->orderByDesc('eh.version')
             ->get();
 
-        return $this->mapearDias($items)->all();
+        return $horarios->map(function ($horario) use ($sedeId) {
+            $franjas = DB::table('agenda.entrenador_horario_franjas as f')
+                ->join('institucional.sedes as s', 's.id_sede', '=', 'f.sede_id')
+                ->where('f.entrenador_horario_id', $horario->id)
+                ->where('f.activo', true)
+                ->when($sedeId, fn ($q) => $q->where('f.sede_id', $sedeId))
+                ->get([
+                    'f.sede_id',
+                    's.nombre as sede_nombre',
+                    'f.dia_semana',
+                    'f.hora_inicio',
+                    'f.hora_fin',
+                ]);
+
+            if ($franjas->isEmpty()) {
+                return null;
+            }
+
+            $recesos = DB::table('agenda.entrenador_horario_recesos')
+                ->where('entrenador_horario_id', $horario->id)
+                ->where('activo', true)
+                ->get(['dia_semana', 'tipo', 'hora_inicio', 'hora_fin']);
+
+            $dias = $franjas
+                ->pluck('dia_semana')
+                ->unique()
+                ->sortBy(fn ($dia) => self::ORDEN_DIAS[$dia] ?? 99)
+                ->values();
+
+            $sedes = $franjas->pluck('sede_nombre')->filter()->unique()->values();
+
+            $inicio = $franjas->min(fn ($f) => substr((string) $f->hora_inicio, 0, 5));
+            $fin = $franjas->max(fn ($f) => substr((string) $f->hora_fin, 0, 5));
+
+            return (object) [
+                'id' => (int) $horario->id,
+                'entrenador_horario_id' => (int) $horario->id,
+                'version' => (int) ($horario->version ?? 1),
+                'tipo_horario' => $horario->tipo_horario,
+                'fecha_inicio' => $horario->fecha_inicio,
+                'fecha_fin' => $horario->fecha_fin,
+                'dia_semana' => $dias->implode(', '),
+                'hora_inicio' => $inicio,
+                'hora_fin' => $fin,
+                'sede_nombre' => $sedes->implode(', '),
+                'franjas' => $franjas->values()->all(),
+                'recesos' => $recesos->values()->all(),
+                'nombre' => $horario->tipo_horario === 'PERSONALIZADO'
+                    ? 'Horario personalizado'
+                    : 'Horario institucional',
+            ];
+        })->filter()->values()->all();
     }
 
     /**

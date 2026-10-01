@@ -307,6 +307,23 @@ class VentaPosServicio
                 ],
             ], $ventaId, $usuarioId);
 
+            if (! empty($venta->membresia_id)) {
+                $periodoId = DB::table('membresias.membresia_periodos')
+                    ->where('membresia_id', $venta->membresia_id)
+                    ->orderByDesc('numero_periodo')
+                    ->value('id');
+
+                if ($periodoId) {
+                    DB::table('membresias.membresia_periodos')
+                        ->where('id', $periodoId)
+                        ->whereNull('venta_id')
+                        ->update([
+                            'venta_id' => $venta->id,
+                            'updated_at' => now(),
+                        ]);
+                }
+            }
+
             DB::table('ventas.venta_detalles')->where('venta_id', $venta->id)->delete();
             $ahora = now();
             DB::table('ventas.venta_detalles')->insert($detalles->map(fn ($item) => [

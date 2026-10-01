@@ -50,6 +50,20 @@ class AsignacionEntrenadorClienteControlador extends Controller
         return ApiResponse::exito('Cliente asignado correctamente.', (array) $asignacion, [], 201);
     }
 
+    public function actualizarObservaciones(Request $request, int $id): JsonResponse
+    {
+        $datos = $request->validate([
+            'observaciones' => 'nullable|string|max:2000',
+        ]);
+
+        $asignacion = $this->servicio->actualizarObservaciones(
+            $id,
+            $datos['observaciones'] ?? null
+        );
+
+        return ApiResponse::exito('Observaciones actualizadas correctamente.', (array) $asignacion);
+    }
+
     public function finalizar(int $id): JsonResponse
     {
         $asignacion = $this->servicio->finalizar($id);

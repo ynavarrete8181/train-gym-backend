@@ -5,6 +5,8 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Schedule;
+use App\Services\Gimnasio\CobroProgramadoMembresiaServicio;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -80,3 +82,21 @@ Artisan::command('revive:limpiar-usuarios-prueba-carga', function (): int {
     $this->info("Limpieza completada: {$usuarios->count()} usuario(s) de prueba eliminados.");
     return 0;
 })->purpose('Elimina únicamente usuarios carga.masiva.*@example.com, sus lotes y avisos de prueba.');
+
+
+Artisan::command('revive:procesar-cobros-membresias {--fecha=}', function (CobroProgramadoMembresiaServicio $servicio): int {
+    $resultado = $servicio->procesar($this->option('fecha') ?: null);
+
+    $this->info(
+        "Cobros procesados: {$resultado['procesadas']} | "
+        . "ventas creadas: {$resultado['ventas_creadas']} | "
+        . "omitidas: {$resultado['omitidas']} | "
+        . "fecha: {$resultado['fecha']}"
+    );
+
+    return 0;
+})->purpose('Genera ventas pendientes de membresías cuando llega su fecha programada de cobro.');
+
+Schedule::command('revive:procesar-cobros-membresias')
+    ->dailyAt('00:05')
+    ->withoutOverlapping();

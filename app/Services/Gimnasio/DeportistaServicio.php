@@ -67,7 +67,7 @@ class DeportistaServicio
             ->select(
                 'd.*',
                 'p.identificacion',
-                'p.nombres',
+                DB::raw('COALESCE(NULLIF(TRIM(p.nombres), \'\'), p.nombre_completo) as nombres'),
                 'p.apellidos',
                 'p.nombre_completo',
                 'p.fecha_nacimiento as persona_fecha_nacimiento',
@@ -107,6 +107,7 @@ class DeportistaServicio
                 'p.direccion',
             ]);
 
+        $deportista->requiere_representante_legal = (bool) $deportista->requiere_representante_legal;
         $deportista->representante_legal = $representante;
 
         return $deportista;

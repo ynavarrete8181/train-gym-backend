@@ -39,14 +39,37 @@ class UsuarioController extends Controller
         ]);
     }
 
+    public function clientesDisponibles(): JsonResponse
+    {
+        $clientes = DB::table('clientes.deportistas as d')
+            ->join('personas.personas as p', 'p.id', '=', 'd.persona_id')
+            ->leftJoin('seguridad.users as u', 'u.persona_id', '=', 'p.id')
+            ->whereNull('u.id')
+            ->where('p.activo', true)
+            ->whereIn('d.estado', ['PROSPECTO', 'ACTIVO'])
+            ->orderBy('p.nombre_completo')
+            ->get([
+                'd.id as deportista_id',
+                'd.codigo_deportista',
+                'p.id as persona_id',
+                'p.tipo_identificacion',
+                'p.identificacion',
+                'p.nombres',
+                'p.apellidos',
+                'p.nombre_completo',
+                'p.email',
+                'p.telefono',
+            ]);
+
+        return ApiResponse::exito('Clientes disponibles para crear usuario.', $clientes->all());
+    }
+
     public function store(Request $request): JsonResponse
     {
         $this->contextoOperativoService->asegurarContextosSede();
 
         $datos = $request->validate([
-            'nombres' => ['required', 'string', 'max:120'],
-            'apellidos' => ['required', 'string', 'max:120'],
-            'cedula' => ['required', 'string', 'max:20', Rule::unique(User::class, 'cedula')],
+            'persona_id' => ['required', 'integer', Rule::exists('personas.personas', 'id'), Rule::unique(User::class, 'persona_id')],
             'email' => ['required', 'email', 'max:255', Rule::unique(User::class, 'email')],
             'password' => ['required', 'string', 'confirmed', ReglasClave::segura()],
             'usr_tipo' => ['required', 'integer'],
@@ -56,6 +79,17 @@ class UsuarioController extends Controller
             'contextos' => ['nullable', 'array'],
             'contextos.*' => ['integer', 'distinct', Rule::exists(Contexto::class, 'id_contexto')->where('activo', true)],
         ]);
+
+        $persona = DB::table('personas.personas')->where('id', $datos['persona_id'])->first();
+        if (! $persona) {
+            throw ValidationException::withMessages([
+                'persona_id' => 'La persona seleccionada no existe.',
+            ]);
+        }
+
+        $datos['nombres'] = $persona->nombres ?: $persona->nombre_completo;
+        $datos['apellidos'] = $persona->apellidos;
+        $datos['cedula'] = $persona->identificacion;
 
         $this->validarRol((int) $datos['usr_tipo']);
         $datos['contextos'] = $this->normalizarContextosSegunRol((int) $datos['usr_tipo'], $datos['contextos'] ?? []);
@@ -87,9 +121,7 @@ class UsuarioController extends Controller
         $this->contextoOperativoService->asegurarContextosSede();
 
         $datos = $request->validate([
-            'nombres' => ['required', 'string', 'max:120'],
-            'apellidos' => ['required', 'string', 'max:120'],
-            'cedula' => ['required', 'string', 'max:20', Rule::unique(User::class, 'cedula')->ignore($usuario->id)],
+            'persona_id' => ['nullable', 'integer', Rule::exists('personas.personas', 'id')],
             'email' => ['required', 'email', 'max:255', Rule::unique(User::class, 'email')->ignore($usuario->id)],
             'usr_tipo' => ['required', 'integer'],
             'usr_estado' => ['required', 'integer', Rule::in([1, 0])],
@@ -98,6 +130,17 @@ class UsuarioController extends Controller
             'contextos' => ['nullable', 'array'],
             'contextos.*' => ['integer', 'distinct', Rule::exists(Contexto::class, 'id_contexto')->where('activo', true)],
         ]);
+
+        $personaId = (int) ($usuario->persona_id ?: ($datos['persona_id'] ?? 0));
+        if ($personaId) {
+            $persona = DB::table('personas.personas')->where('id', $personaId)->first();
+            if ($persona) {
+                $datos['persona_id'] = $personaId;
+                $datos['nombres'] = $persona->nombres ?: $persona->nombre_completo;
+                $datos['apellidos'] = $persona->apellidos;
+                $datos['cedula'] = $persona->identificacion;
+            }
+        }
 
         $this->validarRol((int) $datos['usr_tipo']);
         $this->validarCambioPropio($request, $usuario, (int) $datos['usr_tipo'], (int) $datos['usr_estado']);

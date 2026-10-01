@@ -115,6 +115,49 @@ class AsignacionEntrenadorClienteServicio
         });
     }
 
+    public function inactivar(int $id): object
+    {
+        return DB::transaction(function () use ($id) {
+            $antes = DB::table('entrenamiento.asignaciones_entrenador_cliente')
+                ->where('id', $id)
+                ->first();
+
+            if (! $antes) {
+                throw ValidationException::withMessages([
+                    'id' => 'La asignación no existe.',
+                ]);
+            }
+
+            if (strtoupper((string) $antes->estado) !== 'ACTIVO') {
+                return $antes;
+            }
+
+            DB::table('entrenamiento.asignaciones_entrenador_cliente')
+                ->where('id', $id)
+                ->update([
+                    'estado' => 'INACTIVO',
+                    'fecha_fin' => now()->toDateString(),
+                    'updated_at' => now(),
+                ]);
+
+            $despues = $this->mapearDias(
+                collect([$this->consultaBase()->where('a.id', $id)->first()])
+            )->first();
+
+            $this->auditar(
+                'entrenamiento',
+                'ACTUALIZAR',
+                'entrenamiento.asignaciones_entrenador_cliente',
+                $id,
+                $antes,
+                $despues,
+                'Asignación inactivada; se conserva para trazabilidad.'
+            );
+
+            return $despues;
+        });
+    }
+
     public function finalizar(int $id): object
     {
         $antes = DB::table('entrenamiento.asignaciones_entrenador_cliente')->where('id', $id)->first();

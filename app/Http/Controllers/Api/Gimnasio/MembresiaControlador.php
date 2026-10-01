@@ -29,20 +29,21 @@ class MembresiaControlador extends Controller
         $plan = $request->input('plan');
         $estado = $request->input('estado');
 
-        $consulta = DB::table('gimnasio.membresias')
-            ->join('gimnasio.deportistas', 'gimnasio.membresias.deportista_id', '=', 'gimnasio.deportistas.id')
-            ->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
-            ->join('gimnasio.planes', 'gimnasio.membresias.plan_id', '=', 'gimnasio.planes.id')
-            ->leftJoin('institucional.sedes', 'gimnasio.membresias.sede_id', '=', 'institucional.sedes.id_sede')
-            ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'gimnasio.membresias.estado_id', '=', 'estado_cfg.id')
+        $consulta = DB::table('membresias.membresias')
+            ->join('clientes.deportistas', 'membresias.membresias.deportista_id', '=', 'clientes.deportistas.id')
+            ->leftJoin('personas.personas as p', 'clientes.deportistas.persona_id', '=', 'p.id')
+            ->leftJoin('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
+            ->join('membresias.planes', 'membresias.membresias.plan_id', '=', 'membresias.planes.id')
+            ->leftJoin('institucional.sedes', 'membresias.membresias.sede_id', '=', 'institucional.sedes.id_sede')
+            ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'membresias.membresias.estado_id', '=', 'estado_cfg.id')
             ->select(
-                'gimnasio.membresias.*',
-                'gimnasio.deportistas.codigo_deportista',
-                'seguridad.users.name as deportista_nombre',
-                'seguridad.users.email as deportista_email',
-                'gimnasio.planes.nombre as plan_nombre',
-                'gimnasio.planes.tipo_producto',
-                'gimnasio.planes.tipo_cobro',
+                'membresias.membresias.*',
+                'clientes.deportistas.codigo_deportista',
+                DB::raw('COALESCE(p.nombre_completo, seguridad.users.name) as deportista_nombre'),
+                DB::raw('COALESCE(p.email, seguridad.users.email) as deportista_email'),
+                'membresias.planes.nombre as plan_nombre',
+                'membresias.planes.tipo_producto',
+                'membresias.planes.tipo_cobro',
                 'institucional.sedes.nombre as sede_nombre',
                 'estado_cfg.codigo as estado_codigo',
                 'estado_cfg.valor_interno as estado_valor',
@@ -51,28 +52,28 @@ class MembresiaControlador extends Controller
             );
 
         if ($request->has('deportista_id')) {
-            $consulta->where('gimnasio.membresias.deportista_id', $request->deportista_id);
+            $consulta->where('membresias.membresias.deportista_id', $request->deportista_id);
         }
 
         if (!empty($busqueda)) {
             $busqueda = mb_strtolower($busqueda);
             $consulta->where(function ($q) use ($busqueda) {
-                $q->whereRaw('LOWER(gimnasio.membresias.codigo_contrato) LIKE ?', ["%{$busqueda}%"])
-                  ->orWhereRaw('LOWER(seguridad.users.name) LIKE ?', ["%{$busqueda}%"])
-                  ->orWhereRaw('LOWER(seguridad.users.email) LIKE ?', ["%{$busqueda}%"])
-                  ->orWhereRaw('LOWER(gimnasio.deportistas.codigo_deportista) LIKE ?', ["%{$busqueda}%"])
-                  ->orWhereRaw('LOWER(gimnasio.planes.nombre) LIKE ?', ["%{$busqueda}%"])
-                  ->orWhereRaw('LOWER(COALESCE(estado_cfg.nombre, gimnasio.membresias.estado)) LIKE ?', ["%{$busqueda}%"]);
+                $q->whereRaw('LOWER(membresias.membresias.codigo_contrato) LIKE ?', ["%{$busqueda}%"])
+                  ->orWhereRaw('LOWER(COALESCE(p.nombre_completo, seguridad.users.name)) LIKE ?', ["%{$busqueda}%"])
+                  ->orWhereRaw('LOWER(COALESCE(p.email, seguridad.users.email)) LIKE ?', ["%{$busqueda}%"])
+                  ->orWhereRaw('LOWER(clientes.deportistas.codigo_deportista) LIKE ?', ["%{$busqueda}%"])
+                  ->orWhereRaw('LOWER(membresias.planes.nombre) LIKE ?', ["%{$busqueda}%"])
+                  ->orWhereRaw('LOWER(COALESCE(estado_cfg.nombre, membresias.membresias.estado)) LIKE ?', ["%{$busqueda}%"]);
             });
         }
 
-        $this->aplicarFiltro($consulta, 'gimnasio.membresias.codigo_contrato', $codigo);
+        $this->aplicarFiltro($consulta, 'membresias.membresias.codigo_contrato', $codigo);
         $this->aplicarFiltro($consulta, 'seguridad.users.name', $cliente);
-        $this->aplicarFiltro($consulta, 'gimnasio.planes.nombre', $plan);
-        $this->aplicarFiltro($consulta, 'gimnasio.membresias.estado', $estado);
+        $this->aplicarFiltro($consulta, 'membresias.planes.nombre', $plan);
+        $this->aplicarFiltro($consulta, 'membresias.membresias.estado', $estado);
 
         $membresias = $consulta
-            ->orderBy('gimnasio.membresias.created_at', 'desc')
+            ->orderBy('membresias.membresias.created_at', 'desc')
             ->paginate($porPagina, ['*'], 'page', $pagina);
 
         $items = collect($membresias->items())
@@ -93,15 +94,15 @@ class MembresiaControlador extends Controller
     public function store(Request $request)
     {
         $validados = $request->validate([
-            'deportista_id' => 'required|exists:pgsql.gimnasio.deportistas,id',
-            'plan_id' => 'required|exists:pgsql.gimnasio.planes,id',
+            'deportista_id' => 'required|exists:pgsql.clientes.deportistas,id',
+            'plan_id' => 'required|exists:pgsql.membresias.planes,id',
             'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
             'sedes_habilitadas' => 'required|array|min:1',
             'sedes_habilitadas.*' => 'required|integer|distinct|exists:pgsql.institucional.sedes,id_sede',
             'asignaciones_entrenador' => 'nullable|array',
             'asignaciones_entrenador.*.sede_id' => 'required|integer|exists:pgsql.institucional.sedes,id_sede',
-            'asignaciones_entrenador.*.entrenador_id' => 'required|integer|exists:pgsql.gimnasio.entrenadores,id',
-            'asignaciones_entrenador.*.horario_bloque_id' => 'required|integer|exists:pgsql.gimnasio.horario_bloques,id',
+            'asignaciones_entrenador.*.entrenador_id' => 'required|integer|exists:pgsql.entrenamiento.entrenadores,id',
+            'asignaciones_entrenador.*.horario_bloque_id' => 'required|integer|exists:pgsql.agenda.horario_bloques,id',
             'fecha_inicio' => 'required|date',
             'dias_gracia' => 'integer|min:0',
             'renovacion_automatica' => 'boolean',
@@ -117,7 +118,7 @@ class MembresiaControlador extends Controller
         [$membresia, $venta] = DB::transaction(function () use ($validados, $generarVenta, $request): array {
             $membresia = $this->membresiaServicio->crear($validados);
             $venta = null;
-            $plan = DB::table('gimnasio.planes')->where('id', $membresia->plan_id)->first();
+            $plan = DB::table('membresias.planes')->where('id', $membresia->plan_id)->first();
 
             if ($generarVenta && ($plan->generar_venta ?? true)) {
                 $venta = $this->ventaServicio->guardarVenta([
@@ -142,7 +143,7 @@ class MembresiaControlador extends Controller
                     ],
                 ], null, $request->user()?->id);
 
-                $periodoId = DB::table('gimnasio.membresia_periodos')
+                $periodoId = DB::table('membresias.membresia_periodos')
                     ->where('membresia_id', $membresia->id)
                     ->orderByDesc('numero_periodo')
                     ->value('id');
@@ -171,12 +172,12 @@ class MembresiaControlador extends Controller
 
     public function renovar(Request $request, int $id)
     {
-        $membresia = DB::table('gimnasio.membresias')->where('id', $id)->first();
+        $membresia = DB::table('membresias.membresias')->where('id', $id)->first();
         if (! $membresia) {
             return response()->json(['mensaje' => 'Membresía no encontrada'], 404);
         }
 
-        $plan = DB::table('gimnasio.planes')->where('id', $membresia->plan_id)->first();
+        $plan = DB::table('membresias.planes')->where('id', $membresia->plan_id)->first();
         if (! $plan || ! ($plan->renovable ?? false)) {
             throw ValidationException::withMessages([
                 'membresia_id' => 'El plan de esta membresía no permite renovación.',
@@ -189,7 +190,7 @@ class MembresiaControlador extends Controller
             ]);
         }
 
-        $periodoActual = DB::table('gimnasio.membresia_periodos')
+        $periodoActual = DB::table('membresias.membresia_periodos')
             ->where('membresia_id', $id)
             ->orderByDesc('numero_periodo')
             ->first();
@@ -206,7 +207,7 @@ class MembresiaControlador extends Controller
 
         [$periodo, $venta] = DB::transaction(function () use ($id, $plan, $request): array {
             $periodo = $this->membresiaServicio->crearSiguientePeriodo($id);
-            $membresiaActualizada = DB::table('gimnasio.membresias')->where('id', $id)->first();
+            $membresiaActualizada = DB::table('membresias.membresias')->where('id', $id)->first();
             $venta = null;
 
             if ($plan->generar_venta ?? true) {
@@ -265,7 +266,7 @@ class MembresiaControlador extends Controller
 
     public function update(Request $request, $id)
     {
-        $membresia = DB::table('gimnasio.membresias')->where('id', $id)->first();
+        $membresia = DB::table('membresias.membresias')->where('id', $id)->first();
         if (!$membresia) return response()->json(['mensaje' => 'Membresía no encontrada'], 404);
 
         if ($request->filled('estado')) {
@@ -278,8 +279,8 @@ class MembresiaControlador extends Controller
             'sedes_habilitadas.*' => 'required|integer|distinct|exists:pgsql.institucional.sedes,id_sede',
             'asignaciones_entrenador' => 'nullable|array',
             'asignaciones_entrenador.*.sede_id' => 'required|integer|exists:pgsql.institucional.sedes,id_sede',
-            'asignaciones_entrenador.*.entrenador_id' => 'required|integer|exists:pgsql.gimnasio.entrenadores,id',
-            'asignaciones_entrenador.*.horario_bloque_id' => 'required|integer|exists:pgsql.gimnasio.horario_bloques,id',
+            'asignaciones_entrenador.*.entrenador_id' => 'required|integer|exists:pgsql.entrenamiento.entrenadores,id',
+            'asignaciones_entrenador.*.horario_bloque_id' => 'required|integer|exists:pgsql.agenda.horario_bloques,id',
             'fecha_inicio' => 'required|date',
             'estado' => [
                 'required',
@@ -326,8 +327,8 @@ class MembresiaControlador extends Controller
 
     private function sincronizarFacturacion(int $membresiaId, bool $generarVenta, Request $request): void
     {
-        $membresia = DB::table('gimnasio.membresias')->where('id', $membresiaId)->first();
-        $plan = DB::table('gimnasio.planes')->where('id', $membresia->plan_id)->first();
+        $membresia = DB::table('membresias.membresias')->where('id', $membresiaId)->first();
+        $plan = DB::table('membresias.planes')->where('id', $membresia->plan_id)->first();
 
         $venta = DB::table('ventas.ventas')
             ->where('membresia_id', $membresiaId)
@@ -362,7 +363,7 @@ class MembresiaControlador extends Controller
                 ],
             ], null, $request->user()?->id);
 
-            $periodoId = DB::table('gimnasio.membresia_periodos')
+            $periodoId = DB::table('membresias.membresia_periodos')
                 ->where('membresia_id', $membresiaId)
                 ->orderByDesc('numero_periodo')
                 ->value('id');
@@ -410,7 +411,7 @@ class MembresiaControlador extends Controller
 
     public function destroy($id)
     {
-        $membresia = DB::table('gimnasio.membresias')->where('id', $id)->first();
+        $membresia = DB::table('membresias.membresias')->where('id', $id)->first();
         if (!$membresia) return response()->json(['mensaje' => 'Membresía no encontrada'], 404);
         $this->membresiaServicio->eliminar((int) $id);
         return ApiResponse::exito('Membresía eliminada correctamente.');
@@ -426,7 +427,7 @@ class MembresiaControlador extends Controller
             ]);
         }
 
-        $plan = DB::table('gimnasio.planes')->where('id', $planId)->first();
+        $plan = DB::table('membresias.planes')->where('id', $planId)->first();
         if (! $plan) {
             throw ValidationException::withMessages(['plan_id' => 'El plan seleccionado no existe.']);
         }
@@ -448,15 +449,15 @@ class MembresiaControlador extends Controller
                 ]);
             }
 
-            $valido = DB::table('gimnasio.entrenadores as e')
-                ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
-                ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
-                ->join('gimnasio.horario_entrenadores as he', function ($join) use ($horarioBloqueId): void {
+            $valido = DB::table('entrenamiento.entrenadores as e')
+                ->leftJoin('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
+                ->leftJoin('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
+                ->join('agenda.horario_entrenadores as he', function ($join) use ($horarioBloqueId): void {
                     $join->on('he.entrenador_id', '=', 'e.id')
                         ->where('he.horario_bloque_id', '=', $horarioBloqueId)
                         ->where('he.activo', '=', true);
                 })
-                ->join('gimnasio.horarios_servicio as hs', function ($join) use ($sedeId, $horarioBloqueId): void {
+                ->join('agenda.horarios_servicio as hs', function ($join) use ($sedeId, $horarioBloqueId): void {
                     $join->on('hs.horario_bloque_id', '=', 'he.horario_bloque_id')
                         ->where('hs.horario_bloque_id', '=', $horarioBloqueId)
                         ->where('hs.sede_id', '=', $sedeId)
@@ -477,14 +478,35 @@ class MembresiaControlador extends Controller
 
     private function validarDeportistaActual(int $deportistaId): void
     {
-        $rol = DB::table('gimnasio.deportistas')
-            ->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
+        $deportista = DB::table('clientes.deportistas')
+            ->where('id', $deportistaId)
+            ->first(['id', 'usuario_id', 'estado']);
+
+        if (! $deportista) {
+            throw ValidationException::withMessages([
+                'deportista_id' => 'El cliente seleccionado no existe.',
+            ]);
+        }
+
+        if (strtoupper((string) $deportista->estado) === 'INACTIVO') {
+            throw ValidationException::withMessages([
+                'deportista_id' => 'No se puede asignar una membresía a un cliente inactivo.',
+            ]);
+        }
+
+        if (! $deportista->usuario_id) {
+            return;
+        }
+
+        $rol = DB::table('seguridad.users')
             ->join('seguridad.cpu_userrole', 'seguridad.cpu_userrole.id_userrole', '=', 'seguridad.users.usr_tipo')
-            ->where('gimnasio.deportistas.id', $deportistaId)
+            ->where('seguridad.users.id', $deportista->usuario_id)
             ->value('seguridad.cpu_userrole.role');
 
         if ($rol !== 'DEPORTISTA') {
-            throw ValidationException::withMessages(['deportista_id' => 'La membresía solo puede asignarse a un cliente con rol Deportista.']);
+            throw ValidationException::withMessages([
+                'deportista_id' => 'La cuenta asociada al cliente debe tener rol Deportista.',
+            ]);
         }
     }
 
@@ -500,16 +522,23 @@ class MembresiaControlador extends Controller
 
     private function opcionesFiltro(): array
     {
-        $base = DB::table('gimnasio.membresias')
-            ->join('gimnasio.deportistas', 'gimnasio.membresias.deportista_id', '=', 'gimnasio.deportistas.id')
-            ->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
-            ->join('gimnasio.planes', 'gimnasio.membresias.plan_id', '=', 'gimnasio.planes.id')
-            ->leftJoin('institucional.sedes', 'gimnasio.membresias.sede_id', '=', 'institucional.sedes.id_sede');
+        $base = DB::table('membresias.membresias')
+            ->join('clientes.deportistas', 'membresias.membresias.deportista_id', '=', 'clientes.deportistas.id')
+            ->leftJoin('personas.personas as p', 'clientes.deportistas.persona_id', '=', 'p.id')
+            ->leftJoin('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
+            ->join('membresias.planes', 'membresias.membresias.plan_id', '=', 'membresias.planes.id')
+            ->leftJoin('institucional.sedes', 'membresias.membresias.sede_id', '=', 'institucional.sedes.id_sede');
 
         return [
             'codigo' => (clone $base)->whereNotNull('codigo_contrato')->distinct()->orderBy('codigo_contrato')->pluck('codigo_contrato')->values(),
-            'cliente' => (clone $base)->whereNotNull('seguridad.users.name')->distinct()->orderBy('seguridad.users.name')->pluck('seguridad.users.name')->values(),
-            'plan' => (clone $base)->whereNotNull('gimnasio.planes.nombre')->distinct()->orderBy('gimnasio.planes.nombre')->pluck('gimnasio.planes.nombre')->values(),
+            'cliente' => (clone $base)
+                ->selectRaw('COALESCE(p.nombre_completo, seguridad.users.name) as cliente_nombre')
+                ->whereRaw('COALESCE(p.nombre_completo, seguridad.users.name) IS NOT NULL')
+                ->distinct()
+                ->orderBy('cliente_nombre')
+                ->pluck('cliente_nombre')
+                ->values(),
+            'plan' => (clone $base)->whereNotNull('membresias.planes.nombre')->distinct()->orderBy('membresias.planes.nombre')->pluck('membresias.planes.nombre')->values(),
             'estado' => $this->estadosMembresia()->pluck('valor_interno')->values(),
         ];
     }

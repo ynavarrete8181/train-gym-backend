@@ -291,8 +291,8 @@ class MembresiaControlador extends Controller
             'dias_gracia' => 'integer|min:0',
             'renovacion_automatica' => 'boolean',
             'generar_venta' => 'boolean',
-            'fecha_congelacion_inicio' => 'nullable|date',
-            'fecha_congelacion_fin' => 'nullable|date|after_or_equal:fecha_congelacion_inicio',
+            'fecha_congelacion_inicio' => 'nullable|required_with:fecha_congelacion_fin|date',
+            'fecha_congelacion_fin' => 'nullable|required_with:fecha_congelacion_inicio|date|after_or_equal:fecha_congelacion_inicio',
         ]);
 
         $generarVenta = array_key_exists('generar_venta', $validados) ? (bool) $validados['generar_venta'] : null;

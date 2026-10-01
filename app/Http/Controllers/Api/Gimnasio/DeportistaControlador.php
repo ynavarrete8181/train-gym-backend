@@ -93,28 +93,22 @@ class DeportistaControlador extends Controller
 
     public function store(Request $request)
     {
-        $validados = $request->validate([
-            'persona_id' => 'required|exists:pgsql.personas.personas,id|unique:pgsql.clientes.deportistas',
-            'usuario_id' => 'nullable|exists:pgsql.seguridad.users,id|unique:pgsql.clientes.deportistas',
-            'codigo_deportista' => 'required|string|max:40|unique:pgsql.clientes.deportistas',
-            'fecha_nacimiento' => 'nullable|date',
-            'genero' => 'nullable|string|max:20',
-            'telefono' => 'nullable|string|max:30',
-            'contacto_emergencia_nombre' => 'nullable|string|max:150',
-            'contacto_emergencia_telefono' => 'nullable|string|max:30',
-            'observaciones_medicas' => 'nullable|string',
-            'sede_principal_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
-            'estado' => 'string|in:PROSPECTO,ACTIVO,INACTIVO,SUSPENDIDO'
-        ]);
+        $validados = $this->validarDatosCliente($request);
 
         if (! empty($validados['usuario_id'])) {
-            if (! empty($validados['usuario_id'])) {
             $this->validarRolDeportista((int) $validados['usuario_id']);
+            $validados['persona_id'] = $validados['persona_id']
+                ?? DB::table('seguridad.users')->where('id', $validados['usuario_id'])->value('persona_id');
         }
+
+        if (empty($validados['persona_id'])) {
+            throw ValidationException::withMessages([
+                'persona_id' => 'El cliente debe estar vinculado a una persona o a un usuario con persona asociada.',
+            ]);
         }
 
         $deportista = $this->deportistaServicio->crear($validados);
-        
+
         return ApiResponse::exito('Cliente creado correctamente.', (array) $deportista, [], 201);
     }
 
@@ -140,15 +134,36 @@ class DeportistaControlador extends Controller
     public function update(Request $request, $id)
     {
         $deportista = DB::table('clientes.deportistas')->where('id', $id)->first();
-        
-        if (!$deportista) {
+
+        if (! $deportista) {
             return response()->json(['mensaje' => 'Cliente no encontrado'], 404);
         }
 
+        $validados = $this->validarDatosCliente($request, (int) $id);
+
+        if (! empty($validados['usuario_id'])) {
+            $this->validarRolDeportista((int) $validados['usuario_id']);
+            $validados['persona_id'] = $validados['persona_id']
+                ?? DB::table('seguridad.users')->where('id', $validados['usuario_id'])->value('persona_id');
+        }
+
+        $validados['persona_id'] = $validados['persona_id'] ?? $deportista->persona_id;
+
+        $deportistaActualizado = $this->deportistaServicio->actualizar((int) $id, $validados);
+
+        return ApiResponse::exito('Cliente actualizado correctamente.', (array) $deportistaActualizado);
+    }
+
+    private function validarDatosCliente(Request $request, ?int $id = null): array
+    {
+        $sufijoPersona = $id ? ',persona_id,' . $id : '';
+        $sufijoUsuario = $id ? ',usuario_id,' . $id : '';
+        $sufijoCodigo = $id ? ',codigo_deportista,' . $id : '';
+
         $validados = $request->validate([
-            'persona_id' => 'required|exists:pgsql.personas.personas,id|unique:pgsql.clientes.deportistas,persona_id,' . $id,
-            'usuario_id' => 'nullable|exists:pgsql.seguridad.users,id|unique:pgsql.clientes.deportistas,usuario_id,' . $id,
-            'codigo_deportista' => 'required|string|max:40|unique:pgsql.clientes.deportistas,codigo_deportista,' . $id,
+            'persona_id' => 'nullable|exists:pgsql.personas.personas,id|unique:pgsql.clientes.deportistas' . $sufijoPersona,
+            'usuario_id' => 'nullable|exists:pgsql.seguridad.users,id|unique:pgsql.clientes.deportistas' . $sufijoUsuario,
+            'codigo_deportista' => 'required|string|max:40|unique:pgsql.clientes.deportistas' . $sufijoCodigo,
             'fecha_nacimiento' => 'nullable|date',
             'genero' => 'nullable|string|max:20',
             'telefono' => 'nullable|string|max:30',
@@ -156,14 +171,34 @@ class DeportistaControlador extends Controller
             'contacto_emergencia_telefono' => 'nullable|string|max:30',
             'observaciones_medicas' => 'nullable|string',
             'sede_principal_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
-            'estado' => 'string|in:PROSPECTO,ACTIVO,INACTIVO,SUSPENDIDO'
+            'estado' => 'string|in:PROSPECTO,ACTIVO,INACTIVO,SUSPENDIDO',
+            'requiere_representante_legal' => 'boolean',
+
+            'representante_legal' => 'nullable|array',
+            'representante_legal.tipo_identificacion' => 'nullable|string|max:30',
+            'representante_legal.identificacion' => 'nullable|string|max:50',
+            'representante_legal.nombres' => 'nullable|string|max:150',
+            'representante_legal.apellidos' => 'nullable|string|max:150',
+            'representante_legal.telefono' => 'nullable|string|max:30',
+            'representante_legal.email' => 'nullable|email|max:190',
+            'representante_legal.direccion' => 'nullable|string',
+            'representante_legal.tipo_relacion' => 'nullable|string|in:REPRESENTANTE_LEGAL,MADRE,PADRE,TUTOR,OTRO',
+            'representante_legal.responsable_pago' => 'boolean',
         ]);
 
-        $this->validarRolDeportista((int) $validados['usuario_id']);
+        if (($validados['requiere_representante_legal'] ?? false) === true) {
+            $representante = $validados['representante_legal'] ?? [];
+            $nombre = trim((string) ($representante['nombres'] ?? ''));
+            $apellidos = trim((string) ($representante['apellidos'] ?? ''));
 
-        $deportistaActualizado = $this->deportistaServicio->actualizar($id, $validados);
+            if ($nombre === '' && $apellidos === '') {
+                throw ValidationException::withMessages([
+                    'representante_legal.nombres' => 'Ingresa los nombres o apellidos del representante legal.',
+                ]);
+            }
+        }
 
-        return ApiResponse::exito('Cliente actualizado correctamente.', (array) $deportistaActualizado);
+        return $validados;
     }
 
     private function validarRolDeportista(int $usuarioId): void

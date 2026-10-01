@@ -25,6 +25,16 @@ class MembresiaServicio
 
         $plan = DB::table('membresias.planes')->where('id', $datos['plan_id'])->first();
 
+        if (($datos['generar_venta_automatica'] ?? false) && ! ($plan->renovable ?? false)) {
+            throw ValidationException::withMessages([
+                'generar_venta_automatica' => 'El cobro programado solo aplica a planes renovables.',
+            ]);
+        }
+
+        $datos['proxima_fecha_cobro'] = ($datos['generar_venta_automatica'] ?? false) && ! empty($datos['dia_pago'])
+            ? $this->calcularProximaFechaCobro($datos['fecha_inicio'], (int) $datos['dia_pago'])
+            : null;
+
         $datos['precio_aplicado'] = $this->resolverPrecio((int) $datos['plan_id'], $datos['sede_id'] ?? null);
         $datos['codigo_contrato'] = 'TMP-' . Str::uuid();
         $datos['fecha_fin'] = $this->calcularFechaFin($datos['fecha_inicio'], $plan->tipo_duracion, (int) $plan->duracion);
@@ -75,6 +85,31 @@ class MembresiaServicio
         unset($datos['sedes_habilitadas'], $datos['asignaciones_entrenador'], $datos['entrenador_id']);
 
         $antes = DB::table('membresias.membresias')->where('id', $id)->first();
+
+        $planActual = DB::table('membresias.planes')->where('id', $antes->plan_id)->first();
+        $generarAutomatico = array_key_exists('generar_venta_automatica', $datos)
+            ? (bool) $datos['generar_venta_automatica']
+            : (bool) ($antes->generar_venta_automatica ?? false);
+        $diaPago = array_key_exists('dia_pago', $datos)
+            ? ($datos['dia_pago'] ? (int) $datos['dia_pago'] : null)
+            : ($antes->dia_pago ? (int) $antes->dia_pago : null);
+        $fechaInicioCobro = $datos['fecha_inicio'] ?? $antes->fecha_inicio;
+
+        if ($generarAutomatico && ! ($planActual->renovable ?? false)) {
+            throw ValidationException::withMessages([
+                'generar_venta_automatica' => 'El cobro programado solo aplica a planes renovables.',
+            ]);
+        }
+
+        if (
+            array_key_exists('generar_venta_automatica', $datos)
+            || array_key_exists('dia_pago', $datos)
+            || array_key_exists('fecha_inicio', $datos)
+        ) {
+            $datos['proxima_fecha_cobro'] = $generarAutomatico && $diaPago
+                ? $this->calcularProximaFechaCobro($fechaInicioCobro, $diaPago)
+                : null;
+        }
 
         if (array_key_exists('fecha_inicio', $datos)) {
             $plan = DB::table('membresias.planes')->where('id', $antes->plan_id)->first();
@@ -397,6 +432,22 @@ class MembresiaServicio
                 'updated_at' => now(),
             ]);
         }
+    }
+
+    public function calcularProximaFechaCobro(string $fechaInicio, int $diaPago): string
+    {
+        $inicio = Carbon::parse($fechaInicio)->startOfDay();
+        $diaPago = max(1, min(31, $diaPago));
+
+        $candidato = $inicio->copy()->startOfMonth();
+        $candidato->day(min($diaPago, $candidato->daysInMonth));
+
+        if ($candidato->lt($inicio)) {
+            $candidato = $inicio->copy()->addMonthNoOverflow()->startOfMonth();
+            $candidato->day(min($diaPago, $candidato->daysInMonth));
+        }
+
+        return $candidato->toDateString();
     }
 
     private function calcularFechaFin(string $fechaInicio, string $tipoDuracion, int $duracion): string

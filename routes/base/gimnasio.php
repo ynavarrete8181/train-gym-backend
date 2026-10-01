@@ -109,6 +109,7 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         ->name('gimnasio.asignaciones-entrenador.index');
     Route::middleware(['base.permiso:GIMNASIO-ENTRENADORES'])->group(function (): void {
         Route::post('asignaciones-entrenador', [AsignacionEntrenadorClienteControlador::class, 'store'])->name('gimnasio.asignaciones-entrenador.store');
+        Route::patch('asignaciones-entrenador/{id}/observaciones', [AsignacionEntrenadorClienteControlador::class, 'actualizarObservaciones'])->name('gimnasio.asignaciones-entrenador.observaciones');
         Route::patch('asignaciones-entrenador/{id}/finalizar', [AsignacionEntrenadorClienteControlador::class, 'finalizar'])->name('gimnasio.asignaciones-entrenador.finalizar');
     });
 

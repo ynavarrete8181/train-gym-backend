@@ -156,9 +156,15 @@ class DeportistaControlador extends Controller
 
     private function validarDatosCliente(Request $request, ?int $id = null): array
     {
-        $sufijoPersona = $id ? ',persona_id,' . $id : '';
-        $sufijoUsuario = $id ? ',usuario_id,' . $id : '';
-        $sufijoCodigo = $id ? ',codigo_deportista,' . $id : '';
+        $reglaPersonaUnica = $id
+            ? 'unique:pgsql.clientes.deportistas,persona_id,' . $id . ',id'
+            : 'unique:pgsql.clientes.deportistas,persona_id';
+        $reglaUsuarioUnico = $id
+            ? 'unique:pgsql.clientes.deportistas,usuario_id,' . $id . ',id'
+            : 'unique:pgsql.clientes.deportistas,usuario_id';
+        $reglaCodigoUnico = $id
+            ? 'unique:pgsql.clientes.deportistas,codigo_deportista,' . $id . ',id'
+            : 'unique:pgsql.clientes.deportistas,codigo_deportista';
 
         $validados = $request->validate([
             'persona' => 'required|array',
@@ -172,9 +178,9 @@ class DeportistaControlador extends Controller
             'persona.email' => 'nullable|email|max:190',
             'persona.direccion' => 'nullable|string',
 
-            'persona_id' => 'nullable|exists:pgsql.personas.personas,id|unique:pgsql.clientes.deportistas' . $sufijoPersona,
-            'usuario_id' => 'nullable|exists:pgsql.seguridad.users,id|unique:pgsql.clientes.deportistas' . $sufijoUsuario,
-            'codigo_deportista' => 'required|string|max:40|unique:pgsql.clientes.deportistas' . $sufijoCodigo,
+            'persona_id' => ['nullable', 'exists:pgsql.personas.personas,id', $reglaPersonaUnica],
+            'usuario_id' => ['nullable', 'exists:pgsql.seguridad.users,id', $reglaUsuarioUnico],
+            'codigo_deportista' => ['required', 'string', 'max:40', $reglaCodigoUnico],
             'fecha_nacimiento' => 'nullable|date',
             'genero' => 'nullable|string|max:20',
             'telefono' => 'nullable|string|max:30',

@@ -46,6 +46,8 @@ return new class extends Migration
             }
         }
 
+        $this->prepararRelacionesPersonas();
+
         // Capa de compatibilidad temporal para no romper el backend existente.
         foreach ($mapa as $destino => $tablas) {
             foreach ($tablas as $tabla) {
@@ -142,6 +144,44 @@ return new class extends Migration
                     ->nullOnDelete();
                 $table->index('persona_id');
             });
+        }
+    }
+
+    private function prepararRelacionesPersonas(): void
+    {
+        if (Schema::hasTable('clientes.deportistas')) {
+            if (! Schema::hasColumn('clientes.deportistas', 'persona_id')) {
+                Schema::table('clientes.deportistas', function (Blueprint $table): void {
+                    $table->unsignedBigInteger('persona_id')->nullable()->after('id');
+                    $table->foreign('persona_id')
+                        ->references('id')
+                        ->on('personas.personas')
+                        ->restrictOnDelete();
+                    $table->index('persona_id');
+                });
+            }
+
+            // Un cliente puede existir administrativamente sin cuenta de acceso.
+            if (Schema::hasColumn('clientes.deportistas', 'usuario_id')) {
+                DB::statement('ALTER TABLE clientes.deportistas ALTER COLUMN usuario_id DROP NOT NULL');
+            }
+        }
+
+        if (Schema::hasTable('entrenamiento.entrenadores')) {
+            if (! Schema::hasColumn('entrenamiento.entrenadores', 'persona_id')) {
+                Schema::table('entrenamiento.entrenadores', function (Blueprint $table): void {
+                    $table->unsignedBigInteger('persona_id')->nullable()->after('id');
+                    $table->foreign('persona_id')
+                        ->references('id')
+                        ->on('personas.personas')
+                        ->restrictOnDelete();
+                    $table->index('persona_id');
+                });
+            }
+
+            if (Schema::hasColumn('entrenamiento.entrenadores', 'usuario_id')) {
+                DB::statement('ALTER TABLE entrenamiento.entrenadores ALTER COLUMN usuario_id DROP NOT NULL');
+            }
         }
     }
 

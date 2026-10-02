@@ -36,6 +36,10 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
     Route::middleware(['base.permiso:GIMNASIO-PLANES'])->group(function (): void {
         Route::post('planes', [PlanControlador::class, 'store'])->name('gimnasio.planes.store');
         Route::put('planes/{id}', [PlanControlador::class, 'update'])->name('gimnasio.planes.update');
+        Route::get('planes/{id}/modalidades', [PlanControlador::class, 'modalidades'])->name('gimnasio.planes.modalidades.index');
+        Route::post('planes/{id}/modalidades', [PlanControlador::class, 'storeModalidad'])->name('gimnasio.planes.modalidades.store');
+        Route::put('planes/{id}/modalidades/{modalidadId}', [PlanControlador::class, 'updateModalidad'])->name('gimnasio.planes.modalidades.update');
+        Route::delete('planes/{id}/modalidades/{modalidadId}', [PlanControlador::class, 'destroyModalidad'])->name('gimnasio.planes.modalidades.destroy');
         Route::delete('planes/{id}', [PlanControlador::class, 'destroy'])->name('gimnasio.planes.destroy');
     });
 

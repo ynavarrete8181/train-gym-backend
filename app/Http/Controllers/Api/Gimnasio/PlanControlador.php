@@ -254,7 +254,7 @@ class PlanControlador extends Controller
         }
 
         return $datos;
-
+    }
 
     private function validarModalidad(Request $request, ?int $modalidadId = null, ?int $planId = null): array
     {
@@ -303,6 +303,5 @@ class PlanControlador extends Controller
         }
 
         return $datos;
-    }
     }
 }

@@ -19,12 +19,12 @@ class PlanControlador extends Controller
 
     public function index(Request $request)
     {
-        $planes = DB::table('membresias.planes')
+        $planes = DB::table('gimnasio.planes')
             ->orderBy('nombre')
             ->paginate($request->input('per_page', 10));
 
         $ids = collect($planes->items())->pluck('id')->all();
-        $precios = DB::table('membresias.plan_precios_sede as pps')
+        $precios = DB::table('gimnasio.plan_precios_sede as pps')
             ->join('institucional.sedes as s', 's.id_sede', '=', 'pps.sede_id')
             ->whereIn('pps.plan_id', $ids)
             ->where('pps.activo', true)
@@ -32,9 +32,9 @@ class PlanControlador extends Controller
             ->get()
             ->groupBy('plan_id');
 
-        $servicios = DB::table('membresias.plan_servicios as ps')
-            ->join('servicios.servicios as s', 's.id', '=', 'ps.servicio_id')
-            ->leftJoin('servicios.categorias_servicio as c', 'c.id', '=', 's.categoria_id')
+        $servicios = DB::table('gimnasio.plan_servicios as ps')
+            ->join('gimnasio.servicios as s', 's.id', '=', 'ps.servicio_id')
+            ->leftJoin('gimnasio.categorias_servicio as c', 'c.id', '=', 's.categoria_id')
             ->whereIn('ps.plan_id', $ids)
             ->where('ps.activo', true)
             ->select('ps.plan_id', 's.id', 's.nombre', 's.duracion_minutos', 'c.nombre as categoria')
@@ -60,8 +60,8 @@ class PlanControlador extends Controller
 
     public function serviciosCatalogo()
     {
-        $servicios = DB::table('servicios.servicios as s')
-            ->leftJoin('servicios.categorias_servicio as c', 'c.id', '=', 's.categoria_id')
+        $servicios = DB::table('gimnasio.servicios as s')
+            ->leftJoin('gimnasio.categorias_servicio as c', 'c.id', '=', 's.categoria_id')
             ->where('s.activo', true)
             ->orderBy('c.nombre')
             ->orderBy('s.nombre')
@@ -85,22 +85,22 @@ class PlanControlador extends Controller
 
     public function show($id)
     {
-        $plan = DB::table('membresias.planes')->where('id', $id)->first();
+        $plan = DB::table('gimnasio.planes')->where('id', $id)->first();
 
         if (! $plan) {
             return response()->json(['mensaje' => 'Plan no encontrado'], 404);
         }
 
-        $plan->precios_sede = DB::table('membresias.plan_precios_sede as pps')
+        $plan->precios_sede = DB::table('gimnasio.plan_precios_sede as pps')
             ->join('institucional.sedes as s', 's.id_sede', '=', 'pps.sede_id')
             ->where('pps.plan_id', $id)
             ->where('pps.activo', true)
             ->select('pps.*', 's.nombre as sede_nombre')
             ->get();
 
-        $plan->servicios = DB::table('membresias.plan_servicios as ps')
-            ->join('servicios.servicios as s', 's.id', '=', 'ps.servicio_id')
-            ->leftJoin('servicios.categorias_servicio as c', 'c.id', '=', 's.categoria_id')
+        $plan->servicios = DB::table('gimnasio.plan_servicios as ps')
+            ->join('gimnasio.servicios as s', 's.id', '=', 'ps.servicio_id')
+            ->leftJoin('gimnasio.categorias_servicio as c', 'c.id', '=', 's.categoria_id')
             ->where('ps.plan_id', $id)
             ->where('ps.activo', true)
             ->orderBy('s.nombre')
@@ -113,7 +113,7 @@ class PlanControlador extends Controller
 
     public function update(Request $request, $id)
     {
-        $plan = DB::table('membresias.planes')->where('id', $id)->first();
+        $plan = DB::table('gimnasio.planes')->where('id', $id)->first();
 
         if (! $plan) {
             return response()->json(['mensaje' => 'Plan no encontrado'], 404);
@@ -127,7 +127,7 @@ class PlanControlador extends Controller
 
     public function modalidades(int $id)
     {
-        $plan = DB::table('membresias.planes')->where('id', $id)->first();
+        $plan = DB::table('gimnasio.planes')->where('id', $id)->first();
         if (! $plan) {
             return response()->json(['mensaje' => 'Plan no encontrado'], 404);
         }
@@ -162,24 +162,24 @@ class PlanControlador extends Controller
 
     public function destroy($id)
     {
-        $plan = DB::table('membresias.planes')->where('id', $id)->first();
+        $plan = DB::table('gimnasio.planes')->where('id', $id)->first();
         if (!$plan) {
             return response()->json(['mensaje' => 'Plan no encontrado'], 404);
         }
 
-        $enUso = DB::table('membresias.membresias')->where('plan_id', $id)->exists();
+        $enUso = DB::table('gimnasio.membresias')->where('plan_id', $id)->exists();
         if ($enUso) {
             return response()->json(['mensaje' => 'El plan no se puede eliminar porque tiene membresías asociadas.'], 409);
         }
 
-        DB::table('membresias.planes')->where('id', $id)->delete();
+        DB::table('gimnasio.planes')->where('id', $id)->delete();
         return ApiResponse::exito('Plan eliminado exitosamente.');
     }
 
     private function validar(Request $request, ?int $id = null): array
     {
         $datos = $request->validate([
-            'codigo' => 'nullable|string|max:50|unique:pgsql.membresias.planes,codigo' . ($id ? ',' . $id : ''),
+            'codigo' => 'nullable|string|max:50|unique:pgsql.gimnasio.planes,codigo' . ($id ? ',' . $id : ''),
             'nombre' => 'required|string|max:150',
             'descripcion' => 'nullable|string',
             'tipo_duracion' => 'required|string|max:20|in:DIAS,MESES,ANIOS',
@@ -198,7 +198,7 @@ class PlanControlador extends Controller
             'precios_sede.*.sede_id' => 'required|distinct|exists:pgsql.institucional.sedes,id_sede',
             'precios_sede.*.precio' => 'required|numeric|min:0',
             'servicio_ids' => 'nullable|array',
-            'servicio_ids.*' => 'required|integer|distinct|exists:pgsql.servicios.servicios,id',
+            'servicio_ids.*' => 'required|integer|distinct|exists:pgsql.gimnasio.servicios,id',
         ]);
 
         if (($datos['tipo_producto'] ?? null) === 'PASE_DIARIO') {
@@ -233,7 +233,7 @@ class PlanControlador extends Controller
         }
 
         if (! empty($servicioIds)) {
-            $serviciosActivos = DB::table('servicios.servicios')
+            $serviciosActivos = DB::table('gimnasio.servicios')
                 ->whereIn('id', $servicioIds)
                 ->where('activo', true)
                 ->count();

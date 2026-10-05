@@ -13,12 +13,13 @@ class PlanServicio
     {
         $preciosSede = $datos['precios_sede'] ?? [];
         $servicioIds = $datos['servicio_ids'] ?? [];
-        unset($datos['precios_sede'], $datos['servicio_ids']);
+        $modalidades = $datos['modalidades'] ?? [];
+        unset($datos['precios_sede'], $datos['servicio_ids'], $datos['modalidades']);
 
         $datos['created_at'] = now();
         $datos['updated_at'] = now();
 
-        return DB::transaction(function () use ($datos, $preciosSede, $servicioIds) {
+        return DB::transaction(function () use ($datos, $preciosSede, $servicioIds, $modalidades) {
             if (empty($datos['codigo'])) {
                 $datos['codigo'] = $this->generarCodigo();
             }
@@ -27,6 +28,7 @@ class PlanServicio
 
             $this->sincronizarPreciosSede($id, $preciosSede);
             $this->sincronizarServicios($id, $servicioIds);
+            $this->sincronizarModalidades($id, $modalidades, (bool) ($datos['requiere_modalidades'] ?? false));
 
             $plan = DB::table('gimnasio.planes')->where('id', $id)->first();
             $plan->precios_sede = DB::table('gimnasio.plan_precios_sede')->where('plan_id', $id)->get();
@@ -41,16 +43,18 @@ class PlanServicio
     {
         $preciosSede = $datos['precios_sede'] ?? [];
         $servicioIds = $datos['servicio_ids'] ?? [];
-        unset($datos['precios_sede'], $datos['servicio_ids']);
+        $modalidades = $datos['modalidades'] ?? [];
+        unset($datos['precios_sede'], $datos['servicio_ids'], $datos['modalidades']);
 
         $datos['updated_at'] = now();
 
-        return DB::transaction(function () use ($id, $datos, $preciosSede, $servicioIds) {
+        return DB::transaction(function () use ($id, $datos, $preciosSede, $servicioIds, $modalidades) {
             $antes = DB::table('gimnasio.planes')->where('id', $id)->first();
             DB::table('gimnasio.planes')->where('id', $id)->update($datos);
 
             $this->sincronizarPreciosSede($id, $preciosSede);
             $this->sincronizarServicios($id, $servicioIds);
+            $this->sincronizarModalidades($id, $modalidades, (bool) ($datos['requiere_modalidades'] ?? false));
 
             $plan = DB::table('gimnasio.planes')->where('id', $id)->first();
             $plan->precios_sede = DB::table('gimnasio.plan_precios_sede')->where('plan_id', $id)->get();
@@ -122,6 +126,40 @@ class PlanServicio
                 's.duracion_minutos',
                 'c.nombre as categoria',
             ]);
+    }
+
+    private function sincronizarModalidades(int $planId, array $modalidades, bool $requiereModalidades): void
+    {
+        $existentes = DB::table('membresias.plan_modalidades')
+            ->where('plan_id', $planId)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $conservar = [];
+
+        if ($requiereModalidades) {
+            foreach ($modalidades as $modalidad) {
+                $modalidadId = ! empty($modalidad['id']) ? (int) $modalidad['id'] : null;
+
+                if ($modalidadId && ! in_array($modalidadId, $existentes, true)) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'modalidades' => 'Una de las modalidades no pertenece al plan seleccionado.',
+                    ]);
+                }
+
+                unset($modalidad['id']);
+
+                $guardada = $this->guardarModalidad($planId, $modalidad, $modalidadId);
+                $conservar[] = (int) $guardada->id;
+            }
+        }
+
+        $eliminar = array_values(array_diff($existentes, $conservar));
+
+        foreach ($eliminar as $modalidadId) {
+            $this->eliminarModalidad($planId, (int) $modalidadId);
+        }
     }
 
     public function modalidadesDelPlan(int $planId)

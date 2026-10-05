@@ -199,6 +199,28 @@ class PlanControlador extends Controller
             'precios_sede.*.precio' => 'required|numeric|min:0',
             'servicio_ids' => 'nullable|array',
             'servicio_ids.*' => 'required|integer|distinct|exists:pgsql.gimnasio.servicios,id',
+            'modalidades' => 'nullable|array',
+            'modalidades.*.id' => 'nullable|integer',
+            'modalidades.*.codigo' => 'nullable|string|max:60',
+            'modalidades.*.nombre' => 'required_with:modalidades|string|max:120',
+            'modalidades.*.descripcion' => 'nullable|string|max:1000',
+            'modalidades.*.dias_por_semana' => 'nullable|integer|min:1|max:7',
+            'modalidades.*.usos_por_semana' => 'nullable|integer|min:1|max:30',
+            'modalidades.*.uso_ilimitado' => 'boolean',
+            'modalidades.*.tipo_duracion' => 'required_with:modalidades|string|in:DIAS,SEMANAS,MESES,ANIOS',
+            'modalidades.*.duracion' => 'required_with:modalidades|integer|min:1|max:365',
+            'modalidades.*.precio_base' => 'required_with:modalidades|numeric|min:0',
+            'modalidades.*.tarifa_inscripcion' => 'nullable|numeric|min:0',
+            'modalidades.*.modelo_cobro' => 'required_with:modalidades|string|in:FIJO_POR_PERIODO,PRORRATEO_POR_SEMANAS_UTILIZADAS',
+            'modalidades.*.momento_cobro' => 'required_with:modalidades|string|in:ANTICIPADO,VENCIDO',
+            'modalidades.*.permite_prorrateo' => 'boolean',
+            'modalidades.*.permite_extension' => 'boolean',
+            'modalidades.*.extension_automatica' => 'boolean',
+            'modalidades.*.permite_rollover' => 'boolean',
+            'modalidades.*.activo' => 'boolean',
+            'modalidades.*.precios_sede' => 'nullable|array',
+            'modalidades.*.precios_sede.*.sede_id' => 'required|integer|distinct|exists:pgsql.institucional.sedes,id_sede',
+            'modalidades.*.precios_sede.*.precio' => 'required|numeric|min:0',
         ]);
 
         if (($datos['tipo_producto'] ?? null) === 'PASE_DIARIO') {
@@ -217,6 +239,42 @@ class PlanControlador extends Controller
             $datos['tarifa_inscripcion'] = 0;
             $datos['precios_sede'] = [];
         }
+
+        $modalidades = collect($datos['modalidades'] ?? [])->map(function (array $modalidad): array {
+            $usoIlimitado = (bool) ($modalidad['uso_ilimitado'] ?? false);
+
+            if ($usoIlimitado) {
+                $modalidad['dias_por_semana'] = null;
+                $modalidad['usos_por_semana'] = null;
+            } elseif (empty($modalidad['dias_por_semana']) || empty($modalidad['usos_por_semana'])) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'modalidades' => 'Cada modalidad debe definir días y usos permitidos por semana.',
+                ]);
+            }
+
+            if (($modalidad['modelo_cobro'] ?? null) === 'PRORRATEO_POR_SEMANAS_UTILIZADAS') {
+                $modalidad['permite_prorrateo'] = true;
+                $modalidad['momento_cobro'] = 'VENCIDO';
+            } else {
+                $modalidad['permite_prorrateo'] = false;
+            }
+
+            if (($modalidad['extension_automatica'] ?? false) && ! ($modalidad['permite_extension'] ?? false)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'modalidades' => 'Para extender automáticamente una modalidad, primero debe permitirse la extensión.',
+                ]);
+            }
+
+            return $modalidad;
+        })->values()->all();
+
+        if ($requiereModalidades && empty($modalidades)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'modalidades' => 'Agrega al menos una modalidad para este plan.',
+            ]);
+        }
+
+        $datos['modalidades'] = $requiereModalidades ? $modalidades : [];
 
         $requiereEntrenador = (bool) ($datos['requiere_entrenador'] ?? false);
         $servicioIds = collect($datos['servicio_ids'] ?? [])

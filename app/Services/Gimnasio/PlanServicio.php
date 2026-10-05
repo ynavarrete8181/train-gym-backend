@@ -23,16 +23,16 @@ class PlanServicio
                 $datos['codigo'] = $this->generarCodigo();
             }
 
-            $id = DB::table('membresias.planes')->insertGetId($datos);
+            $id = DB::table('gimnasio.planes')->insertGetId($datos);
 
             $this->sincronizarPreciosSede($id, $preciosSede);
             $this->sincronizarServicios($id, $servicioIds);
 
-            $plan = DB::table('membresias.planes')->where('id', $id)->first();
-            $plan->precios_sede = DB::table('membresias.plan_precios_sede')->where('plan_id', $id)->get();
+            $plan = DB::table('gimnasio.planes')->where('id', $id)->first();
+            $plan->precios_sede = DB::table('gimnasio.plan_precios_sede')->where('plan_id', $id)->get();
             $plan->servicios = $this->serviciosDelPlan($id);
             $plan->modalidades = $this->modalidadesDelPlan($id);
-            $this->auditar('membresias', 'CREAR', 'membresias.planes', $id, null, $plan);
+            $this->auditar('membresias', 'CREAR', 'gimnasio.planes', $id, null, $plan);
             return $plan;
         });
     }
@@ -46,24 +46,24 @@ class PlanServicio
         $datos['updated_at'] = now();
 
         return DB::transaction(function () use ($id, $datos, $preciosSede, $servicioIds) {
-            $antes = DB::table('membresias.planes')->where('id', $id)->first();
-            DB::table('membresias.planes')->where('id', $id)->update($datos);
+            $antes = DB::table('gimnasio.planes')->where('id', $id)->first();
+            DB::table('gimnasio.planes')->where('id', $id)->update($datos);
 
             $this->sincronizarPreciosSede($id, $preciosSede);
             $this->sincronizarServicios($id, $servicioIds);
 
-            $plan = DB::table('membresias.planes')->where('id', $id)->first();
-            $plan->precios_sede = DB::table('membresias.plan_precios_sede')->where('plan_id', $id)->get();
+            $plan = DB::table('gimnasio.planes')->where('id', $id)->first();
+            $plan->precios_sede = DB::table('gimnasio.plan_precios_sede')->where('plan_id', $id)->get();
             $plan->servicios = $this->serviciosDelPlan($id);
             $plan->modalidades = $this->modalidadesDelPlan($id);
-            $this->auditar('membresias', 'ACTUALIZAR', 'membresias.planes', $id, $antes, $plan);
+            $this->auditar('membresias', 'ACTUALIZAR', 'gimnasio.planes', $id, $antes, $plan);
             return $plan;
         });
     }
 
     private function sincronizarPreciosSede(int $planId, array $preciosSede)
     {
-        DB::table('membresias.plan_precios_sede')->where('plan_id', $planId)->delete();
+        DB::table('gimnasio.plan_precios_sede')->where('plan_id', $planId)->delete();
 
         $insertData = [];
         foreach ($preciosSede as $p) {
@@ -78,13 +78,13 @@ class PlanServicio
         }
 
         if (!empty($insertData)) {
-            DB::table('membresias.plan_precios_sede')->insert($insertData);
+            DB::table('gimnasio.plan_precios_sede')->insert($insertData);
         }
     }
 
     private function sincronizarServicios(int $planId, array $servicioIds): void
     {
-        DB::table('membresias.plan_servicios')->where('plan_id', $planId)->delete();
+        DB::table('gimnasio.plan_servicios')->where('plan_id', $planId)->delete();
 
         $ids = collect($servicioIds)
             ->map(fn ($id) => (int) $id)
@@ -97,7 +97,7 @@ class PlanServicio
         }
 
         $ahora = now();
-        DB::table('membresias.plan_servicios')->insert(
+        DB::table('gimnasio.plan_servicios')->insert(
             $ids->map(fn ($servicioId) => [
                 'plan_id' => $planId,
                 'servicio_id' => $servicioId,
@@ -110,9 +110,9 @@ class PlanServicio
 
     private function serviciosDelPlan(int $planId)
     {
-        return DB::table('membresias.plan_servicios as ps')
-            ->join('servicios.servicios as s', 's.id', '=', 'ps.servicio_id')
-            ->leftJoin('servicios.categorias_servicio as c', 'c.id', '=', 's.categoria_id')
+        return DB::table('gimnasio.plan_servicios as ps')
+            ->join('gimnasio.servicios as s', 's.id', '=', 'ps.servicio_id')
+            ->leftJoin('gimnasio.categorias_servicio as c', 'c.id', '=', 's.categoria_id')
             ->where('ps.plan_id', $planId)
             ->where('ps.activo', true)
             ->orderBy('s.nombre')
@@ -162,7 +162,7 @@ class PlanServicio
         unset($datos['precios_sede']);
 
         return DB::transaction(function () use ($planId, $datos, $preciosSede, $modalidadId): object {
-            $plan = DB::table('membresias.planes')->where('id', $planId)->first();
+            $plan = DB::table('gimnasio.planes')->where('id', $planId)->first();
             if (! $plan) {
                 throw new \Illuminate\Validation\ValidationException::withMessages([
                     'plan_id' => 'El plan seleccionado no existe.',
@@ -227,7 +227,7 @@ class PlanServicio
 
     public function eliminarModalidad(int $planId, int $modalidadId): void
     {
-        $enUso = DB::table('membresias.membresias')
+        $enUso = DB::table('gimnasio.membresias')
             ->where('modalidad_id', $modalidadId)
             ->exists();
 
@@ -266,12 +266,12 @@ class PlanServicio
 
     private function generarCodigo(): string
     {
-        DB::statement('LOCK TABLE membresias.planes IN SHARE ROW EXCLUSIVE MODE');
+        DB::statement('LOCK TABLE gimnasio.planes IN SHARE ROW EXCLUSIVE MODE');
 
-        $siguiente = ((int) DB::table('membresias.planes')->max('id')) + 1;
+        $siguiente = ((int) DB::table('gimnasio.planes')->max('id')) + 1;
         $codigo = 'PLAN-' . $siguiente;
 
-        while (DB::table('membresias.planes')->where('codigo', $codigo)->exists()) {
+        while (DB::table('gimnasio.planes')->where('codigo', $codigo)->exists()) {
             $siguiente++;
             $codigo = 'PLAN-' . $siguiente;
         }

@@ -219,7 +219,7 @@ class PlanControlador extends Controller
             'modalidades.*.permite_rollover' => 'boolean',
             'modalidades.*.activo' => 'boolean',
             'modalidades.*.precios_sede' => 'nullable|array',
-            'modalidades.*.precios_sede.*.sede_id' => 'required|integer|distinct|exists:pgsql.institucional.sedes,id_sede',
+            'modalidades.*.precios_sede.*.sede_id' => 'required|integer|exists:pgsql.institucional.sedes,id_sede',
             'modalidades.*.precios_sede.*.precio' => 'required|numeric|min:0',
         ]);
 

@@ -164,13 +164,13 @@ class PlanServicio
         return DB::transaction(function () use ($planId, $datos, $preciosSede, $modalidadId): object {
             $plan = DB::table('gimnasio.planes')->where('id', $planId)->first();
             if (! $plan) {
-                throw new \Illuminate\Validation\ValidationException::withMessages([
+                throw \Illuminate\Validation\ValidationException::withMessages([
                     'plan_id' => 'El plan seleccionado no existe.',
                 ]);
             }
 
             if (! $plan->requiere_modalidades) {
-                throw new \Illuminate\Validation\ValidationException::withMessages([
+                throw \Illuminate\Validation\ValidationException::withMessages([
                     'plan_id' => 'Activa "Requiere modalidades" en el plan antes de registrar modalidades.',
                 ]);
             }
@@ -180,7 +180,7 @@ class PlanServicio
                 : null;
 
             if ($modalidadId && ! $existente) {
-                throw new \Illuminate\Validation\ValidationException::withMessages([
+                throw \Illuminate\Validation\ValidationException::withMessages([
                     'modalidad_id' => 'La modalidad no pertenece al plan.',
                 ]);
             }
@@ -232,7 +232,7 @@ class PlanServicio
             ->exists();
 
         if ($enUso) {
-            throw new \Illuminate\Validation\ValidationException::withMessages([
+            throw \Illuminate\Validation\ValidationException::withMessages([
                 'modalidad_id' => 'La modalidad no se puede eliminar porque ya tiene membresías asociadas. Inactívala para conservar el historial.',
             ]);
         }

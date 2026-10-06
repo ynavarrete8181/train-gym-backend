@@ -24,6 +24,23 @@ class MembresiaServicio
         unset($datos['sedes_habilitadas'], $datos['asignaciones_entrenador'], $datos['entrenador_id']);
 
         $plan = DB::table('membresias.planes')->where('id', $datos['plan_id'])->first();
+        $modalidad = ! empty($datos['modalidad_id'])
+            ? DB::table('membresias.plan_modalidades')
+                ->where('id', (int) $datos['modalidad_id'])
+                ->where('plan_id', (int) $datos['plan_id'])
+                ->where('activo', true)
+                ->first()
+            : null;
+
+        if (($plan->requiere_modalidades ?? false) && ! $modalidad) {
+            throw ValidationException::withMessages([
+                'modalidad_id' => 'Selecciona una modalidad activa del plan.',
+            ]);
+        }
+
+        if (! ($plan->requiere_modalidades ?? false)) {
+            $datos['modalidad_id'] = null;
+        }
 
         if (($datos['generar_venta_automatica'] ?? false) && ! ($plan->renovable ?? false)) {
             throw ValidationException::withMessages([
@@ -35,9 +52,15 @@ class MembresiaServicio
             ? $this->calcularProximaFechaCobro($datos['fecha_inicio'], (int) $datos['dia_pago'])
             : null;
 
-        $datos['precio_aplicado'] = $this->resolverPrecio((int) $datos['plan_id'], $datos['sede_id'] ?? null);
+        $datos['precio_aplicado'] = $this->resolverPrecio(
+            (int) $datos['plan_id'],
+            $datos['sede_id'] ?? null,
+            $modalidad?->id
+        );
         $datos['codigo_contrato'] = 'TMP-' . Str::uuid();
-        $datos['fecha_fin'] = $this->calcularFechaFin($datos['fecha_inicio'], $plan->tipo_duracion, (int) $plan->duracion);
+        $tipoDuracion = $modalidad?->tipo_duracion ?? $plan->tipo_duracion;
+        $duracion = (int) ($modalidad?->duracion ?? $plan->duracion);
+        $datos['fecha_fin'] = $this->calcularFechaFin($datos['fecha_inicio'], $tipoDuracion, $duracion);
         $datos['estado'] = ($plan->requiere_pago ?? true) ? 'PENDIENTE_PAGO' : 'ACTIVA';
         $datos = $this->estados->aplicar($datos, 'MEMBRESIA');
         $datos['created_at'] = now();
@@ -113,7 +136,12 @@ class MembresiaServicio
 
         if (array_key_exists('fecha_inicio', $datos)) {
             $plan = DB::table('membresias.planes')->where('id', $antes->plan_id)->first();
-            $datos['fecha_fin'] = $this->calcularFechaFin($datos['fecha_inicio'], $plan->tipo_duracion, (int) $plan->duracion);
+            $modalidad = $antes->modalidad_id
+                ? DB::table('membresias.plan_modalidades')->where('id', $antes->modalidad_id)->first()
+                : null;
+            $tipoDuracion = $modalidad?->tipo_duracion ?? $plan->tipo_duracion;
+            $duracion = (int) ($modalidad?->duracion ?? $plan->duracion);
+            $datos['fecha_fin'] = $this->calcularFechaFin($datos['fecha_inicio'], $tipoDuracion, $duracion);
         }
 
         if (array_key_exists('estado', $datos)) {
@@ -165,6 +193,7 @@ class MembresiaServicio
             ->leftJoin('personas.personas as p', 'clientes.deportistas.persona_id', '=', 'p.id')
             ->leftJoin('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
             ->join('membresias.planes', 'membresias.membresias.plan_id', '=', 'membresias.planes.id')
+            ->leftJoin('membresias.plan_modalidades as modalidad', 'membresias.membresias.modalidad_id', '=', 'modalidad.id')
             ->leftJoin('institucional.sedes', 'membresias.membresias.sede_id', '=', 'institucional.sedes.id_sede')
             ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'membresias.membresias.estado_id', '=', 'estado_cfg.id')
             ->select(
@@ -179,6 +208,15 @@ class MembresiaServicio
                 'membresias.planes.requiere_pago',
                 'membresias.planes.requiere_entrenador',
                 'membresias.planes.renovable',
+                'membresias.planes.requiere_modalidades',
+                'modalidad.nombre as modalidad_nombre',
+                'modalidad.dias_por_semana as modalidad_dias_por_semana',
+                'modalidad.usos_por_semana as modalidad_usos_por_semana',
+                'modalidad.uso_ilimitado as modalidad_uso_ilimitado',
+                'modalidad.tipo_duracion as modalidad_tipo_duracion',
+                'modalidad.duracion as modalidad_duracion',
+                'modalidad.modelo_cobro as modalidad_modelo_cobro',
+                'modalidad.momento_cobro as modalidad_momento_cobro',
                 'institucional.sedes.nombre as sede_nombre',
                 'estado_cfg.codigo as estado_codigo',
                 'estado_cfg.valor_interno as estado_valor',
@@ -295,8 +333,13 @@ class MembresiaServicio
             : Carbon::parse($membresia->fecha_fin)->addDay()->toDateString();
 
         $numero = $ultimo ? ((int) $ultimo->numero_periodo + 1) : 1;
-        $fin = $this->calcularFechaFin($inicio, $plan->tipo_duracion, (int) $plan->duracion);
-        $precio = $this->resolverPrecio((int) $plan->id, $membresia->sede_id);
+        $modalidad = $membresia->modalidad_id
+            ? DB::table('membresias.plan_modalidades')->where('id', $membresia->modalidad_id)->first()
+            : null;
+        $tipoDuracion = $modalidad?->tipo_duracion ?? $plan->tipo_duracion;
+        $duracion = (int) ($modalidad?->duracion ?? $plan->duracion);
+        $fin = $this->calcularFechaFin($inicio, $tipoDuracion, $duracion);
+        $precio = $this->resolverPrecio((int) $plan->id, $membresia->sede_id, $membresia->modalidad_id);
 
         $estadoValor = ($plan->requiere_pago ?? true) ? 'PENDIENTE_PAGO' : 'ACTIVA';
         $estadoMembresia = $this->estados->aplicar(['estado' => $estadoValor], 'MEMBRESIA');
@@ -456,14 +499,34 @@ class MembresiaServicio
 
         return match ($tipoDuracion) {
             'DIAS' => $inicio->copy()->addDays(max($duracion - 1, 0))->toDateString(),
+            'SEMANAS' => $inicio->copy()->addWeeks($duracion)->subDay()->toDateString(),
             'MESES' => $inicio->copy()->addMonthsNoOverflow($duracion)->subDay()->toDateString(),
             'ANIOS' => $inicio->copy()->addYears($duracion)->subDay()->toDateString(),
             default => $inicio->toDateString(),
         };
     }
 
-    private function resolverPrecio(int $planId, mixed $sedeId): float
+    private function resolverPrecio(int $planId, mixed $sedeId, mixed $modalidadId = null): float
     {
+        if ($modalidadId) {
+            if ($sedeId) {
+                $precioSede = DB::table('membresias.plan_modalidad_precios_sede')
+                    ->where('modalidad_id', (int) $modalidadId)
+                    ->where('sede_id', $sedeId)
+                    ->where('activo', true)
+                    ->value('precio');
+
+                if ($precioSede !== null) {
+                    return (float) $precioSede;
+                }
+            }
+
+            return (float) DB::table('membresias.plan_modalidades')
+                ->where('id', (int) $modalidadId)
+                ->where('plan_id', $planId)
+                ->value('precio_base');
+        }
+
         if ($sedeId) {
             $precioSede = DB::table('membresias.plan_precios_sede')
                 ->where('plan_id', $planId)

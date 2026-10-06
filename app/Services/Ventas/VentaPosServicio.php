@@ -177,6 +177,7 @@ class VentaPosServicio
 
         return DB::table('ventas.ventas as v')
             ->leftJoin('gimnasio.deportistas as d', 'd.id', '=', 'v.cliente_id')
+            ->leftJoin('personas.personas as persona', 'persona.id', '=', 'd.persona_id')
             ->leftJoin('seguridad.users as u', 'u.id', '=', 'd.usuario_id')
             ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
             ->leftJoin('gimnasio.planes as p', 'p.id', '=', 'm.plan_id')
@@ -196,7 +197,7 @@ class VentaPosServicio
             ->orderBy('v.id')
             ->get([
                 'v.*',
-                'u.name as cliente_nombre',
+                DB::raw("COALESCE(NULLIF(TRIM(persona.nombre_completo), ''), NULLIF(TRIM(u.name), ''), 'Consumidor final') as cliente_nombre"),
                 'd.codigo_deportista',
                 's.nombre as sede_nombre',
                 'p.nombre as plan_nombre',

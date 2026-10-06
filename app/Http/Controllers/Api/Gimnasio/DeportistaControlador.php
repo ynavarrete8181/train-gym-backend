@@ -119,8 +119,18 @@ class DeportistaControlador extends Controller
 
         $membresias = DB::table('gimnasio.membresias')
             ->join('gimnasio.planes', 'gimnasio.membresias.plan_id', '=', 'gimnasio.planes.id')
+            ->leftJoin('membresias.plan_modalidades as modalidad', 'gimnasio.membresias.modalidad_id', '=', 'modalidad.id')
             ->where('deportista_id', $id)
-            ->select('gimnasio.membresias.*', 'gimnasio.planes.nombre as plan_nombre')
+            ->select(
+                'gimnasio.membresias.*',
+                'gimnasio.planes.nombre as plan_nombre',
+                'modalidad.nombre as modalidad_nombre',
+                'modalidad.dias_por_semana as modalidad_dias_por_semana',
+                'modalidad.usos_por_semana as modalidad_usos_por_semana',
+                'modalidad.uso_ilimitado as modalidad_uso_ilimitado',
+                'modalidad.tipo_duracion as modalidad_tipo_duracion',
+                'modalidad.duracion as modalidad_duracion'
+            )
             ->get();
             
         $deportista->membresias = $membresias;

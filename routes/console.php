@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Schedule;
 use App\Services\Gimnasio\CobroProgramadoMembresiaServicio;
+use App\Services\Ventas\CierreAutomaticoCajaServicio;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -99,4 +100,22 @@ Artisan::command('revive:procesar-cobros-membresias {--fecha=}', function (Cobro
 
 Schedule::command('revive:procesar-cobros-membresias')
     ->dailyAt('00:05')
+    ->withoutOverlapping();
+
+
+Artisan::command('revive:cerrar-turnos-caja-vencidos {--fecha=}', function (CierreAutomaticoCajaServicio $servicio): int {
+    $resultado = $servicio->procesar($this->option('fecha') ?: null);
+
+    $this->info(
+        "Turnos detectados: {$resultado['turnos_detectados']} | "
+        . "cerrados: {$resultado['turnos_cerrados']} | "
+        . "destinatarios notificados: {$resultado['destinatarios_notificados']} | "
+        . "fecha: {$resultado['fecha']}"
+    );
+
+    return 0;
+})->purpose('Cierra automáticamente turnos de caja de días anteriores y deja el arqueo pendiente de conciliación.');
+
+Schedule::command('revive:cerrar-turnos-caja-vencidos')
+    ->dailyAt('00:01')
     ->withoutOverlapping();

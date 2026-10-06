@@ -69,7 +69,7 @@ class UsuarioController extends Controller
         $this->contextoOperativoService->asegurarContextosSede();
 
         $datos = $request->validate([
-            'persona_id' => ['required', 'integer', Rule::exists('personas.personas', 'id'), Rule::unique(User::class, 'persona_id')],
+            'persona_id' => ['required', 'integer', Rule::exists('pgsql.personas.personas', 'id'), Rule::unique(User::class, 'persona_id')],
             'email' => ['required', 'email', 'max:255', Rule::unique(User::class, 'email')],
             'password' => ['required', 'string', 'confirmed', ReglasClave::segura()],
             'usr_tipo' => ['required', 'integer'],
@@ -121,7 +121,7 @@ class UsuarioController extends Controller
         $this->contextoOperativoService->asegurarContextosSede();
 
         $datos = $request->validate([
-            'persona_id' => ['nullable', 'integer', Rule::exists('personas.personas', 'id')],
+            'persona_id' => ['nullable', 'integer', Rule::exists('pgsql.personas.personas', 'id')],
             'email' => ['required', 'email', 'max:255', Rule::unique(User::class, 'email')->ignore($usuario->id)],
             'usr_tipo' => ['required', 'integer'],
             'usr_estado' => ['required', 'integer', Rule::in([1, 0])],

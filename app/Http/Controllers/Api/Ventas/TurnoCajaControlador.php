@@ -57,6 +57,19 @@ class TurnoCajaControlador extends Controller
         );
     }
 
+    public function conciliar(Request $request, int $id)
+    {
+        $datos = $request->validate([
+            'efectivo_contado' => 'required|numeric|min:0',
+            'observaciones' => 'nullable|string|max:1000',
+        ]);
+
+        return ApiResponse::exito(
+            'Arqueo de caja conciliado correctamente.',
+            (array) $this->turnos->conciliar($id, $datos, (int) $request->user()->id),
+        );
+    }
+
     public function actual(Request $request)
     {
         return ApiResponse::exito(

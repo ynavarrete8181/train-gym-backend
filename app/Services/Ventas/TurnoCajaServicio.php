@@ -132,6 +132,10 @@ class TurnoCajaServicio
                 'efectivo_contado' => $contado,
                 'diferencia' => $diferencia,
                 'estado' => 'CERRADA',
+                'tipo_cierre' => 'MANUAL',
+                'requiere_arqueo' => false,
+                'conciliado_at' => now(),
+                'conciliado_por' => $usuarioId,
                 'observaciones_cierre' => $datos['observaciones'] ?? null,
                 'cerrado_por' => $usuarioId,
                 'updated_at' => now(),
@@ -141,6 +145,60 @@ class TurnoCajaServicio
             $this->auditar('ventas', 'CERRAR_CAJA', 'ventas.turnos_caja', $id, $antes, $cerrado, 'Cierre de turno de caja.');
 
             return $cerrado;
+        });
+    }
+
+    public function conciliar(int $id, array $datos, int $usuarioId): object
+    {
+        return DB::transaction(function () use ($id, $datos, $usuarioId): object {
+            $turno = DB::table('ventas.turnos_caja')->where('id', $id)->lockForUpdate()->first();
+
+            if (! $turno) {
+                throw ValidationException::withMessages(['turno_id' => 'El turno de caja no existe.']);
+            }
+
+            if ($turno->estado !== 'CERRADA' || ! (bool) $turno->requiere_arqueo) {
+                throw ValidationException::withMessages([
+                    'turno_id' => 'Este turno no tiene un arqueo automático pendiente de conciliación.',
+                ]);
+            }
+
+            $this->alcance->validarSede($usuarioId, (int) $turno->sede_id, 'maneja_caja');
+
+            if (! $this->puedeCerrarTurnoAjeno($usuarioId)) {
+                throw ValidationException::withMessages([
+                    'turno_id' => 'Solo un supervisor o administrador puede conciliar un cierre automático.',
+                ]);
+            }
+
+            $contado = round((float) $datos['efectivo_contado'], 2);
+            $esperado = round((float) $turno->efectivo_esperado, 2);
+            $diferencia = round($contado - $esperado, 2);
+
+            $antes = $this->obtener($id);
+
+            DB::table('ventas.turnos_caja')->where('id', $id)->update([
+                'efectivo_contado' => $contado,
+                'diferencia' => $diferencia,
+                'requiere_arqueo' => false,
+                'conciliado_at' => now(),
+                'conciliado_por' => $usuarioId,
+                'observaciones_cierre' => $datos['observaciones'] ?? $turno->observaciones_cierre,
+                'updated_at' => now(),
+            ]);
+
+            $conciliado = $this->obtener($id);
+            $this->auditar(
+                'ventas',
+                'CONCILIAR_CAJA',
+                'ventas.turnos_caja',
+                $id,
+                $antes,
+                $conciliado,
+                'Conciliación de cierre automático de caja.'
+            );
+
+            return $conciliado;
         });
     }
 

@@ -16,6 +16,7 @@ Route::middleware(['base.auth'])->prefix('ventas')->group(function (): void {
         Route::get('turnos-caja/actual', [TurnoCajaControlador::class, 'actual'])->name('ventas.turnos-caja.actual');
         Route::post('turnos-caja/abrir', [TurnoCajaControlador::class, 'abrir'])->name('ventas.turnos-caja.abrir');
         Route::post('turnos-caja/{id}/cerrar', [TurnoCajaControlador::class, 'cerrar'])->name('ventas.turnos-caja.cerrar');
+        Route::post('turnos-caja/{id}/conciliar', [TurnoCajaControlador::class, 'conciliar'])->name('ventas.turnos-caja.conciliar');
     });
 
     Route::middleware(['base.permiso:VENTAS-VENTAS'])->group(function (): void {

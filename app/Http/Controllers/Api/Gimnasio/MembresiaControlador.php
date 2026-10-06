@@ -96,6 +96,7 @@ class MembresiaControlador extends Controller
         $validados = $request->validate([
             'deportista_id' => 'required|exists:pgsql.clientes.deportistas,id',
             'plan_id' => 'required|exists:pgsql.membresias.planes,id',
+            'modalidad_id' => 'nullable|integer|exists:pgsql.membresias.plan_modalidades,id',
             'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
             'sedes_habilitadas' => 'required|array|min:1',
             'sedes_habilitadas.*' => 'required|integer|distinct|exists:pgsql.institucional.sedes,id_sede',
@@ -115,7 +116,14 @@ class MembresiaControlador extends Controller
 
         $validados['sede_id'] = (int) collect($validados['sedes_habilitadas'])->first();
         $this->validarDeportistaActual((int) $validados['deportista_id']);
-        $this->validarConfiguracionMembresia((int) $validados['plan_id'], (int) $validados['sede_id'], $validados['sedes_habilitadas'], $validados['asignaciones_entrenador'] ?? []);
+        $this->validarConfiguracionMembresia(
+            (int) $validados['plan_id'],
+            (int) $validados['sede_id'],
+            $validados['sedes_habilitadas'],
+            $validados['asignaciones_entrenador'] ?? [],
+            isset($validados['modalidad_id']) ? (int) $validados['modalidad_id'] : null,
+            true
+        );
         $generarVenta = (bool) ($validados['generar_venta'] ?? false);
         unset($validados['generar_venta']);
 
@@ -279,6 +287,7 @@ class MembresiaControlador extends Controller
 
         $validados = $request->validate([
             'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
+            'modalidad_id' => 'nullable|integer|exists:pgsql.membresias.plan_modalidades,id',
             'sedes_habilitadas' => 'required|array|min:1',
             'sedes_habilitadas.*' => 'required|integer|distinct|exists:pgsql.institucional.sedes,id_sede',
             'asignaciones_entrenador' => 'nullable|array',
@@ -310,11 +319,17 @@ class MembresiaControlador extends Controller
             ? $sedeActual
             : (int) $sedesHabilitadas->first();
         $sedeValidacion = (int) $validados['sede_id'];
+        $modalidadValidacion = array_key_exists('modalidad_id', $validados)
+            ? ($validados['modalidad_id'] ? (int) $validados['modalidad_id'] : null)
+            : ($membresia->modalidad_id ? (int) $membresia->modalidad_id : null);
+
         $this->validarConfiguracionMembresia(
             (int) $membresia->plan_id,
             $sedeValidacion,
             $validados['sedes_habilitadas'],
-            $validados['asignaciones_entrenador'] ?? []
+            $validados['asignaciones_entrenador'] ?? [],
+            $modalidadValidacion,
+            false
         );
 
         $membresiaActualizada = DB::transaction(function () use ($id, $validados, $generarVenta, $request) {
@@ -423,7 +438,14 @@ class MembresiaControlador extends Controller
         return ApiResponse::exito('Membresía eliminada correctamente.');
     }
 
-    private function validarConfiguracionMembresia(int $planId, int $sedePrincipalId, array $sedesHabilitadas, array $asignaciones): void
+    private function validarConfiguracionMembresia(
+        int $planId,
+        int $sedePrincipalId,
+        array $sedesHabilitadas,
+        array $asignaciones,
+        ?int $modalidadId = null,
+        bool $exigirModalidad = true
+    ): void
     {
         $sedes = collect($sedesHabilitadas)->map(fn ($id) => (int) $id)->unique()->values();
 
@@ -436,6 +458,32 @@ class MembresiaControlador extends Controller
         $plan = DB::table('membresias.planes')->where('id', $planId)->first();
         if (! $plan) {
             throw ValidationException::withMessages(['plan_id' => 'El plan seleccionado no existe.']);
+        }
+
+        if ($plan->requiere_modalidades ?? false) {
+            if ($exigirModalidad && ! $modalidadId) {
+                throw ValidationException::withMessages([
+                    'modalidad_id' => 'Selecciona una modalidad para este plan.',
+                ]);
+            }
+
+            if ($modalidadId) {
+                $modalidadValida = DB::table('membresias.plan_modalidades')
+                    ->where('id', $modalidadId)
+                    ->where('plan_id', $planId)
+                    ->where('activo', true)
+                    ->exists();
+
+                if (! $modalidadValida) {
+                    throw ValidationException::withMessages([
+                        'modalidad_id' => 'La modalidad seleccionada no pertenece al plan o está inactiva.',
+                    ]);
+                }
+            }
+        } elseif ($modalidadId) {
+            throw ValidationException::withMessages([
+                'modalidad_id' => 'Este plan no utiliza modalidades.',
+            ]);
         }
 
         if (($plan->requiere_entrenador ?? false) && empty($asignaciones)) {

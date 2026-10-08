@@ -44,6 +44,7 @@ class VentaServicio
     {
         $query = DB::table('ventas.ventas')
             ->leftJoin('gimnasio.deportistas', 'ventas.ventas.cliente_id', '=', 'gimnasio.deportistas.id')
+            ->leftJoin('personas.personas as persona_cliente', 'gimnasio.deportistas.persona_id', '=', 'persona_cliente.id')
             ->leftJoin('seguridad.users as cliente_user', 'gimnasio.deportistas.usuario_id', '=', 'cliente_user.id')
             ->leftJoin('ventas.cajas', 'ventas.ventas.caja_id', '=', 'ventas.cajas.id')
             ->leftJoin('gimnasio.membresias as membresia_sede', 'ventas.ventas.membresia_id', '=', 'membresia_sede.id')
@@ -401,7 +402,9 @@ class VentaServicio
                 'ventas.comprobantes.*',
                 'ventas.ventas.numero as venta_numero',
                 'ventas.ventas.concepto',
-                'cliente_user.name as cliente_nombre',
+                DB::raw("COALESCE(NULLIF(TRIM(persona_cliente.nombre_completo), ''), NULLIF(TRIM(cliente_user.name), ''), 'Consumidor final') as cliente_nombre"),
+                DB::raw("COALESCE(NULLIF(TRIM(persona_cliente.identificacion), ''), NULLIF(TRIM(cliente_user.cedula), '')) as cliente_identificacion"),
+                DB::raw("COALESCE(NULLIF(TRIM(persona_cliente.email), ''), NULLIF(TRIM(cliente_user.email), '')) as cliente_email"),
                 DB::raw('COALESCE(caja_venta.sede_id, membresia_sede.sede_id) as sede_id')
             );
 

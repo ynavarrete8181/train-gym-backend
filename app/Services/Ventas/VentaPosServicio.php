@@ -303,7 +303,7 @@ class VentaPosServicio
             $datos['membresia_id'] = (int) $membresiaId;
         }
 
-        $detalles = $this->resolverDetalles($detallesEntrada, (int) $turno->sede_id);
+        $detalles = $this->resolverDetalles($detallesEntrada, (int) $turno->sede_id, $ventaId);
         $subtotal = round((float) $detalles->sum('total_linea'), 2);
         $descuento = round((float) ($datos['descuento'] ?? 0), 2);
         $impuesto = round((float) ($datos['impuesto'] ?? 0), 2);
@@ -487,7 +487,7 @@ class VentaPosServicio
         });
     }
 
-    private function resolverDetalles($detalles, int $sedeId)
+    private function resolverDetalles($detalles, int $sedeId, ?int $ventaId = null)
     {
         return $detalles->map(function ($item) use ($sedeId): array {
             $tipo = strtoupper((string) ($item['tipo'] ?? ''));
@@ -584,12 +584,15 @@ class VentaPosServicio
                     ]);
                 }
 
-                if (DB::table('ventas.ventas')
+                $ventaPendiente = DB::table('ventas.ventas')
                     ->where('membresia_id', $membresia->id)
                     ->whereIn('estado', ['PENDIENTE', 'PARCIAL'])
-                    ->exists()) {
+                    ->when($ventaId, fn ($query) => $query->where('id', '!=', $ventaId))
+                    ->exists();
+
+                if ($ventaPendiente) {
                     throw ValidationException::withMessages([
-                        'detalles' => 'Esta membresía ya tiene una cuenta pendiente. Ábrela desde Cuentas abiertas.',
+                        'detalles' => 'Esta membresía ya tiene otra cuenta pendiente. Ábrela desde Cuentas abiertas.',
                     ]);
                 }
 

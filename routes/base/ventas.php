@@ -40,5 +40,6 @@ Route::middleware(['base.auth'])->prefix('ventas')->group(function (): void {
 
     Route::middleware(['base.permiso:VENTAS-COMPROBANTES'])->group(function (): void {
         Route::get('comprobantes', [VentaControlador::class, 'comprobantes'])->name('ventas.comprobantes.index');
+        Route::post('comprobantes/{id}/reenviar', [VentaControlador::class, 'reenviarComprobante'])->name('ventas.comprobantes.reenviar');
     });
 });

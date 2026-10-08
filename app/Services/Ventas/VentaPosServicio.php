@@ -179,6 +179,7 @@ class VentaPosServicio
             ->leftJoin('gimnasio.deportistas as d', 'd.id', '=', 'v.cliente_id')
             ->leftJoin('personas.personas as persona', 'persona.id', '=', 'd.persona_id')
             ->leftJoin('seguridad.users as u', 'u.id', '=', 'd.usuario_id')
+            ->leftJoin('seguridad.users as generado_por', 'generado_por.id', '=', 'v.usuario_id')
             ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
             ->leftJoin('gimnasio.planes as p', 'p.id', '=', 'm.plan_id')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
@@ -198,6 +199,7 @@ class VentaPosServicio
             ->get([
                 'v.*',
                 DB::raw("COALESCE(NULLIF(TRIM(persona.nombre_completo), ''), NULLIF(TRIM(u.name), ''), 'Consumidor final') as cliente_nombre"),
+                DB::raw("CASE WHEN v.generado_por_tipo = 'SISTEMA' THEN 'Sistema' ELSE COALESCE(NULLIF(TRIM(generado_por.name), ''), 'Sistema') END as generado_por_nombre"),
                 'd.codigo_deportista',
                 's.nombre as sede_nombre',
                 'p.nombre as plan_nombre',

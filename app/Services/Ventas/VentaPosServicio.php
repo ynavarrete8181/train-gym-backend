@@ -2,6 +2,7 @@
 
 namespace App\Services\Ventas;
 
+use App\Services\Seguridad\AlcanceOperativoService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
@@ -11,6 +12,7 @@ class VentaPosServicio
     public function __construct(
         private readonly TurnoCajaServicio $turnos,
         private readonly VentaServicio $ventas,
+        private readonly AlcanceOperativoService $alcance,
     ) {
     }
 
@@ -168,14 +170,19 @@ class VentaPosServicio
     public function cuentasAbiertas(int $usuarioId): array
     {
         $turno = $this->turnos->turnoAbiertoUsuario($usuarioId);
-        if (! $turno) {
-            return [];
-        }
+        $rol = DB::table('seguridad.users as u')
+            ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
+            ->where('u.id', $usuarioId)
+            ->value('r.role');
 
-        $hoy = now()->toDateString();
-        $sedeId = (int) $turno->sede_id;
+        $rol = mb_strtoupper(trim((string) $rol));
+        $puedeGestionarCartera = in_array($rol, [
+            'SUPERADMINISTRADOR',
+            'ADMINISTRADOR',
+            'SUPERVISOR DE VENTAS',
+        ], true);
 
-        return DB::table('ventas.ventas as v')
+        $query = DB::table('ventas.ventas as v')
             ->leftJoin('gimnasio.deportistas as d', 'd.id', '=', 'v.cliente_id')
             ->leftJoin('personas.personas as persona', 'persona.id', '=', 'd.persona_id')
             ->leftJoin('seguridad.users as u', 'u.id', '=', 'd.usuario_id')
@@ -184,16 +191,38 @@ class VentaPosServicio
             ->leftJoin('gimnasio.planes as p', 'p.id', '=', 'm.plan_id')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
             ->leftJoin('institucional.sedes as s', 's.id_sede', '=', DB::raw('COALESCE(c.sede_id, m.sede_id)'))
-            ->whereIn('v.estado', ['PENDIENTE', 'PARCIAL'])
-            ->whereRaw('COALESCE(c.sede_id, m.sede_id) = ?', [$sedeId])
-            ->where(function ($query) use ($turno, $hoy): void {
-                $query
-                    ->where('v.turno_caja_id', $turno->id)
-                    ->orWhere(function ($q) use ($hoy): void {
-                        $q->whereNull('v.turno_caja_id')
-                            ->whereDate('v.fecha_venta', $hoy);
-                    });
-            })
+            ->whereIn('v.estado', ['PENDIENTE', 'PARCIAL']);
+
+        if ($puedeGestionarCartera) {
+            $sedes = $this->alcance->sedesPermitidas($usuarioId, 'maneja_caja');
+
+            if (empty($sedes)) {
+                return [];
+            }
+
+            $query->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes);
+        } else {
+            if (! $turno) {
+                return [];
+            }
+
+            $sedeId = (int) $turno->sede_id;
+
+            $query
+                ->whereRaw('COALESCE(c.sede_id, m.sede_id) = ?', [$sedeId])
+                ->where(function ($q) use ($turno): void {
+                    $q->where('v.turno_caja_id', $turno->id)
+                        ->orWhere(function ($sinTurno): void {
+                            $sinTurno->whereNull('v.turno_caja_id')
+                                ->where(function ($origen): void {
+                                    $origen->whereNull('v.origen_tipo')
+                                        ->orWhereIn('v.origen_tipo', ['POS', 'SERVICIO', 'PASE_DIARIO']);
+                                });
+                        });
+                });
+        }
+
+        return $query
             ->orderBy('v.fecha_venta')
             ->orderBy('v.id')
             ->get([

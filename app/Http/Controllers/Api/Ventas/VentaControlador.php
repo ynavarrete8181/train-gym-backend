@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Ventas;
 
 use App\Http\Controllers\Controller;
 use App\Services\Ventas\CajaServicio;
+use App\Services\Ventas\ComprobanteCorreoServicio;
 use App\Services\Ventas\ComprobantePdfServicio;
 use App\Services\Ventas\TurnoCajaServicio;
 use App\Services\Ventas\VentaFiltroServicio;
@@ -23,6 +24,7 @@ class VentaControlador extends Controller
         private readonly CajaServicio $cajas,
         private readonly VentaPosServicio $pos,
         private readonly ComprobantePdfServicio $pdfs,
+        private readonly ComprobanteCorreoServicio $comprobantesCorreo,
     ) {
     }
 
@@ -139,12 +141,18 @@ class VentaControlador extends Controller
             'detalles.*.total_linea' => 'nullable|numeric|min:0',
         ]);
 
-        return ApiResponse::exito(
-            'Venta, pago y comprobante registrados correctamente.',
-            (array) $this->pos->cobrar($datos, (int) $request->user()->id),
-            [],
-            201,
-        );
+        $venta = $this->pos->cobrar($datos, (int) $request->user()->id);
+        $respuesta = (array) $venta;
+
+        if (strtoupper((string) ($venta->estado ?? '')) === 'PAGADA') {
+            try {
+                $respuesta['correo_comprobante'] = $this->comprobantesCorreo->enviar((int) $venta->id, (int) $request->user()->id);
+            } catch (\Throwable $e) {
+                $respuesta['correo_comprobante'] = ['ok' => false, 'mensaje' => $e->getMessage()];
+            }
+        }
+
+        return ApiResponse::exito('Venta y cobro registrados correctamente.', $respuesta, [], 201);
     }
 
     public function cobrarVentaPosExistente(Request $request, int $id)
@@ -174,12 +182,18 @@ class VentaControlador extends Controller
             'detalles.*.total_linea' => 'nullable|numeric|min:0',
         ]);
 
-        return ApiResponse::exito(
-            'Cuenta cobrada y comprobante actualizado correctamente.',
-            (array) $this->pos->cobrar($datos, (int) $request->user()->id, $id),
-            [],
-            200,
-        );
+        $venta = $this->pos->cobrar($datos, (int) $request->user()->id, $id);
+        $respuesta = (array) $venta;
+
+        if (strtoupper((string) ($venta->estado ?? '')) === 'PAGADA') {
+            try {
+                $respuesta['correo_comprobante'] = $this->comprobantesCorreo->enviar((int) $venta->id, (int) $request->user()->id);
+            } catch (\Throwable $e) {
+                $respuesta['correo_comprobante'] = ['ok' => false, 'mensaje' => $e->getMessage()];
+            }
+        }
+
+        return ApiResponse::exito('Cuenta cobrada correctamente.', $respuesta, [], 200);
     }
 
     public function detalleVenta(Request $request, int $id)
@@ -209,6 +223,19 @@ class VentaControlador extends Controller
             'Cobros consultados.',
             $this->ventas->listarPagos($request->all(), $request->user()?->id),
             $request->user()?->id,
+        );
+    }
+
+    public function reenviarComprobante(Request $request, int $id)
+    {
+        $comprobante = \Illuminate\Support\Facades\DB::table('ventas.comprobantes')->where('id', $id)->first();
+        if (! $comprobante) {
+            throw ValidationException::withMessages(['comprobante' => 'El comprobante no existe.']);
+        }
+
+        return ApiResponse::exito(
+            'Comprobante reenviado correctamente.',
+            $this->comprobantesCorreo->enviar((int) $comprobante->venta_id, (int) $request->user()->id, true),
         );
     }
 

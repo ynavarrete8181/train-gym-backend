@@ -8,6 +8,21 @@ class ContenidoCorreoService
 
     public const VARIABLES_COMUNICADO = ['nombre_sistema', 'nombre_destinatario', 'nombre_usuario', 'correo_destino'];
 
+    public const VARIABLES_AUTOMATICA = [
+        'nombre_sistema',
+        'nombre_destinatario',
+        'nombre_usuario',
+        'correo_destino',
+        'nombre_cliente',
+        'numero_comprobante',
+        'numero_venta',
+        'concepto_venta',
+        'total_pagado',
+        'fecha_pago',
+        'sede_nombre',
+        'detalle_membresia',
+    ];
+
     public function variablesEn(string ...$contenidos): array
     {
         preg_match_all('/{{\s*([a-zA-Z0-9_]+)\s*}}/', implode("\n", $contenidos), $coincidencias);
@@ -17,7 +32,11 @@ class ContenidoCorreoService
 
     public function variablesPermitidas(string $tipo): array
     {
-        return in_array($tipo, ['ACCESO', 'RESTABLECIMIENTO'], true) ? self::VARIABLES_ACCESO : self::VARIABLES_COMUNICADO;
+        if (in_array($tipo, ['ACCESO', 'RESTABLECIMIENTO'], true)) {
+            return self::VARIABLES_ACCESO;
+        }
+
+        return $tipo === 'AUTOMATICA' ? self::VARIABLES_AUTOMATICA : self::VARIABLES_COMUNICADO;
     }
 
     public function validarEstructura(string $tipo, string $asunto, string $html, string $texto): array

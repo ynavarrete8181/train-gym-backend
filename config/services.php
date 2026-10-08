@@ -40,7 +40,7 @@ return [
         'client_id_outlook_graph' => env('AZURE_CLIENT_ID_OUTLOOK_GRAPH'),
         'client_secret_outlook_graph' => env('AZURE_CLIENT_SECRET_OUTLOOK_GRAPH'),
         'scope' => env('AZURE_SCOPE', 'https://graph.microsoft.com/.default'),
-        'outlook_sender' => env('AZURE_OUTLOOK_SENDER'),
+        'outlook_sender' => env('REVIVE_MAIL_SENDER', env('AZURE_OUTLOOK_SENDER')),
     ],
 
     'notificaciones' => [

@@ -208,18 +208,10 @@ class VentaPosServicio
 
             $sedeId = (int) $turno->sede_id;
 
-            $query
-                ->whereRaw('COALESCE(c.sede_id, m.sede_id) = ?', [$sedeId])
-                ->where(function ($q) use ($turno): void {
-                    $q->where('v.turno_caja_id', $turno->id)
-                        ->orWhere(function ($sinTurno): void {
-                            $sinTurno->whereNull('v.turno_caja_id')
-                                ->where(function ($origen): void {
-                                    $origen->whereNull('v.origen_tipo')
-                                        ->orWhereIn('v.origen_tipo', ['POS', 'SERVICIO', 'PASE_DIARIO']);
-                                });
-                        });
-                });
+            // El cajero con turno propio activo puede cobrar cualquier cuenta
+            // pendiente/parcial de su sede, sin importar quién la generó.
+            // La responsabilidad de caja queda en el pago/turno, no en el origen de la venta.
+            $query->whereRaw('COALESCE(c.sede_id, m.sede_id) = ?', [$sedeId]);
         }
 
         return $query
@@ -228,6 +220,7 @@ class VentaPosServicio
             ->get([
                 'v.*',
                 DB::raw("COALESCE(NULLIF(TRIM(persona.nombre_completo), ''), NULLIF(TRIM(u.name), ''), 'Consumidor final') as cliente_nombre"),
+                DB::raw("COALESCE(NULLIF(TRIM(persona.identificacion), ''), NULLIF(TRIM(u.cedula), '')) as cliente_identificacion"),
                 DB::raw("CASE WHEN v.generado_por_tipo = 'SISTEMA' THEN 'Sistema' ELSE COALESCE(NULLIF(TRIM(generado_por.name), ''), 'Sistema') END as generado_por_nombre"),
                 'd.codigo_deportista',
                 's.nombre as sede_nombre',

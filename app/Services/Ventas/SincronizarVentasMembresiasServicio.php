@@ -3,6 +3,7 @@
 namespace App\Services\Ventas;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 class SincronizarVentasMembresiasServicio
@@ -130,27 +131,46 @@ class SincronizarVentasMembresiasServicio
 
     private function usuarioOrigenMembresia(int $membresiaId): ?int
     {
-        $registroId = (string) $membresiaId;
-
-        $usuarioId = DB::table('auditoria.eventos')
-            ->where('tabla', 'membresias.membresias')
-            ->where('registro_id', $registroId)
-            ->where('accion', 'CREAR')
-            ->whereNotNull('usuario_id')
-            ->orderBy('created_at')
-            ->value('usuario_id');
-
-        if ($usuarioId) {
-            return (int) $usuarioId;
+        if (! Schema::connection('pgsql')->hasTable('auditoria.eventos')) {
+            return null;
         }
 
-        $usuarioId = DB::table('auditoria.eventos')
-            ->where('tabla', 'membresias.membresias')
-            ->where('registro_id', $registroId)
-            ->whereNotNull('usuario_id')
-            ->orderByDesc('created_at')
-            ->value('usuario_id');
+        $columnas = collect(Schema::connection('pgsql')->getColumnListing('auditoria.eventos'))
+            ->map(fn ($columna) => mb_strtolower((string) $columna))
+            ->all();
+
+        if (! in_array('usuario_id', $columnas, true)) {
+            return null;
+        }
+
+        $query = DB::table('auditoria.eventos')
+            ->whereNotNull('usuario_id');
+
+        if (in_array('accion', $columnas, true)) {
+            $query->where('accion', 'CREAR');
+        }
+
+        if (in_array('tabla', $columnas, true) && in_array('registro_id', $columnas, true)) {
+            $query
+                ->where('tabla', 'membresias.membresias')
+                ->where('registro_id', (string) $membresiaId);
+        } elseif (in_array('datos_despues', $columnas, true)) {
+            $query->whereRaw("COALESCE(datos_despues->>'id', '') = ?", [(string) $membresiaId]);
+
+            if (in_array('modulo', $columnas, true)) {
+                $query->whereIn('modulo', ['gimnasio', 'membresias']);
+            }
+        } else {
+            return null;
+        }
+
+        if (in_array('created_at', $columnas, true)) {
+            $query->orderBy('created_at');
+        }
+
+        $usuarioId = $query->value('usuario_id');
 
         return $usuarioId ? (int) $usuarioId : null;
     }
+
 }

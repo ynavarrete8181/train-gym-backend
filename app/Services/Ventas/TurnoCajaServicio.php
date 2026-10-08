@@ -33,6 +33,10 @@ class TurnoCajaServicio
 
         $this->alcance->aplicarSedes($query, 't.sede_id', $usuarioId, 'maneja_caja');
 
+        if ($this->alcance->esCajero($usuarioId)) {
+            $query->where('t.usuario_id', $usuarioId);
+        }
+
         if (! empty($filtros['busqueda'])) {
             $texto = mb_strtolower($filtros['busqueda']);
             $query->where(function ($q) use ($texto): void {
@@ -239,11 +243,16 @@ class TurnoCajaServicio
     public function opcionesFiltro(int $usuarioId): array
     {
         $sedes = $this->alcance->sedesPermitidas($usuarioId, 'maneja_caja');
+        $soloUsuario = $this->alcance->esCajero($usuarioId);
+
+        $base = fn () => DB::table('ventas.turnos_caja as t')
+            ->whereIn('t.sede_id', $sedes)
+            ->when($soloUsuario, fn ($q) => $q->where('t.usuario_id', $usuarioId));
 
         return [
-            'caja' => DB::table('ventas.turnos_caja as t')->join('ventas.cajas as c', 'c.id', '=', 't.caja_id')->whereIn('t.sede_id', $sedes)->distinct()->orderBy('c.nombre')->pluck('c.nombre')->values(),
-            'sede' => DB::table('ventas.turnos_caja as t')->join('institucional.sedes as s', 's.id_sede', '=', 't.sede_id')->whereIn('t.sede_id', $sedes)->distinct()->orderBy('s.nombre')->pluck('s.nombre')->values(),
-            'cajero' => DB::table('ventas.turnos_caja as t')->join('seguridad.users as u', 'u.id', '=', 't.usuario_id')->whereIn('t.sede_id', $sedes)->distinct()->orderBy('u.name')->pluck('u.name')->values(),
+            'caja' => $base()->join('ventas.cajas as c', 'c.id', '=', 't.caja_id')->distinct()->orderBy('c.nombre')->pluck('c.nombre')->values(),
+            'sede' => $base()->join('institucional.sedes as s', 's.id_sede', '=', 't.sede_id')->distinct()->orderBy('s.nombre')->pluck('s.nombre')->values(),
+            'cajero' => $base()->join('seguridad.users as u', 'u.id', '=', 't.usuario_id')->distinct()->orderBy('u.name')->pluck('u.name')->values(),
             'estado' => ['ABIERTA', 'CERRADA'],
         ];
     }

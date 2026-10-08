@@ -370,7 +370,8 @@ class VentaServicio
 
             $datos = $this->estados->aplicar($datos, 'PAGO');
             $datos['usuario_id'] = $usuarioId;
-            $datos['operacion_cobro_id'] = $datos['operacion_cobro_id'] ?? $this->secuencia('COBRO');
+            $datos['operacion_cobro_id'] = $datos['operacion_cobro_id'] ?? $this->secuencia('COBRO-OP');
+            $datos['codigo_cobro'] = $datos['codigo_cobro'] ?? $this->siguienteCodigoCobro();
             $datos['numero_comprobante'] = $datos['numero_comprobante'] ?? $this->secuencia('PAGO');
             $pagoId = $this->guardarRetornandoId('ventas.pagos', $datos, null);
             $this->actualizarEstadoVenta((int) $datos['venta_id'], $usuarioId);
@@ -600,6 +601,23 @@ class VentaServicio
             ->where('activo', true)
             ->orderBy('orden')
             ->get(['id', 'codigo', 'valor_interno', 'nombre', 'color', 'es_inicial', 'es_final']);
+    }
+
+    public function siguienteCodigoCobro(): string
+    {
+        $prefijo = 'COBRO-' . now()->format('Ymd') . '-';
+
+        $ultimo = DB::table('ventas.pagos')
+            ->whereNotNull('codigo_cobro')
+            ->where('codigo_cobro', 'like', $prefijo . '%')
+            ->orderByDesc('codigo_cobro')
+            ->value('codigo_cobro');
+
+        $consecutivo = $ultimo
+            ? max(1, ((int) substr((string) $ultimo, -4)) + 1)
+            : 1;
+
+        return $prefijo . str_pad((string) $consecutivo, 4, '0', STR_PAD_LEFT);
     }
 
     private function secuencia(string $prefijo): string

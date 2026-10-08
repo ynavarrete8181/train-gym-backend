@@ -434,12 +434,15 @@ class VentaPosServicio
                 throw ValidationException::withMessages(['pagos' => 'La suma de los pagos supera el saldo pendiente de la venta.']);
             }
 
+            $operacionCobroId = 'COBRO-' . now()->format('YmdHis') . '-' . random_int(1000, 9999);
+
             $pagos = collect();
             foreach ($pagosEntrada as $pagoEntrada) {
                 $pagos->push($this->ventas->guardarPago([
                     'venta_id' => (int) $venta->id,
                     'caja_id' => (int) $turno->caja_id,
                     'turno_caja_id' => (int) $turno->id,
+                    'operacion_cobro_id' => $operacionCobroId,
                     'metodo_pago' => strtoupper((string) $pagoEntrada['metodo_pago']),
                     'monto' => round((float) $pagoEntrada['monto'], 2),
                     'estado' => 'CONFIRMADO',

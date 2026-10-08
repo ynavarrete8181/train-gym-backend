@@ -298,7 +298,7 @@ class MembresiaControlador extends Controller
             'estado' => [
                 'required',
                 'string',
-                Rule::exists('configuracion.estados_catalogo', 'valor_interno')
+                Rule::exists('pgsql.configuracion.estados_catalogo', 'valor_interno')
                     ->where(fn ($q) => $q->where('entidad', 'MEMBRESIA')->where('activo', true)),
             ],
             'dias_gracia' => 'integer|min:0',

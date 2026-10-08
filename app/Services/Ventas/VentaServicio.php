@@ -374,10 +374,13 @@ class VentaServicio
             $this->actualizarEstadoVenta((int) $datos['venta_id'], $usuarioId);
             $this->auditar('ventas', 'CREAR', 'ventas.pagos', $pagoId, null, DB::table('ventas.pagos')->where('id', $pagoId)->first(), 'Pago registrado sobre la venta #' . $datos['venta_id'] . '.');
 
+            $ventaActualizada = DB::table('ventas.ventas')->where('id', $datos['venta_id'])->first();
+            $pagada = strtoupper((string) ($ventaActualizada->estado ?? '')) === 'PAGADA';
+
             DB::table('ventas.comprobantes')->where('venta_id', $datos['venta_id'])->update([
                 'pago_id' => $pagoId,
-                'estado' => 'EMITIDO',
-                'emitido_at' => now(),
+                'estado' => $pagada ? 'EMITIDO' : 'BORRADOR',
+                'emitido_at' => $pagada ? now() : null,
                 'updated_at' => now(),
             ]);
 

@@ -165,9 +165,11 @@ class VentaServicio
         $venta = DB::table('ventas.ventas as v')
             ->leftJoin('gimnasio.deportistas as d', 'd.id', '=', 'v.cliente_id')
             ->leftJoin('seguridad.users as cu', 'cu.id', '=', 'd.usuario_id')
+            ->leftJoin('personas.personas as persona', 'persona.id', '=', 'd.persona_id')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
             ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
             ->leftJoin('gimnasio.planes as pm', 'pm.id', '=', 'm.plan_id')
+            ->leftJoin('membresias.plan_modalidades as modalidad', 'modalidad.id', '=', 'm.modalidad_id')
             ->leftJoin('institucional.sedes as s', 's.id_sede', '=', DB::raw('COALESCE(c.sede_id, m.sede_id)'))
             ->leftJoin('configuracion.estados_catalogo as e', 'e.id', '=', 'v.estado_id')
             ->leftJoin('seguridad.users as generado_por', 'generado_por.id', '=', 'v.usuario_id')
@@ -175,8 +177,9 @@ class VentaServicio
             ->where('v.id', $ventaId)
             ->select(
                 'v.*',
-                'cu.name as cliente_nombre',
-                'cu.email as cliente_email',
+                DB::raw("COALESCE(NULLIF(TRIM(persona.nombre_completo), ''), NULLIF(TRIM(cu.name), ''), 'Consumidor final') as cliente_nombre"),
+                DB::raw("COALESCE(NULLIF(TRIM(persona.email), ''), NULLIF(TRIM(cu.email), '')) as cliente_email"),
+                DB::raw("COALESCE(NULLIF(TRIM(persona.identificacion), ''), NULLIF(TRIM(cu.cedula), '')) as cliente_identificacion"),
                 'd.codigo_deportista',
                 'c.nombre as caja_nombre',
                 'c.codigo as caja_codigo',
@@ -185,6 +188,10 @@ class VentaServicio
                 'm.plan_id as membresia_plan_id',
                 'pm.nombre as membresia_plan_nombre',
                 'pm.tipo_producto as membresia_tipo_producto',
+                'modalidad.nombre as membresia_modalidad_nombre',
+                'm.fecha_inicio as membresia_fecha_inicio',
+                'm.fecha_fin as membresia_fecha_fin',
+                'm.precio_aplicado as membresia_precio_aplicado',
                 'e.nombre as estado_nombre',
                 'e.color as estado_color',
                 'generado_por.name as generado_por_nombre',

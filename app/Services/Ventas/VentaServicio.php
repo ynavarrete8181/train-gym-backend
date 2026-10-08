@@ -293,6 +293,7 @@ class VentaServicio
             ->leftJoin('seguridad.users as cobrador', 'p.usuario_id', '=', 'cobrador.id')
             ->selectRaw("MAX(p.id) as id")
             ->selectRaw("{$operacionExpr} as operacion_cobro_id")
+            ->selectRaw('MAX(p.codigo_cobro) as codigo_cobro')
             ->selectRaw('MAX(p.fecha_pago) as fecha_pago')
             ->selectRaw('MAX(v.numero) as venta_numero')
             ->selectRaw('MAX(v.concepto) as venta_concepto')

@@ -43,6 +43,10 @@ return [
         'outlook_sender' => env('REVIVE_MAIL_SENDER', env('AZURE_OUTLOOK_SENDER')),
     ],
 
+    'revive_mail' => [
+        'transport' => env('REVIVE_CORREO_TRANSPORT', 'GRAPH'),
+    ],
+
     'notificaciones' => [
         'timezone' => env('NOTIFICACIONES_TIMEZONE', 'America/Guayaquil'),
         'frontend_url' => env('FRONTEND_URL', 'http://localhost:5173'),

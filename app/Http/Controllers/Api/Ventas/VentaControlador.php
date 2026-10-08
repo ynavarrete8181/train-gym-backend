@@ -120,9 +120,14 @@ class VentaControlador extends Controller
             'descuento' => 'nullable|numeric|min:0',
             'impuesto' => 'nullable|numeric|min:0',
             'observaciones' => 'nullable|string|max:1000',
-            'metodo_pago' => 'required|string|in:EFECTIVO,TARJETA,TRANSFERENCIA,DEPOSITO,OTRO',
+            'metodo_pago' => 'nullable|required_without:pagos|string|in:EFECTIVO,TARJETA,TRANSFERENCIA,DEPOSITO,OTRO',
             'referencia_pago' => 'nullable|string|max:120',
             'observaciones_pago' => 'nullable|string|max:1000',
+            'pagos' => 'nullable|required_without:metodo_pago|array|min:1',
+            'pagos.*.metodo_pago' => 'required|string|in:EFECTIVO,TARJETA,TRANSFERENCIA,DEPOSITO,OTRO',
+            'pagos.*.monto' => 'required|numeric|min:0.01',
+            'pagos.*.referencia' => 'nullable|string|max:120',
+            'pagos.*.observaciones' => 'nullable|string|max:1000',
             'detalles' => 'required|array|min:1',
             'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO',
             'detalles.*.referencia_id' => 'nullable|integer',
@@ -150,9 +155,14 @@ class VentaControlador extends Controller
             'descuento' => 'nullable|numeric|min:0',
             'impuesto' => 'nullable|numeric|min:0',
             'observaciones' => 'nullable|string|max:1000',
-            'metodo_pago' => 'required|string|in:EFECTIVO,TARJETA,TRANSFERENCIA,DEPOSITO,OTRO',
+            'metodo_pago' => 'nullable|required_without:pagos|string|in:EFECTIVO,TARJETA,TRANSFERENCIA,DEPOSITO,OTRO',
             'referencia_pago' => 'nullable|string|max:120',
             'observaciones_pago' => 'nullable|string|max:1000',
+            'pagos' => 'nullable|required_without:metodo_pago|array|min:1',
+            'pagos.*.metodo_pago' => 'required|string|in:EFECTIVO,TARJETA,TRANSFERENCIA,DEPOSITO,OTRO',
+            'pagos.*.monto' => 'required|numeric|min:0.01',
+            'pagos.*.referencia' => 'nullable|string|max:120',
+            'pagos.*.observaciones' => 'nullable|string|max:1000',
             'detalles' => 'required|array|min:1',
             'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO',
             'detalles.*.referencia_id' => 'nullable|integer',
@@ -244,7 +254,7 @@ class VentaControlador extends Controller
             'estado' => [
                 'required',
                 'string',
-                Rule::exists('configuracion.estados_catalogo', 'valor_interno')
+                Rule::exists('pgsql.configuracion.estados_catalogo', 'valor_interno')
                     ->where(fn ($q) => $q->where('entidad', 'VENTA')->where('activo', true)),
             ],
             'observaciones' => 'nullable|string',
@@ -287,7 +297,7 @@ class VentaControlador extends Controller
             'estado' => [
                 'required',
                 'string',
-                Rule::exists('configuracion.estados_catalogo', 'valor_interno')
+                Rule::exists('pgsql.configuracion.estados_catalogo', 'valor_interno')
                     ->where(fn ($q) => $q->where('entidad', 'PAGO')->where('activo', true)),
             ],
             'referencia' => 'nullable|string|max:120',

@@ -206,7 +206,7 @@ class VentaControlador extends Controller
     public function pagos(Request $request)
     {
         return $this->respuesta(
-            'Pagos consultados.',
+            'Cobros consultados.',
             $this->ventas->listarPagos($request->all(), $request->user()?->id),
             $request->user()?->id,
         );

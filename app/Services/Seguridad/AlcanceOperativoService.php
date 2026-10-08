@@ -8,6 +8,36 @@ use Illuminate\Validation\ValidationException;
 
 class AlcanceOperativoService
 {
+    public function rolUsuario(?int $usuarioId): ?string
+    {
+        if (! $usuarioId) {
+            return null;
+        }
+
+        $rol = DB::table('seguridad.users as u')
+            ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
+            ->where('u.id', $usuarioId)
+            ->where('u.usr_estado', 1)
+            ->where('r.activo', true)
+            ->value('r.role');
+
+        return $rol ? mb_strtoupper(trim((string) $rol)) : null;
+    }
+
+    public function puedeGestionarCartera(?int $usuarioId): bool
+    {
+        return in_array($this->rolUsuario($usuarioId), [
+            'SUPERADMINISTRADOR',
+            'ADMINISTRADOR',
+            'SUPERVISOR DE VENTAS',
+        ], true);
+    }
+
+    public function esCajero(?int $usuarioId): bool
+    {
+        return $this->rolUsuario($usuarioId) === 'CAJERO';
+    }
+
     public function esGlobal(?int $usuarioId): bool
     {
         if (! $usuarioId) {

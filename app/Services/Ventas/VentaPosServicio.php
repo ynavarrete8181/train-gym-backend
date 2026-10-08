@@ -300,7 +300,7 @@ class VentaPosServicio
             throw ValidationException::withMessages(['total' => 'El total de la venta debe ser mayor que cero.']);
         }
 
-        return DB::transaction(function () use ($datos, $detalles, $subtotal, $descuento, $impuesto, $total, $usuarioId, $turno, $ventaId): object {
+        return DB::transaction(function () use ($datos, $detalles, $subtotal, $descuento, $impuesto, $total, $usuarioId, $turno, $ventaId, $membresiaId): object {
             $ventaExistente = $ventaId ? DB::table('ventas.ventas')->where('id', $ventaId)->lockForUpdate()->first() : null;
             if ($ventaId && ! $ventaExistente) {
                 throw ValidationException::withMessages(['venta_id' => 'La cuenta pendiente no existe.']);

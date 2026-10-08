@@ -272,31 +272,57 @@ class VentaServicio
 
     public function listarPagos(array $filtros, ?int $usuarioId = null)
     {
-        $query = DB::table('ventas.pagos')
-            ->join('ventas.ventas', 'ventas.pagos.venta_id', '=', 'ventas.ventas.id')
-            ->leftJoin('ventas.cajas as caja_venta', 'ventas.ventas.caja_id', '=', 'caja_venta.id')
-            ->leftJoin('gimnasio.membresias as membresia_sede', 'ventas.ventas.membresia_id', '=', 'membresia_sede.id')
-            ->leftJoin('ventas.cajas', 'ventas.pagos.caja_id', '=', 'ventas.cajas.id')
-            ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'ventas.pagos.estado_id', '=', 'estado_cfg.id')
-            ->select(
-                'ventas.pagos.*',
-                'ventas.ventas.numero as venta_numero',
-                'ventas.ventas.concepto as venta_concepto',
-                'ventas.cajas.nombre as caja_nombre',
-                DB::raw('COALESCE(caja_venta.sede_id, membresia_sede.sede_id) as sede_id'),
-                'estado_cfg.codigo as estado_codigo',
-                'estado_cfg.valor_interno as estado_valor',
-                'estado_cfg.nombre as estado_nombre',
-                'estado_cfg.color as estado_color'
-            );
+        $operacionExpr = "COALESCE(p.operacion_cobro_id, 'PAGO-' || p.id::text)";
+
+        $query = DB::table('ventas.pagos as p')
+            ->join('ventas.ventas as v', 'p.venta_id', '=', 'v.id')
+            ->leftJoin('ventas.cajas as caja_venta', 'v.caja_id', '=', 'caja_venta.id')
+            ->leftJoin('gimnasio.membresias as membresia_sede', 'v.membresia_id', '=', 'membresia_sede.id')
+            ->leftJoin('ventas.cajas as caja_pago', 'p.caja_id', '=', 'caja_pago.id')
+            ->leftJoin('ventas.turnos_caja as turno', 'p.turno_caja_id', '=', 'turno.id')
+            ->leftJoin('gimnasio.deportistas as d', 'v.cliente_id', '=', 'd.id')
+            ->leftJoin('personas.personas as persona', 'd.persona_id', '=', 'persona.id')
+            ->leftJoin('seguridad.users as cliente_user', 'd.usuario_id', '=', 'cliente_user.id')
+            ->leftJoin('seguridad.users as cobrador', 'p.usuario_id', '=', 'cobrador.id')
+            ->selectRaw("MAX(p.id) as id")
+            ->selectRaw("{$operacionExpr} as operacion_cobro_id")
+            ->selectRaw('MAX(p.fecha_pago) as fecha_pago')
+            ->selectRaw('MAX(v.numero) as venta_numero')
+            ->selectRaw('MAX(v.concepto) as venta_concepto')
+            ->selectRaw("COALESCE(MAX(NULLIF(TRIM(persona.nombre_completo), '')), MAX(NULLIF(TRIM(cliente_user.name), '')), 'Consumidor final') as cliente_nombre")
+            ->selectRaw("COALESCE(MAX(NULLIF(TRIM(persona.identificacion), '')), MAX(NULLIF(TRIM(cliente_user.cedula), ''))) as cliente_identificacion")
+            ->selectRaw("COALESCE(MAX(NULLIF(TRIM(cobrador.name), '')), 'Sin usuario') as cobrado_por_nombre")
+            ->selectRaw('MAX(caja_pago.nombre) as caja_nombre')
+            ->selectRaw('MAX(caja_pago.codigo) as caja_codigo')
+            ->selectRaw('MAX(p.turno_caja_id) as turno_caja_id')
+            ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' AND p.metodo_pago = \'EFECTIVO\' THEN p.monto ELSE 0 END) as efectivo')
+            ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' AND p.metodo_pago = \'TRANSFERENCIA\' THEN p.monto ELSE 0 END) as transferencia')
+            ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' AND p.metodo_pago = \'TARJETA\' THEN p.monto ELSE 0 END) as tarjeta')
+            ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' AND p.metodo_pago = \'DEPOSITO\' THEN p.monto ELSE 0 END) as deposito')
+            ->selectRaw("SUM(CASE WHEN p.estado = 'CONFIRMADO' AND p.metodo_pago NOT IN ('EFECTIVO','TRANSFERENCIA','TARJETA','DEPOSITO') THEN p.monto ELSE 0 END) as otros")
+            ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' THEN p.monto ELSE 0 END) as total_cobrado')
+            ->selectRaw("CASE WHEN BOOL_AND(p.estado = 'CONFIRMADO') THEN 'CONFIRMADO' ELSE MAX(p.estado) END as estado")
+            ->selectRaw('COALESCE(MAX(caja_venta.sede_id), MAX(membresia_sede.sede_id)) as sede_id')
+            ->groupByRaw($operacionExpr);
 
         $this->aplicarAlcanceVenta($query, $usuarioId, 'caja_venta.sede_id');
-        $this->buscar($query, $filtros['busqueda'] ?? null, ['ventas.pagos.numero_comprobante', 'ventas.ventas.numero', 'ventas.pagos.metodo_pago', 'ventas.pagos.referencia', 'estado_cfg.nombre']);
-        $this->filtrarTexto($query, 'ventas.pagos.numero_comprobante', $filtros['comprobante'] ?? null);
-        $this->filtrarTexto($query, 'ventas.pagos.metodo_pago', $filtros['metodo'] ?? null);
-        $this->filtrarTexto($query, 'ventas.pagos.estado', $filtros['estado'] ?? null);
 
-        return $query->orderByDesc('ventas.pagos.fecha_pago')->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
+        if (! empty($filtros['busqueda'])) {
+            $texto = '%' . mb_strtolower((string) $filtros['busqueda']) . '%';
+            $query->where(function ($q) use ($texto): void {
+                $q->whereRaw('LOWER(v.numero) LIKE ?', [$texto])
+                    ->orWhereRaw('LOWER(COALESCE(persona.nombre_completo, cliente_user.name, \'\')) LIKE ?', [$texto])
+                    ->orWhereRaw('LOWER(COALESCE(persona.identificacion, cliente_user.cedula, \'\')) LIKE ?', [$texto])
+                    ->orWhereRaw('LOWER(COALESCE(cobrador.name, \'\')) LIKE ?', [$texto])
+                    ->orWhereRaw('LOWER(COALESCE(p.operacion_cobro_id, \'\')) LIKE ?', [$texto]);
+            });
+        }
+
+        $this->filtrarTexto($query, 'p.estado', $filtros['estado'] ?? null);
+
+        return $query
+            ->orderByDesc(DB::raw('MAX(p.fecha_pago)'))
+            ->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
     }
 
     public function guardarPago(array $datos, ?int $usuarioId = null): object
@@ -335,6 +361,7 @@ class VentaServicio
 
             $datos = $this->estados->aplicar($datos, 'PAGO');
             $datos['usuario_id'] = $usuarioId;
+            $datos['operacion_cobro_id'] = $datos['operacion_cobro_id'] ?? $this->secuencia('COBRO');
             $datos['numero_comprobante'] = $datos['numero_comprobante'] ?? $this->secuencia('PAGO');
             $pagoId = $this->guardarRetornandoId('ventas.pagos', $datos, null);
             $this->actualizarEstadoVenta((int) $datos['venta_id'], $usuarioId);

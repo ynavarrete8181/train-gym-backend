@@ -172,17 +172,7 @@ class VentaPosServicio
     public function cuentasAbiertas(int $usuarioId): array
     {
         $turno = $this->turnos->turnoAbiertoUsuario($usuarioId);
-        $rol = DB::table('seguridad.users as u')
-            ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
-            ->where('u.id', $usuarioId)
-            ->value('r.role');
-
-        $rol = mb_strtoupper(trim((string) $rol));
-        $puedeGestionarCartera = in_array($rol, [
-            'SUPERADMINISTRADOR',
-            'ADMINISTRADOR',
-            'SUPERVISOR DE VENTAS',
-        ], true);
+        $puedeGestionarCartera = $this->alcance->puedeGestionarCartera($usuarioId);
 
         $query = DB::table('ventas.ventas as v')
             ->leftJoin('gimnasio.deportistas as d', 'd.id', '=', 'v.cliente_id')

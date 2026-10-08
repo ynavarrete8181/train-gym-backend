@@ -90,13 +90,22 @@ class ComprobanteCorreoServicio
             ]);
 
             $ok = (bool) ($resultado['ok'] ?? false);
+            $mensajeProveedor = trim((string) data_get($resultado, 'respuesta.mensaje'));
 
             DB::table('ventas.comprobante_envios')->where('id', $envioId)->update([
                 'estado' => $ok ? 'ENVIADO' : 'ERROR',
                 'enviado_at' => $ok ? now() : null,
-                'mensaje_error' => $ok ? null : (string) data_get($resultado, 'respuesta.mensaje'),
+                'mensaje_error' => $ok ? null : ($mensajeProveedor !== '' ? $mensajeProveedor : 'El proveedor de correo rechazó el envío.'),
                 'updated_at' => now(),
             ]);
+
+            if (! $ok) {
+                throw ValidationException::withMessages([
+                    'correo' => $mensajeProveedor !== ''
+                        ? $mensajeProveedor
+                        : 'El proveedor de correo rechazó el envío del comprobante.',
+                ]);
+            }
 
             if ($ok) {
                 DB::table('ventas.comprobantes')->where('id', $venta->comprobante->id)->update([
@@ -113,7 +122,7 @@ class ComprobanteCorreoServicio
                 'correo_destino' => $correoDestino,
                 'tipo' => $reenvio ? 'REENVIO' : 'ENVIO',
             ];
-        } catch (Throwable $e) {
+        } catch (ValidationException $e) {
             DB::table('ventas.comprobante_envios')->where('id', $envioId)->update([
                 'estado' => 'ERROR',
                 'mensaje_error' => $e->getMessage(),
@@ -121,6 +130,16 @@ class ComprobanteCorreoServicio
             ]);
 
             throw $e;
+        } catch (Throwable $e) {
+            DB::table('ventas.comprobante_envios')->where('id', $envioId)->update([
+                'estado' => 'ERROR',
+                'mensaje_error' => $e->getMessage(),
+                'updated_at' => now(),
+            ]);
+
+            throw ValidationException::withMessages([
+                'correo' => $e->getMessage(),
+            ]);
         }
     }
 

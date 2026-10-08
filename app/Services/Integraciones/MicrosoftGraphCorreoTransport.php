@@ -30,11 +30,27 @@ class MicrosoftGraphCorreoTransport implements CorreoTransportContract
             throw new RuntimeException('El remitente de Microsoft Graph no está configurado.');
         }
         $url = rtrim($servicio->url_base, '/').str_replace('{sender}', rawurlencode($sender), $servicio->endpoint);
+        $message = [
+            'subject' => $mensaje['asunto'],
+            'body' => ['contentType' => 'HTML', 'content' => $mensaje['html']],
+            'toRecipients' => $this->destinatarios([$mensaje['para']]),
+            'ccRecipients' => $this->destinatarios($mensaje['cc'] ?? []),
+            'bccRecipients' => $this->destinatarios($mensaje['cco'] ?? []),
+        ];
+
+        if (! empty($mensaje['adjuntos'])) {
+            $message['attachments'] = collect($mensaje['adjuntos'])->map(fn ($adjunto) => [
+                '@odata.type' => '#microsoft.graph.fileAttachment',
+                'name' => (string) ($adjunto['nombre'] ?? 'archivo.bin'),
+                'contentType' => (string) ($adjunto['mime'] ?? 'application/octet-stream'),
+                'contentBytes' => base64_encode((string) ($adjunto['contenido'] ?? '')),
+            ])->values()->all();
+        }
+
         $response = Http::timeout((int) $servicio->timeout_segundos)->connectTimeout(10)
             ->withOptions(['verify' => (bool) $servicio->verificar_ssl])
             ->withToken($this->token((int) $servicio->credencial_id, $credencial, (bool) $servicio->verificar_ssl))->acceptJson()->post($url, [
-                'message' => ['subject' => $mensaje['asunto'], 'body' => ['contentType' => 'HTML', 'content' => $mensaje['html']],
-                    'toRecipients' => $this->destinatarios([$mensaje['para']]), 'ccRecipients' => $this->destinatarios($mensaje['cc'] ?? []), 'bccRecipients' => $this->destinatarios($mensaje['cco'] ?? [])],
+                'message' => $message,
             ]);
 
         return ['ok' => $response->successful(), 'http_status' => $response->status(),

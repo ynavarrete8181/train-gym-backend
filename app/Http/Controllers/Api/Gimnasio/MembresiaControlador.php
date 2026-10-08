@@ -125,7 +125,8 @@ class MembresiaControlador extends Controller
             true
         );
         $planConfigurado = DB::table('membresias.planes')->where('id', $validados['plan_id'])->first();
-        $generarVenta = $this->debeGenerarVentaAlAsignar($planConfigurado);
+        $generarVentaSolicitada = (bool) ($validados['generar_venta'] ?? false);
+        $generarVenta = $generarVentaSolicitada && $this->debeGenerarVentaAlAsignar($planConfigurado);
         unset($validados['generar_venta']);
 
         [$membresia, $venta] = DB::transaction(function () use ($validados, $generarVenta, $request): array {
@@ -319,8 +320,8 @@ class MembresiaControlador extends Controller
 
         $planActual = DB::table('membresias.planes')->where('id', $membresia->plan_id)->first();
         $generarVenta = array_key_exists('generar_venta', $validados)
-            ? (bool) $validados['generar_venta']
-            : $this->debeGenerarVentaAlAsignar($planActual);
+            ? ((bool) $validados['generar_venta'] && $this->debeGenerarVentaAlAsignar($planActual))
+            : null;
         unset($validados['generar_venta']);
 
         $sedesHabilitadas = collect($validados['sedes_habilitadas'])->map(fn ($id) => (int) $id)->values();
@@ -345,8 +346,10 @@ class MembresiaControlador extends Controller
         $membresiaActualizada = DB::transaction(function () use ($id, $validados, $generarVenta, $request) {
             $actualizada = $this->membresiaServicio->actualizar($id, $validados);
 
-            $this->sincronizarFacturacion((int) $id, $generarVenta, $request);
-            $actualizada = $this->membresiaServicio->obtenerMembresiaConRelaciones((int) $id);
+            if ($generarVenta !== null) {
+                $this->sincronizarFacturacion((int) $id, $generarVenta, $request);
+                $actualizada = $this->membresiaServicio->obtenerMembresiaConRelaciones((int) $id);
+            }
 
             return $actualizada;
         });

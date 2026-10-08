@@ -106,6 +106,12 @@ Schedule::command('revive:procesar-cobros-membresias')
 
 Artisan::command('revive:sincronizar-ventas-membresias {--membresia=}', function (SincronizarVentasMembresiasServicio $servicio): int {
     $membresiaId = $this->option('membresia') ? (int) $this->option('membresia') : null;
+
+    if (! $membresiaId) {
+        $this->error('Indica una membresía específica con --membresia=ID. Este comando es solo de reparación y no genera ventas masivamente.');
+        return 1;
+    }
+
     $resultado = $servicio->procesar($membresiaId);
 
     $this->info(
@@ -120,7 +126,7 @@ Artisan::command('revive:sincronizar-ventas-membresias {--membresia=}', function
     }
 
     return empty($resultado['errores']) ? 0 : 1;
-})->purpose('Genera de forma segura las ventas faltantes de membresías pendientes y conserva el usuario que las originó.');
+})->purpose('Repara de forma explícita la venta faltante de una membresía específica.');
 
 
 Artisan::command('revive:cerrar-turnos-caja-vencidos {--fecha=}', function (CierreAutomaticoCajaServicio $servicio): int {

@@ -24,7 +24,11 @@ class ComprobantePdfServicio
         $pagos = collect($venta->pagos ?? []);
         $pagado = (float) $pagos->where('estado', 'CONFIRMADO')->sum(fn ($p) => (float) $p->monto);
         $saldo = max(0, (float) ($venta->total ?? 0) - $pagado);
-        $ultimoPago = $pagos->where('estado', 'CONFIRMADO')->last();
+        $pagosConfirmados = $pagos->where('estado', 'CONFIRMADO')->values();
+        $metodosResumen = $pagosConfirmados
+            ->groupBy('metodo_pago')
+            ->map(fn ($grupo, $metodo) => strtoupper((string) $metodo) . ' ' . $this->dinero($grupo->sum(fn ($p) => (float) $p->monto)))
+            ->implode(' · ');
 
         // Encabezado de marca
         $this->rect($ops, 0, 754, 595, 88, $negro[0], $negro[1], $negro[2]);
@@ -43,7 +47,7 @@ class ComprobantePdfServicio
         $this->rect($ops, 36, 584, 523, 60, $suave[0], $suave[1], $suave[2]);
         $this->labelValue($ops, 50, 628, 'Cliente', $cliente, 230);
         $this->labelValue($ops, 310, 628, 'Fecha', $fecha, 210);
-        $this->labelValue($ops, 50, 598, 'Código', $venta->codigo_deportista ?? '-', 230);
+        $this->labelValue($ops, 50, 598, 'Identificación', $venta->cliente_identificacion ?? '-', 230);
         $this->labelValue($ops, 310, 598, 'Caja', $venta->caja_nombre ?? 'Pendiente de caja', 210);
 
         // Detalle
@@ -94,15 +98,22 @@ class ComprobantePdfServicio
         $pagoY = 210;
         $this->sectionTitle($ops, 36, $pagoY + 46, 'RESUMEN DE PAGO', $dorado);
         $this->rect($ops, 36, $pagoY - 4, 523, 35, $suave[0], $suave[1], $suave[2]);
-        $this->labelValue($ops, 50, $pagoY + 20, 'Método', $ultimoPago?->metodo_pago ?? 'Pendiente', 145);
-        $this->labelValue($ops, 210, $pagoY + 20, 'Pagado', $this->dinero($pagado), 120);
-        $this->labelValue($ops, 350, $pagoY + 20, 'Saldo pendiente', $this->dinero($saldo), 180);
+        $this->labelValue($ops, 50, $pagoY + 20, 'Métodos', $metodosResumen ?: 'Pendiente', 260);
+        $this->labelValue($ops, 330, $pagoY + 20, 'Pagado', $this->dinero($pagado), 100);
+        $this->labelValue($ops, 445, $pagoY + 20, 'Saldo', $this->dinero($saldo), 100);
 
         // Membresía/pase
         if (! empty($venta->membresia_codigo)) {
             $this->sectionTitle($ops, 36, 166, 'MEMBRESÍA / PASE', $dorado);
-            $this->labelValue($ops, 36, 142, 'Contrato', $venta->membresia_codigo, 220);
-            $this->labelValue($ops, 280, 142, 'Plan', $venta->membresia_plan_nombre ?? '-', 260);
+            $this->labelValue($ops, 36, 142, 'Contrato', $venta->membresia_codigo, 160);
+            $this->labelValue($ops, 215, 142, 'Plan', $venta->membresia_plan_nombre ?? '-', 170);
+            $this->labelValue($ops, 404, 142, 'Modalidad', $venta->membresia_modalidad_nombre ?? '-', 145);
+
+            $vigencia = ($venta->membresia_fecha_inicio ? date('d/m/Y', strtotime((string) $venta->membresia_fecha_inicio)) : '-')
+                . ' al '
+                . ($venta->membresia_fecha_fin ? date('d/m/Y', strtotime((string) $venta->membresia_fecha_fin)) : '-');
+            $this->labelValue($ops, 36, 111, 'Vigencia', $vigencia, 250);
+            $this->labelValue($ops, 310, 111, 'Precio aplicado', $this->dinero($venta->membresia_precio_aplicado ?? $venta->total ?? 0), 220);
         }
 
         // Pie institucional

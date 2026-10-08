@@ -73,6 +73,7 @@ class VentaServicio
             );
 
         $this->aplicarAlcanceVenta($query, $usuarioId);
+        $this->aplicarVisibilidadComercialVenta($query, $usuarioId, 'ventas.ventas');
         $this->buscar($query, $filtros['busqueda'] ?? null, ['ventas.ventas.numero', 'ventas.ventas.concepto', 'ventas.ventas.tipo_venta', 'cliente_user.name', 'estado_cfg.nombre']);
         $this->filtrarTexto($query, 'ventas.ventas.numero', $filtros['numero'] ?? null);
         $this->filtrarTexto($query, 'cliente_user.name', $filtros['cliente'] ?? null);
@@ -162,6 +163,7 @@ class VentaServicio
     {
         $sedeId = $this->alcance->sedeDeVenta($ventaId);
         $this->alcance->validarSede($usuarioId, $sedeId, 'maneja_caja');
+        $this->validarVisibilidadDetalleVenta($ventaId, $usuarioId, $sedeId);
 
         $venta = DB::table('ventas.ventas as v')
             ->leftJoin('gimnasio.deportistas as d', 'd.id', '=', 'v.cliente_id')
@@ -316,6 +318,10 @@ class VentaServicio
 
         $this->aplicarAlcanceVenta($query, $usuarioId, 'caja_venta.sede_id');
 
+        if ($this->alcance->esCajero($usuarioId)) {
+            $query->where('p.usuario_id', $usuarioId);
+        }
+
         if (! empty($filtros['busqueda'])) {
             $texto = '%' . mb_strtolower((string) $filtros['busqueda']) . '%';
             $query->where(function ($q) use ($texto): void {
@@ -412,6 +418,7 @@ class VentaServicio
             );
 
         $this->aplicarAlcanceVenta($query, $usuarioId, 'caja_venta.sede_id');
+        $this->aplicarVisibilidadComercialVenta($query, $usuarioId, 'ventas.ventas');
         $this->buscar($query, $filtros['busqueda'] ?? null, ['ventas.comprobantes.numero', 'ventas.ventas.numero', 'ventas.ventas.concepto', 'cliente_user.name']);
         $this->filtrarTexto($query, 'ventas.comprobantes.numero', $filtros['numero'] ?? null);
         $this->filtrarTexto($query, 'ventas.comprobantes.estado', $filtros['estado'] ?? null);
@@ -472,6 +479,62 @@ class VentaServicio
             ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes)
             ->orderByDesc('v.fecha_venta')
             ->get(['v.id', 'v.numero', 'v.concepto', 'v.total']);
+    }
+
+    private function aplicarVisibilidadComercialVenta($query, ?int $usuarioId, string $ventaAlias): void
+    {
+        if (! $this->alcance->esCajero($usuarioId)) {
+            return;
+        }
+
+        $query->where(function ($q) use ($usuarioId, $ventaAlias): void {
+            $q->where("{$ventaAlias}.usuario_id", $usuarioId)
+                ->orWhereExists(function ($pagos) use ($usuarioId, $ventaAlias): void {
+                    $pagos->selectRaw('1')
+                        ->from('ventas.pagos as pago_visibilidad')
+                        ->whereColumn('pago_visibilidad.venta_id', "{$ventaAlias}.id")
+                        ->where('pago_visibilidad.usuario_id', $usuarioId);
+                });
+        });
+    }
+
+    private function validarVisibilidadDetalleVenta(int $ventaId, ?int $usuarioId, ?int $sedeId): void
+    {
+        if (! $this->alcance->esCajero($usuarioId)) {
+            return;
+        }
+
+        $venta = DB::table('ventas.ventas')->where('id', $ventaId)->first(['id', 'usuario_id', 'estado']);
+        if (! $venta) {
+            throw ValidationException::withMessages(['venta_id' => 'La venta no existe.']);
+        }
+
+        if ((int) $venta->usuario_id === (int) $usuarioId) {
+            return;
+        }
+
+        $cobradaPorUsuario = DB::table('ventas.pagos')
+            ->where('venta_id', $ventaId)
+            ->where('usuario_id', $usuarioId)
+            ->exists();
+
+        if ($cobradaPorUsuario) {
+            return;
+        }
+
+        $turnoActivoMismaSede = DB::table('ventas.turnos_caja')
+            ->where('usuario_id', $usuarioId)
+            ->where('estado', 'ABIERTA')
+            ->where('sede_id', $sedeId)
+            ->exists();
+
+        if ($turnoActivoMismaSede && in_array(strtoupper((string) $venta->estado), ['PENDIENTE', 'PARCIAL'], true)) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'venta_id' => 'No tienes acceso al detalle de esta venta fuera de tu operación de caja.',
+        ]);
     }
 
     private function aplicarAlcanceVenta($query, ?int $usuarioId, string $columnaCaja = 'ventas.cajas.sede_id'): void

@@ -124,7 +124,8 @@ class MembresiaControlador extends Controller
             isset($validados['modalidad_id']) ? (int) $validados['modalidad_id'] : null,
             true
         );
-        $generarVenta = (bool) ($validados['generar_venta'] ?? false);
+        $planConfigurado = DB::table('membresias.planes')->where('id', $validados['plan_id'])->first();
+        $generarVenta = $this->debeGenerarVentaAlAsignar($planConfigurado);
         unset($validados['generar_venta']);
 
         [$membresia, $venta] = DB::transaction(function () use ($validados, $generarVenta, $request): array {
@@ -132,7 +133,7 @@ class MembresiaControlador extends Controller
             $venta = null;
             $plan = DB::table('membresias.planes')->where('id', $membresia->plan_id)->first();
 
-            if ($generarVenta && ($plan->generar_venta ?? true)) {
+            if ($generarVenta) {
                 $venta = $this->ventaServicio->guardarVenta([
                     'cliente_id' => $membresia->deportista_id,
                     'membresia_id' => $membresia->id,
@@ -316,7 +317,10 @@ class MembresiaControlador extends Controller
             'fecha_congelacion_fin' => 'nullable|required_with:fecha_congelacion_inicio|date|after_or_equal:fecha_congelacion_inicio',
         ]);
 
-        $generarVenta = array_key_exists('generar_venta', $validados) ? (bool) $validados['generar_venta'] : null;
+        $planActual = DB::table('membresias.planes')->where('id', $membresia->plan_id)->first();
+        $generarVenta = array_key_exists('generar_venta', $validados)
+            ? (bool) $validados['generar_venta']
+            : $this->debeGenerarVentaAlAsignar($planActual);
         unset($validados['generar_venta']);
 
         $sedesHabilitadas = collect($validados['sedes_habilitadas'])->map(fn ($id) => (int) $id)->values();
@@ -341,10 +345,8 @@ class MembresiaControlador extends Controller
         $membresiaActualizada = DB::transaction(function () use ($id, $validados, $generarVenta, $request) {
             $actualizada = $this->membresiaServicio->actualizar($id, $validados);
 
-            if ($generarVenta !== null) {
-                $this->sincronizarFacturacion((int) $id, $generarVenta, $request);
-                $actualizada = $this->membresiaServicio->obtenerMembresiaConRelaciones((int) $id);
-            }
+            $this->sincronizarFacturacion((int) $id, $generarVenta, $request);
+            $actualizada = $this->membresiaServicio->obtenerMembresiaConRelaciones((int) $id);
 
             return $actualizada;
         });
@@ -437,6 +439,19 @@ class MembresiaControlador extends Controller
             'estado' => 'ANULADO',
             'updated_at' => now(),
         ]);
+    }
+
+    private function debeGenerarVentaAlAsignar(?object $plan): bool
+    {
+        if (! $plan) {
+            return false;
+        }
+
+        if (mb_strtoupper((string) ($plan->tipo_producto ?? 'MEMBRESIA')) === 'PASE_DIARIO') {
+            return false;
+        }
+
+        return (bool) ($plan->generar_venta ?? true);
     }
 
     public function destroy($id)

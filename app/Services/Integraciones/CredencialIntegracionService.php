@@ -102,7 +102,12 @@ class CredencialIntegracionService
             $datos['client_id'] ??= config('services.azure.client_id_outlook_graph');
             $datos['client_secret'] ??= config('services.azure.client_secret_outlook_graph');
             $datos['scope'] ??= config('services.azure.scope', 'https://graph.microsoft.com/.default');
-            $datos['sender'] ??= config('services.azure.outlook_sender');
+            $senderConfigurado = trim((string) config('services.azure.outlook_sender'));
+            if ($senderConfigurado !== '') {
+                $datos['sender'] = $senderConfigurado;
+            } else {
+                $datos['sender'] ??= null;
+            }
         }
 
         return $datos;

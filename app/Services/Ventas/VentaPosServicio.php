@@ -292,6 +292,9 @@ class VentaPosServicio
                 'caja_id' => (int) $turno->caja_id,
                 'turno_caja_id' => (int) $turno->id,
                 'tipo_venta' => $ventaExistente?->tipo_venta ?? $this->tipoVentaGeneral($detalles->all()),
+                'origen_tipo' => $ventaExistente?->origen_tipo ?? 'POS',
+                'origen_id' => $ventaExistente?->origen_id,
+                'generado_por_tipo' => $ventaExistente?->generado_por_tipo ?? 'USUARIO',
                 'concepto' => $ventaExistente?->concepto ?? $this->conceptoGeneral($detalles->all()),
                 'subtotal' => $subtotal,
                 'descuento' => $descuento,
@@ -369,20 +372,51 @@ class VentaPosServicio
                 throw ValidationException::withMessages(['venta_id' => 'La cuenta ya no tiene saldo pendiente.']);
             }
 
-            $pago = $this->ventas->guardarPago([
-                'venta_id' => (int) $venta->id,
-                'caja_id' => (int) $turno->caja_id,
-                'turno_caja_id' => (int) $turno->id,
-                'metodo_pago' => $datos['metodo_pago'],
-                'monto' => $saldo,
-                'estado' => 'CONFIRMADO',
-                'referencia' => $datos['referencia_pago'] ?? null,
-                'observaciones' => $datos['observaciones_pago'] ?? 'Cobro registrado desde POS.',
-            ], $usuarioId);
+            $pagosEntrada = collect($datos['pagos'] ?? [])->filter(fn ($pago) => (float) ($pago['monto'] ?? 0) > 0)->values();
+
+            if ($pagosEntrada->isEmpty()) {
+                $pagosEntrada = collect([[
+                    'metodo_pago' => $datos['metodo_pago'] ?? 'EFECTIVO',
+                    'monto' => $saldo,
+                    'referencia' => $datos['referencia_pago'] ?? null,
+                    'observaciones' => $datos['observaciones_pago'] ?? 'Cobro registrado desde POS.',
+                ]]);
+            }
+
+            $montoCobro = round((float) $pagosEntrada->sum(fn ($pago) => (float) ($pago['monto'] ?? 0)), 2);
+            if ($montoCobro <= 0) {
+                throw ValidationException::withMessages(['pagos' => 'Registra al menos un pago mayor que cero.']);
+            }
+            if ($montoCobro > $saldo + 0.00001) {
+                throw ValidationException::withMessages(['pagos' => 'La suma de los pagos supera el saldo pendiente de la venta.']);
+            }
+
+            $pagos = collect();
+            foreach ($pagosEntrada as $pagoEntrada) {
+                $pagos->push($this->ventas->guardarPago([
+                    'venta_id' => (int) $venta->id,
+                    'caja_id' => (int) $turno->caja_id,
+                    'turno_caja_id' => (int) $turno->id,
+                    'metodo_pago' => strtoupper((string) $pagoEntrada['metodo_pago']),
+                    'monto' => round((float) $pagoEntrada['monto'], 2),
+                    'estado' => 'CONFIRMADO',
+                    'referencia' => $pagoEntrada['referencia'] ?? null,
+                    'observaciones' => $pagoEntrada['observaciones'] ?? 'Cobro registrado desde POS.',
+                ], $usuarioId));
+            }
 
             $ventaActualizada = DB::table('ventas.ventas')->where('id', $venta->id)->first();
             $ventaActualizada->detalles = DB::table('ventas.venta_detalles')->where('venta_id', $venta->id)->orderBy('id')->get();
-            $ventaActualizada->pago = $pago;
+            $ventaActualizada->pagos = DB::table('ventas.pagos')
+                ->where('venta_id', $venta->id)
+                ->where('estado', 'CONFIRMADO')
+                ->orderBy('id')
+                ->get();
+            $ventaActualizada->pago = $pagos->last();
+            $ventaActualizada->saldo_pendiente = max(
+                0,
+                round((float) $ventaActualizada->total - (float) $ventaActualizada->pagos->sum('monto'), 2)
+            );
             $ventaActualizada->comprobante = DB::table('ventas.comprobantes')->where('venta_id', $venta->id)->first();
 
             return $ventaActualizada;

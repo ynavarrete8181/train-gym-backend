@@ -489,7 +489,7 @@ class VentaPosServicio
 
     private function resolverDetalles($detalles, int $sedeId, ?int $ventaId = null)
     {
-        return $detalles->map(function ($item) use ($sedeId): array {
+        return $detalles->map(function ($item) use ($sedeId, $ventaId): array {
             $tipo = strtoupper((string) ($item['tipo'] ?? ''));
             $cantidad = round((float) ($item['cantidad'] ?? 0), 2);
             if ($cantidad <= 0) {

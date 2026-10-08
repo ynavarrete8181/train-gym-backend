@@ -2,6 +2,7 @@
 
 namespace App\Services\Ventas;
 
+use App\Services\Configuracion\EstadoCatalogoServicio;
 use App\Services\Seguridad\AlcanceOperativoService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -13,6 +14,7 @@ class VentaPosServicio
         private readonly TurnoCajaServicio $turnos,
         private readonly VentaServicio $ventas,
         private readonly AlcanceOperativoService $alcance,
+        private readonly EstadoCatalogoServicio $estados,
     ) {
     }
 
@@ -316,8 +318,8 @@ class VentaPosServicio
                 'caja_id' => (int) $turno->caja_id,
                 'turno_caja_id' => (int) $turno->id,
                 'tipo_venta' => $ventaExistente?->tipo_venta ?? $this->tipoVentaGeneral($detalles->all()),
-                'origen_tipo' => $ventaExistente?->origen_tipo ?? 'POS',
-                'origen_id' => $ventaExistente?->origen_id,
+                'origen_tipo' => $ventaExistente?->origen_tipo ?? ($membresiaId ? 'MEMBRESIA_CAJA' : 'POS'),
+                'origen_id' => $ventaExistente?->origen_id ?? ($membresiaId ? (int) $membresiaId : null),
                 'generado_por_tipo' => $ventaExistente?->generado_por_tipo ?? 'USUARIO',
                 'concepto' => $ventaExistente?->concepto ?? $this->conceptoGeneral($detalles->all()),
                 'subtotal' => $subtotal,
@@ -441,6 +443,27 @@ class VentaPosServicio
                 0,
                 round((float) $ventaActualizada->total - (float) $ventaActualizada->pagos->sum('monto'), 2)
             );
+
+            if ($ventaActualizada->saldo_pendiente <= 0 && ! empty($ventaActualizada->membresia_id)) {
+                $estadoActivoId = $this->estados->idPorValor('MEMBRESIA', 'ACTIVA');
+                DB::table('membresias.membresias')
+                    ->where('id', $ventaActualizada->membresia_id)
+                    ->where('estado', 'PENDIENTE_PAGO')
+                    ->update([
+                        'estado' => 'ACTIVA',
+                        'estado_id' => $estadoActivoId,
+                        'updated_at' => now(),
+                    ]);
+
+                DB::table('membresias.membresia_periodos')
+                    ->where('membresia_id', $ventaActualizada->membresia_id)
+                    ->where('venta_id', $ventaActualizada->id)
+                    ->update([
+                        'estado' => 'ACTIVA',
+                        'updated_at' => now(),
+                    ]);
+            }
+
             $ventaActualizada->comprobante = DB::table('ventas.comprobantes')->where('venta_id', $venta->id)->first();
 
             return $ventaActualizada;
@@ -520,28 +543,59 @@ class VentaPosServicio
             }
 
             if ($tipo === 'MEMBRESIA') {
-                $planId = (int) ($item['referencia_id'] ?? 0);
-                $plan = DB::table('gimnasio.planes as p')
-                    ->leftJoin('gimnasio.plan_precios_sede as ps', function ($join) use ($sedeId): void {
-                        $join->on('ps.plan_id', '=', 'p.id')->where('ps.sede_id', '=', $sedeId)->where('ps.activo', '=', true);
-                    })
-                    ->where('p.id', $planId)
-                    ->where('p.activo', true)
-                    ->first(['p.id', 'p.nombre', DB::raw('COALESCE(ps.precio, p.precio_base) as precio')]);
+                $membresiaId = (int) ($item['membresia_id'] ?? 0);
 
-                if (! $plan) {
-                    throw ValidationException::withMessages(['detalles' => 'La membresía seleccionada no está disponible.']);
+                $membresia = DB::table('membresias.membresias as m')
+                    ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
+                    ->leftJoin('membresias.plan_modalidades as pm', 'pm.id', '=', 'm.modalidad_id')
+                    ->where('m.id', $membresiaId)
+                    ->where('m.sede_id', $sedeId)
+                    ->whereNotIn('m.estado', ['CANCELADA', 'VENCIDA'])
+                    ->first([
+                        'm.id',
+                        'm.plan_id',
+                        'm.codigo_contrato',
+                        'm.precio_aplicado',
+                        'm.estado',
+                        'p.nombre as plan_nombre',
+                        'pm.nombre as modalidad_nombre',
+                    ]);
+
+                if (! $membresia) {
+                    throw ValidationException::withMessages([
+                        'detalles' => 'La membresía seleccionada no está disponible para esta sede.',
+                    ]);
                 }
 
-                $precio = round((float) $plan->precio, 2);
+                if (DB::table('ventas.ventas')
+                    ->where('membresia_id', $membresia->id)
+                    ->whereIn('estado', ['PENDIENTE', 'PARCIAL'])
+                    ->exists()) {
+                    throw ValidationException::withMessages([
+                        'detalles' => 'Esta membresía ya tiene una cuenta pendiente. Ábrela desde Cuentas abiertas.',
+                    ]);
+                }
+
+                $precio = round((float) $membresia->precio_aplicado, 2);
+                if ($precio <= 0) {
+                    throw ValidationException::withMessages([
+                        'detalles' => 'La membresía seleccionada no tiene un precio aplicado válido.',
+                    ]);
+                }
+
+                $descripcion = $membresia->plan_nombre
+                    . ($membresia->modalidad_nombre ? ' · ' . $membresia->modalidad_nombre : '')
+                    . ' · ' . $membresia->codigo_contrato;
+
                 return [
                     'tipo' => 'MEMBRESIA',
-                    'referencia_id' => (int) $plan->id,
+                    'referencia_id' => (int) $membresia->plan_id,
+                    'membresia_id' => (int) $membresia->id,
                     'producto_id' => null,
-                    'descripcion' => $plan->nombre,
-                    'cantidad' => $cantidad,
+                    'descripcion' => $descripcion,
+                    'cantidad' => 1,
                     'precio_unitario' => $precio,
-                    'total_linea' => round($precio * $cantidad, 2),
+                    'total_linea' => $precio,
                 ];
             }
 

@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Schedule;
 use App\Services\Gimnasio\CobroProgramadoMembresiaServicio;
 use App\Services\Ventas\CierreAutomaticoCajaServicio;
+use App\Services\Ventas\SincronizarVentasMembresiasServicio;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -101,6 +102,25 @@ Artisan::command('revive:procesar-cobros-membresias {--fecha=}', function (Cobro
 Schedule::command('revive:procesar-cobros-membresias')
     ->dailyAt('00:05')
     ->withoutOverlapping();
+
+
+Artisan::command('revive:sincronizar-ventas-membresias {--membresia=}', function (SincronizarVentasMembresiasServicio $servicio): int {
+    $membresiaId = $this->option('membresia') ? (int) $this->option('membresia') : null;
+    $resultado = $servicio->procesar($membresiaId);
+
+    $this->info(
+        "Membresías detectadas: {$resultado['detectadas']} | "
+        . "ventas creadas: {$resultado['ventas_creadas']} | "
+        . "omitidas: {$resultado['omitidas']} | "
+        . "errores: " . count($resultado['errores'])
+    );
+
+    foreach ($resultado['errores'] as $error) {
+        $this->error("Membresía {$error['membresia_id']}: {$error['error']}");
+    }
+
+    return empty($resultado['errores']) ? 0 : 1;
+})->purpose('Genera de forma segura las ventas faltantes de membresías pendientes y conserva el usuario que las originó.');
 
 
 Artisan::command('revive:cerrar-turnos-caja-vencidos {--fecha=}', function (CierreAutomaticoCajaServicio $servicio): int {

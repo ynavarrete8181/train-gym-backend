@@ -323,6 +323,7 @@ class VentaServicio
                     ->orWhereRaw('LOWER(COALESCE(persona.nombre_completo, cliente_user.name, \'\')) LIKE ?', [$texto])
                     ->orWhereRaw('LOWER(COALESCE(persona.identificacion, cliente_user.cedula, \'\')) LIKE ?', [$texto])
                     ->orWhereRaw('LOWER(COALESCE(cobrador.name, \'\')) LIKE ?', [$texto])
+                    ->orWhereRaw('LOWER(COALESCE(p.codigo_cobro, \'\')) LIKE ?', [$texto])
                     ->orWhereRaw('LOWER(COALESCE(p.operacion_cobro_id, \'\')) LIKE ?', [$texto]);
             });
         }

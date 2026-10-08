@@ -60,9 +60,15 @@ class TurnoCajaServicio
             $query->whereDate('t.fecha_apertura', '<=', $filtros['hasta']);
         }
 
-        return $query
+        $paginador = $query
             ->orderByDesc('t.fecha_apertura')
             ->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
+
+        $paginador->setCollection(
+            $paginador->getCollection()->map(fn ($turno) => $this->adjuntarResumenCobros($turno))
+        );
+
+        return $paginador;
     }
 
     public function abrir(array $datos, int $usuarioId): object
@@ -119,12 +125,8 @@ class TurnoCajaServicio
                 throw ValidationException::withMessages(['turno_id' => 'Solo el cajero del turno o un supervisor/administrador puede cerrarlo.']);
             }
 
-            $efectivoCobrado = (float) DB::table('ventas.pagos')
-                ->where('turno_caja_id', $id)
-                ->where('estado', 'CONFIRMADO')
-                ->where('metodo_pago', 'EFECTIVO')
-                ->sum('monto');
-
+            $resumen = $this->resumenCobrosTurno($id);
+            $efectivoCobrado = (float) $resumen['efectivo_cobrado'];
             $esperado = round((float) $turno->saldo_inicial + $efectivoCobrado, 2);
             $contado = round((float) $datos['efectivo_contado'], 2);
             $diferencia = round($contado - $esperado, 2);
@@ -135,6 +137,13 @@ class TurnoCajaServicio
                 'efectivo_esperado' => $esperado,
                 'efectivo_contado' => $contado,
                 'diferencia' => $diferencia,
+                'efectivo_cobrado' => $resumen['efectivo_cobrado'],
+                'transferencia_cobrada' => $resumen['transferencia_cobrada'],
+                'tarjeta_cobrada' => $resumen['tarjeta_cobrada'],
+                'deposito_cobrado' => $resumen['deposito_cobrado'],
+                'otros_cobrado' => $resumen['otros_cobrado'],
+                'total_cobrado' => $resumen['total_cobrado'],
+                'cantidad_cobros' => $resumen['cantidad_cobros'],
                 'estado' => 'CERRADA',
                 'tipo_cierre' => 'MANUAL',
                 'requiere_arqueo' => false,
@@ -219,7 +228,9 @@ class TurnoCajaServicio
             $query->where('t.caja_id', $cajaId);
         }
 
-        return $query->orderByDesc('t.fecha_apertura')->first();
+        $turno = $query->orderByDesc('t.fecha_apertura')->first();
+
+        return $turno ? $this->adjuntarResumenCobros($turno) : null;
     }
 
     public function catalogos(int $usuarioId): array
@@ -255,6 +266,47 @@ class TurnoCajaServicio
             'cajero' => $base()->join('seguridad.users as u', 'u.id', '=', 't.usuario_id')->distinct()->orderBy('u.name')->pluck('u.name')->values(),
             'estado' => ['ABIERTA', 'CERRADA'],
         ];
+    }
+
+    public function resumenCobrosTurno(int $turnoId): array
+    {
+        $resumen = DB::table('ventas.pagos')
+            ->where('turno_caja_id', $turnoId)
+            ->where('estado', 'CONFIRMADO')
+            ->selectRaw("COALESCE(SUM(CASE WHEN metodo_pago = 'EFECTIVO' THEN monto ELSE 0 END), 0) as efectivo")
+            ->selectRaw("COALESCE(SUM(CASE WHEN metodo_pago = 'TRANSFERENCIA' THEN monto ELSE 0 END), 0) as transferencia")
+            ->selectRaw("COALESCE(SUM(CASE WHEN metodo_pago = 'TARJETA' THEN monto ELSE 0 END), 0) as tarjeta")
+            ->selectRaw("COALESCE(SUM(CASE WHEN metodo_pago = 'DEPOSITO' THEN monto ELSE 0 END), 0) as deposito")
+            ->selectRaw("COALESCE(SUM(CASE WHEN metodo_pago NOT IN ('EFECTIVO','TRANSFERENCIA','TARJETA','DEPOSITO') THEN monto ELSE 0 END), 0) as otros")
+            ->selectRaw('COALESCE(SUM(monto), 0) as total')
+            ->selectRaw("COUNT(DISTINCT COALESCE(operacion_cobro_id, 'PAGO-' || id::text)) as cantidad")
+            ->first();
+
+        return [
+            'efectivo_cobrado' => round((float) ($resumen->efectivo ?? 0), 2),
+            'transferencia_cobrada' => round((float) ($resumen->transferencia ?? 0), 2),
+            'tarjeta_cobrada' => round((float) ($resumen->tarjeta ?? 0), 2),
+            'deposito_cobrado' => round((float) ($resumen->deposito ?? 0), 2),
+            'otros_cobrado' => round((float) ($resumen->otros ?? 0), 2),
+            'total_cobrado' => round((float) ($resumen->total ?? 0), 2),
+            'cantidad_cobros' => (int) ($resumen->cantidad ?? 0),
+        ];
+    }
+
+    private function adjuntarResumenCobros(object $turno): object
+    {
+        $resumen = $this->resumenCobrosTurno((int) $turno->id);
+
+        foreach ($resumen as $campo => $valor) {
+            $turno->{$campo} = $valor;
+        }
+
+        $turno->efectivo_esperado_actual = round(
+            (float) ($turno->saldo_inicial ?? 0) + (float) $resumen['efectivo_cobrado'],
+            2
+        );
+
+        return $turno;
     }
 
     private function obtener(int $id): object

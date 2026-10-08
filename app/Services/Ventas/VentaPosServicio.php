@@ -435,7 +435,7 @@ class VentaPosServicio
             }
 
             $operacionCobroId = 'COBRO-OP-' . now()->format('YmdHis') . '-' . random_int(1000, 9999);
-            $codigoCobro = 'COBRO-' . now()->format('Ymd-His');
+            $codigoCobro = $this->ventas->siguienteCodigoCobro();
 
             $pagos = collect();
             foreach ($pagosEntrada as $pagoEntrada) {

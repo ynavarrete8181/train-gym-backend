@@ -251,6 +251,23 @@ class VentaPosServicio
         $membresiaId = $datos['membresia_id']
             ?? $detallesEntrada->pluck('membresia_id')->filter()->first();
 
+        if (! $membresiaId && $ventaId) {
+            $membresiaId = DB::table('ventas.ventas')
+                ->where('id', $ventaId)
+                ->value('membresia_id');
+
+            if ($membresiaId) {
+                $datos['membresia_id'] = (int) $membresiaId;
+                $detallesEntrada = $detallesEntrada->map(function (array $item) use ($membresiaId): array {
+                    if (strtoupper((string) ($item['tipo'] ?? '')) === 'MEMBRESIA' && empty($item['membresia_id'])) {
+                        $item['membresia_id'] = (int) $membresiaId;
+                    }
+
+                    return $item;
+                })->values();
+            }
+        }
+
         if ($membresiaId) {
             $membresia = DB::table('membresias.membresias')
                 ->where('id', $membresiaId)

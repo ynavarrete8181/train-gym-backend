@@ -49,12 +49,19 @@ class CierreAutomaticoCajaServicio
                     return null;
                 }
 
-                $efectivoCobrado = (float) DB::table('ventas.pagos')
+                $resumen = DB::table('ventas.pagos')
                     ->where('turno_caja_id', $actual->id)
                     ->where('estado', 'CONFIRMADO')
-                    ->where('metodo_pago', 'EFECTIVO')
-                    ->sum('monto');
+                    ->selectRaw("COALESCE(SUM(CASE WHEN metodo_pago = 'EFECTIVO' THEN monto ELSE 0 END), 0) as efectivo")
+                    ->selectRaw("COALESCE(SUM(CASE WHEN metodo_pago = 'TRANSFERENCIA' THEN monto ELSE 0 END), 0) as transferencia")
+                    ->selectRaw("COALESCE(SUM(CASE WHEN metodo_pago = 'TARJETA' THEN monto ELSE 0 END), 0) as tarjeta")
+                    ->selectRaw("COALESCE(SUM(CASE WHEN metodo_pago = 'DEPOSITO' THEN monto ELSE 0 END), 0) as deposito")
+                    ->selectRaw("COALESCE(SUM(CASE WHEN metodo_pago NOT IN ('EFECTIVO','TRANSFERENCIA','TARJETA','DEPOSITO') THEN monto ELSE 0 END), 0) as otros")
+                    ->selectRaw('COALESCE(SUM(monto), 0) as total')
+                    ->selectRaw("COUNT(DISTINCT COALESCE(operacion_cobro_id, 'PAGO-' || id::text)) as cantidad")
+                    ->first();
 
+                $efectivoCobrado = round((float) ($resumen->efectivo ?? 0), 2);
                 $esperado = round((float) $actual->saldo_inicial + $efectivoCobrado, 2);
                 $fechaCierre = Carbon::parse($actual->fecha_apertura)->endOfDay();
 
@@ -65,6 +72,13 @@ class CierreAutomaticoCajaServicio
                         'efectivo_esperado' => $esperado,
                         'efectivo_contado' => null,
                         'diferencia' => null,
+                        'efectivo_cobrado' => $efectivoCobrado,
+                        'transferencia_cobrada' => round((float) ($resumen->transferencia ?? 0), 2),
+                        'tarjeta_cobrada' => round((float) ($resumen->tarjeta ?? 0), 2),
+                        'deposito_cobrado' => round((float) ($resumen->deposito ?? 0), 2),
+                        'otros_cobrado' => round((float) ($resumen->otros ?? 0), 2),
+                        'total_cobrado' => round((float) ($resumen->total ?? 0), 2),
+                        'cantidad_cobros' => (int) ($resumen->cantidad ?? 0),
                         'estado' => 'CERRADA',
                         'tipo_cierre' => 'AUTOMATICO',
                         'requiere_arqueo' => true,

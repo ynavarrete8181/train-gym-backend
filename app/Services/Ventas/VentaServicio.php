@@ -398,6 +398,7 @@ class VentaServicio
             ->leftJoin('ventas.cajas as caja_venta', 'ventas.ventas.caja_id', '=', 'caja_venta.id')
             ->leftJoin('gimnasio.membresias as membresia_sede', 'ventas.ventas.membresia_id', '=', 'membresia_sede.id')
             ->leftJoin('gimnasio.deportistas', 'ventas.ventas.cliente_id', '=', 'gimnasio.deportistas.id')
+            ->leftJoin('personas.personas as persona_cliente', 'gimnasio.deportistas.persona_id', '=', 'persona_cliente.id')
             ->leftJoin('seguridad.users as cliente_user', 'gimnasio.deportistas.usuario_id', '=', 'cliente_user.id')
             ->select(
                 'ventas.comprobantes.*',

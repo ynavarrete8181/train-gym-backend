@@ -50,8 +50,12 @@ class VentaServicio
             ->leftJoin('gimnasio.planes as plan_venta', 'plan_venta.id', '=', 'membresia_sede.plan_id')
             ->leftJoin('institucional.sedes as sede_operacion', DB::raw('COALESCE(ventas.cajas.sede_id, membresia_sede.sede_id)'), '=', 'sede_operacion.id_sede')
             ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'ventas.ventas.estado_id', '=', 'estado_cfg.id')
+            ->leftJoin('seguridad.users as generado_por', 'ventas.ventas.usuario_id', '=', 'generado_por.id')
+            ->leftJoin('seguridad.users as responsable_comercial', 'ventas.ventas.responsable_comercial_id', '=', 'responsable_comercial.id')
             ->select(
                 'ventas.ventas.*',
+                'generado_por.name as generado_por_nombre',
+                'responsable_comercial.name as responsable_comercial_nombre',
                 'cliente_user.name as cliente_nombre',
                 'gimnasio.deportistas.codigo_deportista',
                 'ventas.cajas.nombre as caja_nombre',
@@ -99,7 +103,21 @@ class VentaServicio
             $this->alcance->validarSede($usuarioId, $sedeOperacion, 'maneja_caja');
 
             $datos = $this->estados->aplicar($datos, 'VENTA');
-            $datos['usuario_id'] = $datos['usuario_id'] ?? $usuarioId;
+            $datos['usuario_id'] = array_key_exists('usuario_id', $datos)
+                ? $datos['usuario_id']
+                : ($existente?->usuario_id ?? $usuarioId);
+            $datos['generado_por_tipo'] = $datos['generado_por_tipo']
+                ?? $existente?->generado_por_tipo
+                ?? ($datos['usuario_id'] ? 'USUARIO' : 'SISTEMA');
+            $datos['origen_tipo'] = $datos['origen_tipo']
+                ?? $existente?->origen_tipo
+                ?? (! empty($membresiaId) ? 'MEMBRESIA' : 'POS');
+            $datos['origen_id'] = array_key_exists('origen_id', $datos)
+                ? $datos['origen_id']
+                : ($existente?->origen_id ?? (! empty($membresiaId) ? (int) $membresiaId : null));
+            $datos['responsable_comercial_id'] = array_key_exists('responsable_comercial_id', $datos)
+                ? $datos['responsable_comercial_id']
+                : $existente?->responsable_comercial_id;
             $datos['numero'] = $datos['numero'] ?? $this->secuencia('VENTA');
             $datos['subtotal'] = $this->numero($datos['subtotal'] ?? $datos['total'] ?? 0);
             $datos['descuento'] = $this->numero($datos['descuento'] ?? 0);
@@ -152,6 +170,8 @@ class VentaServicio
             ->leftJoin('gimnasio.planes as pm', 'pm.id', '=', 'm.plan_id')
             ->leftJoin('institucional.sedes as s', 's.id_sede', '=', DB::raw('COALESCE(c.sede_id, m.sede_id)'))
             ->leftJoin('configuracion.estados_catalogo as e', 'e.id', '=', 'v.estado_id')
+            ->leftJoin('seguridad.users as generado_por', 'generado_por.id', '=', 'v.usuario_id')
+            ->leftJoin('seguridad.users as responsable_comercial', 'responsable_comercial.id', '=', 'v.responsable_comercial_id')
             ->where('v.id', $ventaId)
             ->select(
                 'v.*',
@@ -166,7 +186,9 @@ class VentaServicio
                 'pm.nombre as membresia_plan_nombre',
                 'pm.tipo_producto as membresia_tipo_producto',
                 'e.nombre as estado_nombre',
-                'e.color as estado_color'
+                'e.color as estado_color',
+                'generado_por.name as generado_por_nombre',
+                'responsable_comercial.name as responsable_comercial_nombre'
             )
             ->first();
 
@@ -181,12 +203,14 @@ class VentaServicio
 
         $venta->pagos = DB::table('ventas.pagos as p')
             ->leftJoin('configuracion.estados_catalogo as e', 'e.id', '=', 'p.estado_id')
+            ->leftJoin('seguridad.users as cobrador', 'cobrador.id', '=', 'p.usuario_id')
             ->where('p.venta_id', $ventaId)
             ->orderBy('p.id')
             ->get([
                 'p.*',
                 'e.nombre as estado_nombre',
                 'e.color as estado_color',
+                'cobrador.name as cobrado_por_nombre',
             ]);
 
         $venta->comprobante = DB::table('ventas.comprobantes')

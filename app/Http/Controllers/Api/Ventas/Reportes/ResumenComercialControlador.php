@@ -19,6 +19,8 @@ class ResumenComercialControlador extends Controller
             'desde' => 'nullable|date',
             'hasta' => 'nullable|date|after_or_equal:desde',
             'sede_id' => 'nullable',
+            'transacciones' => 'nullable|string|max:20',
+            'total_ventas' => 'nullable|string|max:30',
         ]);
 
         return ApiResponse::exito(

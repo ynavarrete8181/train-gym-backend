@@ -2,7 +2,6 @@
 
 namespace App\Services\Reportes\Documentos;
 
-use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
@@ -13,6 +12,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReporteExcelDocumentoServicio
 {
+    public function __construct(private readonly ReporteMembreteServicio $membrete)
+    {
+    }
+
     public function descargar(
         string $nombreArchivo,
         string $titulo,
@@ -22,10 +25,7 @@ class ReporteExcelDocumentoServicio
         array $metadata,
         int $usuarioId,
     ): StreamedResponse {
-        $usuario = DB::table('seguridad.users as u')
-            ->leftJoin('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
-            ->where('u.id', $usuarioId)
-            ->first(['u.name', 'u.email', 'r.role']);
+        $membrete = $this->membrete->construir($titulo, $descripcion, $metadata, $usuarioId);
 
         $spreadsheet = new Spreadsheet();
         $hoja = $spreadsheet->getActiveSheet();
@@ -33,7 +33,7 @@ class ReporteExcelDocumentoServicio
 
         $ultimaColumna = $this->letraColumna(max(1, count($columnas)));
 
-        $logo = public_path('brand/revive-logo.jpeg');
+        $logo = $membrete['logo_path'];
         if (is_file($logo)) {
             $drawing = new Drawing();
             $drawing->setName('Revive');
@@ -47,11 +47,11 @@ class ReporteExcelDocumentoServicio
         }
 
         $hoja->mergeCells("B1:{$ultimaColumna}1");
-        $hoja->setCellValue('B1', 'REVIVE - REPORTE INSTITUCIONAL');
+        $hoja->setCellValue('B1', $membrete['institucion'] . ' - ' . $membrete['subtitulo']);
         $hoja->mergeCells("B2:{$ultimaColumna}2");
-        $hoja->setCellValue('B2', $titulo);
+        $hoja->setCellValue('B2', $membrete['titulo']);
         $hoja->mergeCells("B3:{$ultimaColumna}3");
-        $hoja->setCellValue('B3', $descripcion);
+        $hoja->setCellValue('B3', $membrete['descripcion']);
 
         $hoja->getStyle("A1:{$ultimaColumna}3")->getFill()
             ->setFillType(Fill::FILL_SOLID)
@@ -61,14 +61,14 @@ class ReporteExcelDocumentoServicio
         $hoja->getStyle("B3:{$ultimaColumna}3")->getFont()->setSize(10)->getColor()->setARGB('FF5F6368');
 
         $metadataBase = [
-            'Generado por' => $usuario->name ?? 'Usuario',
-            'Rol' => $usuario->role ?? 'Sin rol',
-            'Correo' => $usuario->email ?? '',
-            'Generado el' => now()->format('d/m/Y H:i:s'),
+            'Generado por' => $membrete['generado_por'],
+            'Rol' => $membrete['rol'],
+            'Correo' => $membrete['correo'],
+            'Generado el' => $membrete['generado_el'],
         ];
 
         $filaMeta = 5;
-        foreach (array_merge($metadataBase, $metadata) as $etiqueta => $valor) {
+        foreach (array_merge($metadataBase, $membrete['metadata']) as $etiqueta => $valor) {
             if ($valor === null || $valor === '' || $valor === []) {
                 continue;
             }

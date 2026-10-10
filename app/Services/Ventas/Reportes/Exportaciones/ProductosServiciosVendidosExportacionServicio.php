@@ -34,8 +34,20 @@ class ProductosServiciosVendidosExportacionServicio
             'Ítems vendidos por tipo, sede, cantidad e ingresos.',
             ['Sede', 'Tipo', 'Producto / servicio', 'Ventas', 'Cantidad', 'Precio promedio', 'Total vendido'],
             $filas,
-            $this->recopila->metadataPeriodo($filtros),
+            array_merge(
+                $this->recopila->metadataPeriodo($filtros),
+                ['Sedes' => $this->recopila->sedesTexto($items)]
+            ),
             $usuarioId,
+            [
+                'TOTAL',
+                '',
+                '',
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (int) ($row[3] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[4] ?? 0)),
+                '',
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[6] ?? 0)),
+            ],
         );
     }
 }

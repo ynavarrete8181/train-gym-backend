@@ -50,3 +50,20 @@ No crear scroll horizontal innecesario solo para conservar una fila de indicador
 ## Aplicación automática
 
 Este estándar debe aplicarse por defecto en nuevas vistas y refactors de Revive, salvo que una necesidad funcional requiera explícitamente otro patrón.
+
+
+## Alineación de columnas según tipo de dato
+
+La alineación horizontal debe responder al tipo y longitud de la información:
+
+- texto descriptivo, nombres, observaciones, clientes, responsables, conceptos y campos de lectura larga: alineación **izquierda**;
+- identificadores cortos, fechas, estados, prioridades, métodos, cantidades, métricas, porcentajes e importes: alineación **centrada**;
+- evitar alinear métricas compactas a la derecha salvo que exista una razón contable específica.
+
+Ejemplos:
+- `Sede`, `Cliente`, `Responsable`: izquierda;
+- `N.º de venta`, `Fecha`, `Prioridad`, `Método`: centro;
+- `Transacciones`, `Ventas`, `Saldo`, `Total`, `Operaciones`: centro;
+- `Acciones`: centro.
+
+El encabezado y las celdas de una misma columna deben usar la misma alineación.

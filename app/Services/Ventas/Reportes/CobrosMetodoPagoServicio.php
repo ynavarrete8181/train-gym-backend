@@ -38,9 +38,25 @@ class CobrosMetodoPagoServicio
             ->selectRaw('SUM(p.monto) as total')
             ->groupByRaw("DATE(p.fecha_pago), COALESCE(s.nombre, 'Sin sede'), p.metodo_pago");
 
+        if (! empty($filtros['fecha'])) {
+            $valor = '%' . trim((string) $filtros['fecha']) . '%';
+            $query->where(function ($q) use ($valor): void {
+                $q->whereRaw('CAST(DATE(p.fecha_pago) AS TEXT) LIKE ?', [$valor])
+                    ->orWhereRaw("TO_CHAR(DATE(p.fecha_pago), 'DD/MM/YYYY') LIKE ?", [$valor]);
+            });
+        }
+
         if (! empty($filtros['metodo_pago'])) {
             $metodos = is_array($filtros['metodo_pago']) ? $filtros['metodo_pago'] : [$filtros['metodo_pago']];
             $query->whereIn('p.metodo_pago', array_filter($metodos));
+        }
+
+        if (! empty($filtros['operaciones'])) {
+            $query->havingRaw("CAST(COUNT(DISTINCT COALESCE(p.operacion_cobro_id, p.id::text)) AS TEXT) LIKE ?", ['%' . trim((string) $filtros['operaciones']) . '%']);
+        }
+
+        if (! empty($filtros['total'])) {
+            $query->havingRaw('CAST(SUM(p.monto) AS TEXT) LIKE ?', ['%' . trim((string) $filtros['total']) . '%']);
         }
 
         $resumen = DB::table('ventas.pagos as p')
@@ -50,6 +66,14 @@ class CobrosMetodoPagoServicio
             ->where('p.estado', 'CONFIRMADO')
             ->whereBetween(DB::raw('DATE(p.fecha_pago)'), [$desde, $hasta])
             ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes);
+
+        if (! empty($filtros['fecha'])) {
+            $valor = '%' . trim((string) $filtros['fecha']) . '%';
+            $resumen->where(function ($q) use ($valor): void {
+                $q->whereRaw('CAST(DATE(p.fecha_pago) AS TEXT) LIKE ?', [$valor])
+                    ->orWhereRaw("TO_CHAR(DATE(p.fecha_pago), 'DD/MM/YYYY') LIKE ?", [$valor]);
+            });
+        }
 
         if (! empty($filtros['metodo_pago'])) {
             $metodos = is_array($filtros['metodo_pago']) ? $filtros['metodo_pago'] : [$filtros['metodo_pago']];

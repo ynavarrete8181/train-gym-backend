@@ -40,10 +40,10 @@ class ReporteExcelDocumentoServicio
             $drawing->setName('Revive');
             $drawing->setDescription('Revive');
             $drawing->setPath($logo);
-            $drawing->setHeight(62);
+            $drawing->setHeight(70);
             $drawing->setCoordinates('A1');
-            $drawing->setOffsetX(4);
-            $drawing->setOffsetY(3);
+            $drawing->setOffsetX(3);
+            $drawing->setOffsetY(1);
             $drawing->setWorksheet($hoja);
         }
 
@@ -64,6 +64,8 @@ class ReporteExcelDocumentoServicio
 
         $hoja->mergeCells("B3:{$ultimaColumna}3");
         $hoja->setCellValue('B3', $detalle);
+
+        $hoja->getColumnDimension('A')->setWidth(13);
 
         $hoja->getRowDimension(1)->setRowHeight(22);
         $hoja->getRowDimension(2)->setRowHeight(25);

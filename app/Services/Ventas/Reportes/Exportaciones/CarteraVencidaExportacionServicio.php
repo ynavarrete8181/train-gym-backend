@@ -39,8 +39,24 @@ class CarteraVencidaExportacionServicio
             'Cuentas vencidas y saldos pendientes por sede.',
             ['Sede', 'N.º venta', 'Cliente', 'Identificación', 'Vencimiento', 'Días vencidos', 'Total', 'Pagado', 'Saldo', 'Responsable', 'Prioridad'],
             $filas,
-            ['Filtros aplicados' => $this->recopila->filtrosTexto($filtros)],
+            [
+                'Sedes' => $this->recopila->sedesTexto($items),
+                'Filtros aplicados' => $this->recopila->filtrosTexto($filtros),
+            ],
             $usuarioId,
+            [
+                'TOTAL',
+                '',
+                '',
+                '',
+                '',
+                '',
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[6] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[7] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[8] ?? 0)),
+                '',
+                '',
+            ],
         );
     }
 }

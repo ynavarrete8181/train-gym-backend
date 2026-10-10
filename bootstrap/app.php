@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AutenticarTokenBase;
+use App\Http\Middleware\AsignarRequestId;
 use App\Http\Middleware\AuditarOperacionGlobal;
 use App\Http\Middleware\AutorizarFuncionBase;
 use App\Services\Logs\LogSistemaService;
@@ -18,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->appendToGroup('api', [
+            AsignarRequestId::class,
             AuditarOperacionGlobal::class,
         ]);
 

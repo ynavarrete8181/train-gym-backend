@@ -40,10 +40,10 @@ class ReporteExcelDocumentoServicio
             $drawing->setName('Revive');
             $drawing->setDescription('Revive');
             $drawing->setPath($logo);
-            $drawing->setHeight(52);
+            $drawing->setHeight(62);
             $drawing->setCoordinates('A1');
-            $drawing->setOffsetX(5);
-            $drawing->setOffsetY(5);
+            $drawing->setOffsetX(4);
+            $drawing->setOffsetY(3);
             $drawing->setWorksheet($hoja);
         }
 

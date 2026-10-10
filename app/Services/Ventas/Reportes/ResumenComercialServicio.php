@@ -32,12 +32,22 @@ class ResumenComercialServicio
         $ventasAnterior = (float) (clone $ventasAnteriores)->sum('v.total');
         $cobradoAnterior = (float) (clone $pagosAnteriores)->sum('p.monto');
 
-        $porSede = $this->ventasBase($sedes, $desde, $hasta)
+        $porSedeQuery = $this->ventasBase($sedes, $desde, $hasta)
             ->leftJoin('institucional.sedes as s', 's.id_sede', '=', DB::raw('COALESCE(c.sede_id, m.sede_id)'))
             ->selectRaw("COALESCE(s.nombre, 'Sin sede') as sede")
             ->selectRaw('COUNT(v.id) as transacciones')
             ->selectRaw('SUM(v.total) as total_ventas')
-            ->groupByRaw("COALESCE(s.nombre, 'Sin sede')")
+            ->groupByRaw("COALESCE(s.nombre, 'Sin sede')");
+
+        if (! empty($filtros['transacciones'])) {
+            $porSedeQuery->havingRaw('CAST(COUNT(v.id) AS TEXT) LIKE ?', ['%' . trim((string) $filtros['transacciones']) . '%']);
+        }
+
+        if (! empty($filtros['total_ventas'])) {
+            $porSedeQuery->havingRaw('CAST(SUM(v.total) AS TEXT) LIKE ?', ['%' . trim((string) $filtros['total_ventas']) . '%']);
+        }
+
+        $porSede = $porSedeQuery
             ->orderByDesc('total_ventas')
             ->get()
             ->map(fn ($fila) => [

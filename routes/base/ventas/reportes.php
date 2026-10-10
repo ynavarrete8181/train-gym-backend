@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Ventas\Reportes\CarteraVencidaControlador;
+use App\Http\Controllers\Api\Ventas\Reportes\MembresiasNuevasRenovacionesControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\CobrosMetodoPagoControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\ResumenComercialControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\VentasPeriodoControlador;
@@ -27,4 +28,8 @@ Route::prefix('reportes')->group(function (): void {
     Route::get('ventas-responsable', [VentasResponsableControlador::class, 'index'])
         ->middleware('base.permiso:REPORTES-VENTAS-RESPONSABLE')
         ->name('ventas.reportes.ventas-responsable');
+
+    Route::get('membresias-nuevas-renovaciones', [MembresiasNuevasRenovacionesControlador::class, 'index'])
+        ->middleware('base.permiso:REPORTES-MEMBRESIAS-NUEVAS-RENOVACIONES')
+        ->name('ventas.reportes.membresias-nuevas-renovaciones');
 });

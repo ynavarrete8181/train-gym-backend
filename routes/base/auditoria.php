@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Auditoria\AuditoriaControlador;
 use App\Http\Controllers\Api\Auditoria\TrazabilidadComercialControlador;
+use App\Http\Controllers\Api\Auditoria\ReportesAuditoriaControlador;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['base.auth'])->prefix('auditoria')->group(function (): void {
@@ -12,6 +13,9 @@ Route::middleware(['base.auth'])->prefix('auditoria')->group(function (): void {
     Route::get('integraciones', [AuditoriaControlador::class, 'integraciones'])
         ->middleware('base.permiso:AUDITORIA-INTEGRACIONES')
         ->name('auditoria.integraciones');
+    Route::get('reportes', [ReportesAuditoriaControlador::class, 'index'])
+        ->middleware('base.permiso:AUDITORIA-REPORTES')
+        ->name('auditoria.reportes');
     Route::get('trazabilidad-comercial', [TrazabilidadComercialControlador::class, 'index'])
         ->middleware('base.permiso:AUDITORIA-TRAZABILIDAD-COMERCIAL')
         ->name('auditoria.trazabilidad-comercial');

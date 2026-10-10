@@ -49,6 +49,11 @@ class ReporteComercialServicio
             ->whereBetween(DB::raw('DATE(p.fecha_pago)'), [$desde, $hasta])
             ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes);
 
+        if (! empty($filtros['tipo_venta'])) {
+            $tipos = is_array($filtros['tipo_venta']) ? $filtros['tipo_venta'] : [$filtros['tipo_venta']];
+            $pagos->whereIn('v.tipo_venta', array_filter($tipos));
+        }
+
         $totalCobrado = (float) (clone $pagos)->sum('p.monto');
         $efectivo = (float) (clone $pagos)->where('p.metodo_pago', 'EFECTIVO')->sum('p.monto');
 
@@ -58,6 +63,10 @@ class ReporteComercialServicio
             ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
             ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes)
             ->whereNotIn('v.estado', ['ANULADA', 'PAGADA'])
+            ->when(! empty($filtros['tipo_venta']), function ($q) use ($filtros): void {
+                $tipos = is_array($filtros['tipo_venta']) ? $filtros['tipo_venta'] : [$filtros['tipo_venta']];
+                $q->whereIn('v.tipo_venta', array_filter($tipos));
+            })
             ->selectRaw("COALESCE(SUM(GREATEST(v.total - (SELECT COALESCE(SUM(pg.monto),0) FROM ventas.pagos pg WHERE pg.venta_id = v.id AND pg.estado = 'CONFIRMADO'), 0)), 0) as saldo")
             ->value('saldo');
 

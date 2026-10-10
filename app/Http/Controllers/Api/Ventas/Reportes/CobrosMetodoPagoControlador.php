@@ -4,13 +4,16 @@ namespace App\Http\Controllers\Api\Ventas\Reportes;
 
 use App\Http\Controllers\Controller;
 use App\Services\Ventas\Reportes\CobrosMetodoPagoServicio;
+use App\Services\Ventas\Reportes\Exportaciones\CobrosMetodoPagoExportacionServicio;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
 
 class CobrosMetodoPagoControlador extends Controller
 {
-    public function __construct(private readonly CobrosMetodoPagoServicio $servicio)
-    {
+    public function __construct(
+        private readonly CobrosMetodoPagoServicio $servicio,
+        private readonly CobrosMetodoPagoExportacionServicio $exportacion,
+    ) {
     }
 
     public function index(Request $request)
@@ -35,4 +38,20 @@ class CobrosMetodoPagoControlador extends Controller
             $resultado['meta'],
         );
     }
+
+    public function excel(Request $request)
+    {
+        $filtros = $request->validate([
+            'desde' => 'nullable|date',
+            'hasta' => 'nullable|date|after_or_equal:desde',
+            'fecha' => 'nullable|string|max:30',
+            'sede_id' => 'nullable',
+            'metodo_pago' => 'nullable',
+            'operaciones' => 'nullable|string|max:20',
+            'total' => 'nullable|string|max:30'
+        ]);
+
+        return $this->exportacion->excel($filtros, (int) $request->user()->id);
+    }
+
 }

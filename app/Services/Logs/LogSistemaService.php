@@ -159,6 +159,62 @@ class LogSistemaService
         return $query->orderByDesc('e.created_at')->paginate($filtros['per_page'] ?? 10, ['*'], 'page', $filtros['page'] ?? 1);
     }
 
+
+    public function listarIntegraciones(array $filtros)
+    {
+        $query = DB::table('logs.integraciones');
+
+        $this->filtrarTexto($query, 'proveedor', $filtros['proveedor'] ?? null);
+        $this->filtrarTexto($query, 'tipo', $filtros['tipo'] ?? null);
+        $this->filtrarTexto($query, 'direccion', $filtros['direccion'] ?? null);
+
+        if (! empty($filtros['estado'])) {
+            if (mb_strtoupper((string) $filtros['estado']) === 'ERROR') {
+                $query->where(function ($q): void {
+                    $q->whereNotNull('error')
+                        ->orWhere('status_code', '>=', 400);
+                });
+            } elseif (mb_strtoupper((string) $filtros['estado']) === 'OK') {
+                $query->whereNull('error')
+                    ->where(function ($q): void {
+                        $q->whereNull('status_code')
+                            ->orWhere('status_code', '<', 400);
+                    });
+            }
+        }
+
+        if (! empty($filtros['busqueda'])) {
+            $texto = '%' . mb_strtolower((string) $filtros['busqueda']) . '%';
+            $query->where(function ($q) use ($texto): void {
+                $q->whereRaw('LOWER(COALESCE(proveedor, '')) LIKE ?', [$texto])
+                    ->orWhereRaw('LOWER(COALESCE(tipo, '')) LIKE ?', [$texto])
+                    ->orWhereRaw('LOWER(COALESCE(endpoint, '')) LIKE ?', [$texto])
+                    ->orWhereRaw('LOWER(COALESCE(error, '')) LIKE ?', [$texto]);
+            });
+        }
+
+        if (! empty($filtros['fecha_desde'])) {
+            $query->where('created_at', '>=', $filtros['fecha_desde'] . ' 00:00:00');
+        }
+        if (! empty($filtros['fecha_hasta'])) {
+            $query->where('created_at', '<=', $filtros['fecha_hasta'] . ' 23:59:59');
+        }
+
+        $paginador = $query
+            ->orderByDesc('created_at')
+            ->paginate($filtros['per_page'] ?? 10, ['*'], 'page', $filtros['page'] ?? 1);
+
+        return [
+            'paginador' => $paginador,
+            'opciones' => [
+                'proveedor' => DB::table('logs.integraciones')->distinct()->orderBy('proveedor')->pluck('proveedor')->filter()->values(),
+                'tipo' => DB::table('logs.integraciones')->distinct()->orderBy('tipo')->pluck('tipo')->filter()->values(),
+                'direccion' => DB::table('logs.integraciones')->distinct()->orderBy('direccion')->pluck('direccion')->filter()->values(),
+                'estado' => ['OK', 'ERROR'],
+            ],
+        ];
+    }
+
     public function opcionesFiltro(): array
     {
         return [

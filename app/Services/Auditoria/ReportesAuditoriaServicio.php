@@ -19,6 +19,21 @@ class ReportesAuditoriaServicio
         };
     }
 
+    public function todos(array $filtros): array
+    {
+        $pagina = 1;
+        $resultado = [];
+
+        do {
+            $consulta = $this->consultar(array_merge($filtros, ['page' => $pagina, 'per_page' => 50]));
+            $resultado = array_merge($resultado, $consulta['datos']);
+            $ultima = (int) ($consulta['meta']['ultima_pagina'] ?? 1);
+            $pagina++;
+        } while ($pagina <= $ultima);
+
+        return $resultado;
+    }
+
     private function porUsuario(array $filtros): array
     {
         $query = DB::table('auditoria.eventos')

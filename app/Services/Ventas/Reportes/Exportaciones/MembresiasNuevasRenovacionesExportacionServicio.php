@@ -40,8 +40,26 @@ class MembresiasNuevasRenovacionesExportacionServicio
             'Altas y renovaciones de membresías por período, sede, plan y estado.',
             ['Fecha', 'Sede', 'Movimiento', 'Contrato', 'Cliente', 'Identificación', 'Plan', 'Modalidad', 'Período', 'Estado', 'Precio', 'Cobrado', 'Saldo'],
             $filas,
-            $this->recopila->metadataPeriodo($filtros),
+            array_merge(
+                $this->recopila->metadataPeriodo($filtros),
+                ['Sedes' => $this->recopila->sedesTexto($items)]
+            ),
             $usuarioId,
+            [
+                'TOTAL',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[10] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[11] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[12] ?? 0)),
+            ],
         );
     }
 }

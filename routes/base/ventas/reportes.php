@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Ventas\Reportes\CarteraVencidaControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\ConciliacionCajaControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\MembresiasNuevasRenovacionesControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\MembresiasPorVencerControlador;
+use App\Http\Controllers\Api\Ventas\Reportes\ProductosServiciosVendidosControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\CobrosMetodoPagoControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\ResumenComercialControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\VentasPeriodoControlador;
@@ -42,4 +43,8 @@ Route::prefix('reportes')->group(function (): void {
     Route::get('conciliacion-caja', [ConciliacionCajaControlador::class, 'index'])
         ->middleware('base.permiso:REPORTES-CONCILIACION-CAJA')
         ->name('ventas.reportes.conciliacion-caja');
+
+    Route::get('productos-servicios-vendidos', [ProductosServiciosVendidosControlador::class, 'index'])
+        ->middleware('base.permiso:REPORTES-PRODUCTOS-SERVICIOS')
+        ->name('ventas.reportes.productos-servicios-vendidos');
 });

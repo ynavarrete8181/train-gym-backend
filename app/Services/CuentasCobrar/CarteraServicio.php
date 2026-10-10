@@ -333,7 +333,7 @@ class CarteraServicio
             'fecha_vencimiento' => $this->resolverFechaVencimiento($ventaId, $venta),
             'estado' => 'ABIERTA',
             'prioridad' => 'NORMAL',
-            'responsable_id' => $venta->responsable_comercial_id ?: null,
+            'responsable_id' => null,
             'created_at' => now(),
             'updated_at' => now(),
         ]);

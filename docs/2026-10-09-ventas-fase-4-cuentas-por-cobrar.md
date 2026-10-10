@@ -164,3 +164,22 @@ La vista Cartera utiliza el patrón global del Sistema Base:
 - el backend conserva el alcance autorizado por sede y combina los filtros solicitados con ese alcance.
 
 No se realiza filtrado financiero maestro en frontend.
+
+
+### Cobertura completa de filtros de Cartera
+
+Todas las columnas de datos de la tabla Cartera, excepto **Acciones**, utilizan el patrón global `FilterHeaderCell`.
+
+Cobertura:
+- Sede
+- N.º de venta
+- Cliente
+- Vencimiento
+- Total
+- Pagado
+- Saldo
+- Responsable
+- Prioridad
+- Estado
+
+Los filtros se envían al backend. Los importes y el saldo se filtran sobre los valores derivados desde `ventas.ventas` y `ventas.pagos`; no se calcula ni se conserva un saldo financiero alterno en frontend.

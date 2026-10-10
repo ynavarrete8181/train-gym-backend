@@ -4,13 +4,16 @@ namespace App\Http\Controllers\Api\Ventas\Reportes;
 
 use App\Http\Controllers\Controller;
 use App\Services\Ventas\Reportes\ResumenComercialServicio;
+use App\Services\Ventas\Reportes\Exportaciones\ResumenComercialExportacionServicio;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
 
 class ResumenComercialControlador extends Controller
 {
-    public function __construct(private readonly ResumenComercialServicio $servicio)
-    {
+    public function __construct(
+        private readonly ResumenComercialServicio $servicio,
+        private readonly ResumenComercialExportacionServicio $exportacion,
+    ) {
     }
 
     public function index(Request $request)
@@ -28,4 +31,18 @@ class ResumenComercialControlador extends Controller
             $this->servicio->consultar($filtros, (int) $request->user()->id),
         );
     }
+
+    public function excel(Request $request)
+    {
+        $filtros = $request->validate([
+            'desde' => 'nullable|date',
+            'hasta' => 'nullable|date|after_or_equal:desde',
+            'sede_id' => 'nullable',
+            'transacciones' => 'nullable|string|max:20',
+            'total_ventas' => 'nullable|string|max:30',
+        ]);
+
+        return $this->exportacion->excel($filtros, (int) $request->user()->id);
+    }
+
 }

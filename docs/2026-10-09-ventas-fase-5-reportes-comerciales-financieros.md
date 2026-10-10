@@ -117,15 +117,15 @@ Estas ampliaciones deben continuar usando las fuentes transaccionales existentes
 
 La siguiente etapa se formaliza como:
 
-**Fase 6 — Analítica comercial y exportables**
+**Fase 6 — Analítica comercial avanzada**
 
-Alcance previsto:
+Alcance:
 - desglose por método de pago;
 - análisis por responsable comercial;
-- membresías vendidas y renovadas;
-- cartera vencida y recuperación;
-- comparativos por período y sede;
-- exportación PDF/Excel desde backend;
-- cierres y conciliaciones históricas.
+- membresías nuevas y renovaciones;
+- cartera vencida;
+- comparativos contra el período anterior.
+
+La exportación PDF/Excel y las conciliaciones históricas quedan como evolución posterior.
 
 Se mantiene `VENTAS-REPORTES` como permiso de acceso y las fuentes transaccionales existentes como única fuente de verdad.

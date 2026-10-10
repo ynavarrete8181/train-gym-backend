@@ -123,7 +123,8 @@ class ReporteExcelDocumentoServicio
             $fila++;
         }
 
-        $ultimaFilaDatos = $fila - 1;
+        $ultimaFilaRegistros = $fila - 1;
+        $ultimaFilaDocumento = $ultimaFilaRegistros;
 
         if ($filaTotal && $filas) {
             foreach (array_values($columnas) as $indice => $_) {
@@ -140,20 +141,20 @@ class ReporteExcelDocumentoServicio
                 ->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF2F2F2');
             $hoja->getStyle("A{$fila}:{$ultimaColumna}{$fila}")
                 ->getBorders()->getTop()->setBorderStyle(Border::BORDER_MEDIUM)->getColor()->setARGB('FFB0B0B0');
-            $ultimaFilaDatos = $fila;
+            $ultimaFilaDocumento = $fila;
             $fila++;
         }
 
-        if ($ultimaFilaDatos >= $filaEncabezado + 1) {
-            $hoja->setAutoFilter("A{$filaEncabezado}:{$ultimaColumna}{$ultimaFilaDatos}");
+        if ($ultimaFilaRegistros >= $filaEncabezado + 1) {
+            $hoja->setAutoFilter("A{$filaEncabezado}:{$ultimaColumna}{$ultimaFilaRegistros}");
         }
 
         $hoja->freezePane('A' . ($filaEncabezado + 1));
 
-        $hoja->getStyle("A{$filaEncabezado}:{$ultimaColumna}{$ultimaFilaDatos}")
+        $hoja->getStyle("A{$filaEncabezado}:{$ultimaColumna}{$ultimaFilaDocumento}")
             ->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFE1E1E1');
 
-        $hoja->getStyle("A" . ($filaEncabezado + 1) . ":{$ultimaColumna}{$ultimaFilaDatos}")
+        $hoja->getStyle("A" . ($filaEncabezado + 1) . ":{$ultimaColumna}{$ultimaFilaDocumento}")
             ->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
 
         for ($col = 1; $col <= count($columnas); $col++) {
@@ -168,7 +169,7 @@ class ReporteExcelDocumentoServicio
             ->setFitToWidth(1)
             ->setFitToHeight(0);
 
-        $hoja->setPrintArea("A1:{$ultimaColumna}{$ultimaFilaDatos}");
+        $hoja->setPrintArea("A1:{$ultimaColumna}{$ultimaFilaDocumento}");
         $hoja->getPageMargins()
             ->setTop(0.35)
             ->setBottom(0.55)

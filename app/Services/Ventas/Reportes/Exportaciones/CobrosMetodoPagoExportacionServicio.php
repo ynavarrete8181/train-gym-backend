@@ -32,8 +32,18 @@ class CobrosMetodoPagoExportacionServicio
             'Cobros confirmados consolidados por fecha, sede y método.',
             ['Fecha', 'Sede', 'Método', 'Operaciones', 'Total'],
             $filas,
-            $this->recopila->metadataPeriodo($filtros),
+            array_merge(
+                $this->recopila->metadataPeriodo($filtros),
+                ['Sedes' => $this->recopila->sedesTexto($items)]
+            ),
             $usuarioId,
+            [
+                'TOTAL',
+                '',
+                '',
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (int) ($row[3] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[4] ?? 0)),
+            ],
         );
     }
 }

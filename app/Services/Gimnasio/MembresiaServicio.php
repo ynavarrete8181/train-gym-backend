@@ -366,15 +366,41 @@ class MembresiaServicio
             'updated_at' => now(),
         ]);
 
-        return DB::table('membresias.membresia_periodos')->where('id', $id)->first();
+        $periodo = DB::table('membresias.membresia_periodos')->where('id', $id)->first();
+
+        $this->auditar(
+            'gimnasio',
+            'RENOVAR_MEMBRESIA',
+            'membresias.membresia_periodos',
+            $id,
+            $ultimo,
+            $periodo,
+            'Nuevo período generado para la membresía #' . $membresiaId . '.'
+        );
+
+        return $periodo;
     }
 
     public function vincularVentaPeriodo(int $periodoId, int $ventaId): void
     {
+        $antes = DB::table('membresias.membresia_periodos')->where('id', $periodoId)->first();
+
         DB::table('membresias.membresia_periodos')->where('id', $periodoId)->update([
             'venta_id' => $ventaId,
             'updated_at' => now(),
         ]);
+
+        $despues = DB::table('membresias.membresia_periodos')->where('id', $periodoId)->first();
+
+        $this->auditar(
+            'gimnasio',
+            'VINCULAR_VENTA',
+            'membresias.membresia_periodos',
+            $periodoId,
+            $antes,
+            $despues,
+            'Venta #' . $ventaId . ' vinculada al período de membresía.'
+        );
     }
 
     private function sincronizarSedes(int $membresiaId, int $sedePrincipalId, array $sedesHabilitadas): void

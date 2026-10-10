@@ -18,6 +18,12 @@ class CarteraVencidaControlador extends Controller
         $filtros = $request->validate([
             'busqueda' => 'nullable|string|max:120',
             'sede_id' => 'nullable',
+            'venta_numero' => 'nullable|string|max:120',
+            'cliente' => 'nullable|string|max:120',
+            'vencimiento' => 'nullable|string|max:30',
+            'dias_vencidos' => 'nullable|string|max:20',
+            'saldo' => 'nullable|string|max:30',
+            'responsable' => 'nullable|string|max:120',
             'prioridad' => 'nullable',
             'page' => 'nullable|integer|min:1',
             'per_page' => 'nullable|integer|in:5,10,25,50',

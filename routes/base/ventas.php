@@ -45,9 +45,12 @@ Route::middleware(['base.auth'])->prefix('ventas')->group(function (): void {
         Route::post('comprobantes/{id}/reenviar', [VentaControlador::class, 'reenviarComprobante'])->name('ventas.comprobantes.reenviar');
     });
 
-    Route::get('reportes-comerciales', [ReporteComercialControlador::class, 'index'])
-        ->middleware('base.permiso:VENTAS-REPORTES')
-        ->name('ventas.reportes-comerciales.index');
+    Route::middleware(['base.permiso:VENTAS-REPORTES'])->group(function (): void {
+        Route::get('reportes-comerciales', [ReporteComercialControlador::class, 'index'])
+            ->name('ventas.reportes-comerciales.index');
+        Route::get('reportes-comerciales/analitica', [ReporteComercialControlador::class, 'analitica'])
+            ->name('ventas.reportes-comerciales.analitica');
+    });
 
     Route::middleware(['base.permiso:VENTAS-CARTERA'])->group(function (): void {
         Route::get('cartera', [CarteraControlador::class, 'index'])->name('ventas.cartera.index');

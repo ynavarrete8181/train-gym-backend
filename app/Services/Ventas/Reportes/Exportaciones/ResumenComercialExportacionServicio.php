@@ -27,6 +27,7 @@ class ResumenComercialExportacionServicio
         $metadata = array_merge(
             $this->recopila->metadataPeriodo($filtros),
             [
+                'Sedes' => $this->recopila->sedesTexto($datos['por_sede'] ?? []),
                 'Período comparativo' => isset($datos['comparativo'])
                     ? (($datos['comparativo']['desde'] ?? '') . ' - ' . ($datos['comparativo']['hasta'] ?? ''))
                     : null,

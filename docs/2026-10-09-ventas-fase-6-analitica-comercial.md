@@ -121,3 +121,22 @@ Queda para una fase posterior:
 - comparativos gráficos;
 - metas comerciales;
 - análisis por producto/servicio.
+
+
+## Corrección incremental de visibilidad del submenú
+
+Se agregó la migración:
+
+`database/migrations/2026_10_09_001300_ensure_sales_reports_menu_permissions.php`
+
+Objetivo:
+- garantizar que `VENTAS-REPORTES` esté registrado dentro del menú **Ventas**;
+- registrar `ReportesComercialesPage` en `seguridad.cpu_pagina_sistema`;
+- sincronizar el permiso a roles y usuarios existentes;
+- limitar la visibilidad a:
+  - SUPERADMINISTRADOR;
+  - ADMINISTRADOR;
+  - SUPERVISOR DE VENTAS;
+- retirar cualquier asignación accidental a otros roles.
+
+El menú se construye desde `seguridad.cpu_userfunction`, por lo que después de ejecutar la migración debe renovarse la sesión para reconstruir `base_menu`.

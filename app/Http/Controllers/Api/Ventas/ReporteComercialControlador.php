@@ -33,4 +33,18 @@ class ReporteComercialControlador extends Controller
             $resultado['meta'],
         );
     }
+
+    public function analitica(Request $request)
+    {
+        $datos = $request->validate([
+            'desde' => 'nullable|date',
+            'hasta' => 'nullable|date|after_or_equal:desde',
+            'sede_id' => 'nullable',
+        ]);
+
+        return ApiResponse::exito(
+            'Analítica comercial consultada.',
+            $this->reportes->analitica($datos, (int) $request->user()->id),
+        );
+    }
 }

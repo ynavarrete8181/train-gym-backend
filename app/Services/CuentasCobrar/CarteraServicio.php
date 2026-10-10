@@ -45,7 +45,16 @@ class CarteraServicio
         }
 
         if (! empty($filtros['prioridad'])) {
-            $query->where('cc.prioridad', mb_strtoupper((string) $filtros['prioridad']));
+            $prioridades = is_array($filtros['prioridad']) ? $filtros['prioridad'] : [$filtros['prioridad']];
+            $query->whereIn('cc.prioridad', array_map(fn ($valor) => mb_strtoupper((string) $valor), array_filter($prioridades)));
+        }
+
+        if (! empty($filtros['sede_id'])) {
+            $sedes = is_array($filtros['sede_id']) ? $filtros['sede_id'] : [$filtros['sede_id']];
+            $sedes = array_map('intval', array_filter($sedes));
+            if (! empty($sedes)) {
+                $query->whereIn(DB::raw('COALESCE(caja.sede_id, m.sede_id)'), $sedes);
+            }
         }
 
         if (! empty($filtros['desde'])) {
@@ -110,8 +119,15 @@ class CarteraServicio
             ->orderBy('u.name')
             ->get(['u.id', 'u.name', 'r.role']);
 
+        $sedesCatalogo = DB::table('institucional.sedes')
+            ->whereIn('id_sede', $sedes)
+            ->where('activo', true)
+            ->orderBy('nombre')
+            ->get(['id_sede as id', 'nombre']);
+
         return [
             'responsables' => $responsables,
+            'sedes' => $sedesCatalogo,
             'prioridades' => ['BAJA', 'NORMAL', 'ALTA', 'URGENTE'],
             'estados' => ['PENDIENTE', 'PARCIAL', 'VENCIDA', 'PAGADA', 'ANULADA'],
             'tipos_gestion' => ['LLAMADA', 'WHATSAPP', 'CORREO', 'PRESENCIAL', 'NOTA'],

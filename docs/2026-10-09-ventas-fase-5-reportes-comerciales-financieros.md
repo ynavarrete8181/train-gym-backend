@@ -111,3 +111,21 @@ Esta fase deja preparada la base para añadir posteriormente:
 - cierres y conciliaciones históricas.
 
 Estas ampliaciones deben continuar usando las fuentes transaccionales existentes y no duplicar lógica financiera.
+
+
+## Continuidad definida
+
+La siguiente etapa se formaliza como:
+
+**Fase 6 — Analítica comercial y exportables**
+
+Alcance previsto:
+- desglose por método de pago;
+- análisis por responsable comercial;
+- membresías vendidas y renovadas;
+- cartera vencida y recuperación;
+- comparativos por período y sede;
+- exportación PDF/Excel desde backend;
+- cierres y conciliaciones históricas.
+
+Se mantiene `VENTAS-REPORTES` como permiso de acceso y las fuentes transaccionales existentes como única fuente de verdad.

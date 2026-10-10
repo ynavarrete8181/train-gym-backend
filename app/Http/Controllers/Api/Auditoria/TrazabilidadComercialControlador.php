@@ -18,7 +18,7 @@ class TrazabilidadComercialControlador extends Controller
     public function index(Request $request)
     {
         $filtros = $this->validar($request);
-        $resultado = $this->servicio->consultar($filtros);
+        $resultado = $this->servicio->consultar($filtros, (int) $request->user()->id);
 
         return ApiResponse::exito(
             'Trazabilidad comercial consultada.',

@@ -56,13 +56,49 @@ class CarteraVencidaServicio
             });
         }
 
+        if (! empty($filtros['venta_numero'])) {
+            $query->whereRaw('LOWER(v.numero) LIKE ?', ['%' . mb_strtolower((string) $filtros['venta_numero']) . '%']);
+        }
+
+        if (! empty($filtros['cliente'])) {
+            $texto = '%' . mb_strtolower((string) $filtros['cliente']) . '%';
+            $query->where(function ($q) use ($texto): void {
+                $q->whereRaw("LOWER(COALESCE(persona.nombre_completo, cliente_user.name, '')) LIKE ?", [$texto])
+                    ->orWhereRaw("LOWER(COALESCE(persona.identificacion, cliente_user.cedula, '')) LIKE ?", [$texto]);
+            });
+        }
+
+        if (! empty($filtros['vencimiento'])) {
+            $valor = '%' . trim((string) $filtros['vencimiento']) . '%';
+            $query->where(function ($q) use ($valor): void {
+                $q->whereRaw('CAST(cc.fecha_vencimiento AS TEXT) LIKE ?', [$valor])
+                    ->orWhereRaw("TO_CHAR(cc.fecha_vencimiento, 'DD/MM/YYYY') LIKE ?", [$valor]);
+            });
+        }
+
+        if (! empty($filtros['dias_vencidos'])) {
+            $query->whereRaw('CAST(CURRENT_DATE - cc.fecha_vencimiento AS TEXT) LIKE ?', ['%' . trim((string) $filtros['dias_vencidos']) . '%']);
+        }
+
+        if (! empty($filtros['saldo'])) {
+            $query->whereRaw("CAST({$saldoSql} AS TEXT) LIKE ?", ['%' . trim((string) $filtros['saldo']) . '%']);
+        }
+
+        if (! empty($filtros['responsable'])) {
+            $query->whereRaw("LOWER(COALESCE(responsable.name, 'Sin asignar')) LIKE ?", ['%' . mb_strtolower((string) $filtros['responsable']) . '%']);
+        }
+
         if (! empty($filtros['prioridad'])) {
             $valores = is_array($filtros['prioridad']) ? $filtros['prioridad'] : [$filtros['prioridad']];
             $query->whereIn('cc.prioridad', array_filter($valores));
         }
 
-        $resumenQuery = clone $query;
-        $resumenFilas = $resumenQuery->get();
+        $resumen = DB::query()
+            ->fromSub(clone $query, 'reporte')
+            ->selectRaw('COUNT(*) as cuentas_vencidas')
+            ->selectRaw('COALESCE(SUM(saldo_pendiente), 0) as saldo_vencido')
+            ->selectRaw('COALESCE(AVG(dias_vencidos), 0) as promedio_dias_vencidos')
+            ->first();
 
         $paginador = $query
             ->orderBy('cc.fecha_vencimiento')
@@ -77,9 +113,9 @@ class CarteraVencidaServicio
                 'total' => $paginador->total(),
                 'ultima_pagina' => $paginador->lastPage(),
                 'resumen' => [
-                    'cuentas_vencidas' => $resumenFilas->count(),
-                    'saldo_vencido' => round((float) $resumenFilas->sum('saldo_pendiente'), 2),
-                    'promedio_dias_vencidos' => $resumenFilas->count() ? round((float) $resumenFilas->avg('dias_vencidos'), 1) : 0,
+                    'cuentas_vencidas' => (int) ($resumen->cuentas_vencidas ?? 0),
+                    'saldo_vencido' => round((float) ($resumen->saldo_vencido ?? 0), 2),
+                    'promedio_dias_vencidos' => round((float) ($resumen->promedio_dias_vencidos ?? 0), 1),
                 ],
                 'catalogos' => [
                     'sedes' => DB::table('institucional.sedes')->whereIn('id_sede', $sedesPermitidas)->where('activo', true)->orderBy('nombre')->get(['id_sede as id', 'nombre']),

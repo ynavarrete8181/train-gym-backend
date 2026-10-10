@@ -24,6 +24,7 @@ class ReporteExcelDocumentoServicio
         array $filas,
         array $metadata,
         int $usuarioId,
+        array $filaTotal = [],
     ): StreamedResponse {
         $membrete = $this->membrete->construir($titulo, $descripcion, $metadata, $usuarioId);
 
@@ -39,48 +40,62 @@ class ReporteExcelDocumentoServicio
             $drawing->setName('Revive');
             $drawing->setDescription('Revive');
             $drawing->setPath($logo);
-            $drawing->setHeight(58);
+            $drawing->setHeight(52);
             $drawing->setCoordinates('A1');
-            $drawing->setOffsetX(8);
-            $drawing->setOffsetY(6);
+            $drawing->setOffsetX(5);
+            $drawing->setOffsetY(5);
             $drawing->setWorksheet($hoja);
         }
 
         $hoja->mergeCells("B1:{$ultimaColumna}1");
-        $hoja->setCellValue('B1', $membrete['institucion'] . ' - ' . $membrete['subtitulo']);
+        $hoja->setCellValue('B1', 'Centro de Entrenamiento Físico Revive');
         $hoja->mergeCells("B2:{$ultimaColumna}2");
-        $hoja->setCellValue('B2', $membrete['titulo']);
+        $hoja->setCellValue('B2', 'Reporte de ' . $membrete['titulo']);
+
+        $periodo = $membrete['metadata']['Período'] ?? '';
+        $sedes = $membrete['metadata']['Sedes'] ?? 'Todas las sedes';
+
+        $detalle = collect([
+            'Generado por: ' . $membrete['generado_por'],
+            'Rol: ' . $membrete['rol'],
+            $periodo ? 'Período: ' . $periodo : null,
+            'Sedes: ' . $sedes,
+        ])->filter()->implode('   ·   ');
+
         $hoja->mergeCells("B3:{$ultimaColumna}3");
-        $hoja->setCellValue('B3', $membrete['descripcion']);
+        $hoja->setCellValue('B3', $detalle);
 
-        $hoja->getStyle("A1:{$ultimaColumna}3")->getFill()
-            ->setFillType(Fill::FILL_SOLID)
-            ->getStartColor()->setARGB('FFF8F3DC');
-        $hoja->getStyle("B1:{$ultimaColumna}1")->getFont()->setBold(true)->setSize(13)->getColor()->setARGB('FF3C2E08');
-        $hoja->getStyle("B2:{$ultimaColumna}2")->getFont()->setBold(true)->setSize(16)->getColor()->setARGB('FF171717');
-        $hoja->getStyle("B3:{$ultimaColumna}3")->getFont()->setSize(10)->getColor()->setARGB('FF5F6368');
+        $hoja->getRowDimension(1)->setRowHeight(22);
+        $hoja->getRowDimension(2)->setRowHeight(25);
+        $hoja->getRowDimension(3)->setRowHeight(18);
 
-        $metadataBase = [
-            'Generado por' => $membrete['generado_por'],
-            'Rol' => $membrete['rol'],
-            'Correo' => $membrete['correo'],
-            'Generado el' => $membrete['generado_el'],
-        ];
+        $hoja->getStyle("B1:{$ultimaColumna}1")
+            ->getFont()->setBold(true)->setSize(12)->getColor()->setARGB('FF171717');
+        $hoja->getStyle("B2:{$ultimaColumna}2")
+            ->getFont()->setBold(true)->setSize(15)->getColor()->setARGB('FF5B4700');
+        $hoja->getStyle("B3:{$ultimaColumna}3")
+            ->getFont()->setSize(9)->getColor()->setARGB('FF5F6368');
 
-        $filaMeta = 5;
-        foreach (array_merge($metadataBase, $membrete['metadata']) as $etiqueta => $valor) {
-            if ($valor === null || $valor === '' || $valor === []) {
-                continue;
-            }
+        $hoja->getStyle("B1:{$ultimaColumna}3")
+            ->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
 
-            $hoja->setCellValue("A{$filaMeta}", $etiqueta);
-            $hoja->setCellValue("B{$filaMeta}", is_array($valor) ? implode(', ', $valor) : (string) $valor);
-            $hoja->mergeCells("B{$filaMeta}:{$ultimaColumna}{$filaMeta}");
-            $hoja->getStyle("A{$filaMeta}")->getFont()->setBold(true)->getColor()->setARGB('FF5A470D');
-            $filaMeta++;
+        $hoja->getStyle("A4:{$ultimaColumna}4")
+            ->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF5C400');
+        $hoja->getRowDimension(4)->setRowHeight(3);
+
+        $filtros = $membrete['metadata']['Filtros aplicados'] ?? '';
+        $filaEncabezado = 5;
+
+        if ($filtros) {
+            $hoja->mergeCells("A5:{$ultimaColumna}5");
+            $hoja->setCellValue('A5', $filtros);
+            $hoja->getStyle("A5:{$ultimaColumna}5")
+                ->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFFFDF5');
+            $hoja->getStyle("A5:{$ultimaColumna}5")->getFont()->setSize(8)->getColor()->setARGB('FF555555');
+            $hoja->getStyle("A5:{$ultimaColumna}5")->getAlignment()->setWrapText(true);
+            $filaEncabezado = 6;
         }
 
-        $filaEncabezado = $filaMeta + 1;
         foreach (array_values($columnas) as $indice => $encabezado) {
             $hoja->setCellValue([$indice + 1, $filaEncabezado], $encabezado);
         }
@@ -88,38 +103,95 @@ class ReporteExcelDocumentoServicio
         $hoja->getStyle("A{$filaEncabezado}:{$ultimaColumna}{$filaEncabezado}")
             ->getFont()->setBold(true)->getColor()->setARGB('FFFFFFFF');
         $hoja->getStyle("A{$filaEncabezado}:{$ultimaColumna}{$filaEncabezado}")
-            ->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF4F3C0A');
+            ->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF2F2F2F');
         $hoja->getStyle("A{$filaEncabezado}:{$ultimaColumna}{$filaEncabezado}")
             ->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
+        $hoja->getRowDimension($filaEncabezado)->setRowHeight(22);
 
         $fila = $filaEncabezado + 1;
-        foreach ($filas as $registro) {
+        foreach ($filas as $indiceFila => $registro) {
             foreach (array_values($columnas) as $indice => $_) {
                 $valor = $registro[$indice] ?? '';
                 $hoja->setCellValue([$indice + 1, $fila], $valor);
             }
+
+            if ($indiceFila % 2 === 1) {
+                $hoja->getStyle("A{$fila}:{$ultimaColumna}{$fila}")
+                    ->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFAFAFA');
+            }
+
             $fila++;
         }
 
-        if ($fila > $filaEncabezado + 1) {
-            $hoja->setAutoFilter("A{$filaEncabezado}:{$ultimaColumna}" . ($fila - 1));
+        $ultimaFilaDatos = $fila - 1;
+
+        if ($filaTotal && $filas) {
+            foreach (array_values($columnas) as $indice => $_) {
+                $valor = $filaTotal[$indice] ?? '';
+                if (is_callable($valor)) {
+                    $valor = $valor($filas);
+                }
+                $hoja->setCellValue([$indice + 1, $fila], $valor);
+            }
+
+            $hoja->getStyle("A{$fila}:{$ultimaColumna}{$fila}")
+                ->getFont()->setBold(true)->getColor()->setARGB('FF171717');
+            $hoja->getStyle("A{$fila}:{$ultimaColumna}{$fila}")
+                ->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF2F2F2');
+            $hoja->getStyle("A{$fila}:{$ultimaColumna}{$fila}")
+                ->getBorders()->getTop()->setBorderStyle(Border::BORDER_MEDIUM)->getColor()->setARGB('FFB0B0B0');
+            $ultimaFilaDatos = $fila;
+            $fila++;
+        }
+
+        if ($ultimaFilaDatos >= $filaEncabezado + 1) {
+            $hoja->setAutoFilter("A{$filaEncabezado}:{$ultimaColumna}{$ultimaFilaDatos}");
         }
 
         $hoja->freezePane('A' . ($filaEncabezado + 1));
-        $hoja->getStyle("A{$filaEncabezado}:{$ultimaColumna}" . max($filaEncabezado, $fila - 1))
+
+        $hoja->getStyle("A{$filaEncabezado}:{$ultimaColumna}{$ultimaFilaDatos}")
             ->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFE1E1E1');
-        $hoja->getStyle("A" . ($filaEncabezado + 1) . ":{$ultimaColumna}" . max($filaEncabezado + 1, $fila - 1))
+
+        $hoja->getStyle("A" . ($filaEncabezado + 1) . ":{$ultimaColumna}{$ultimaFilaDatos}")
             ->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
 
         for ($col = 1; $col <= count($columnas); $col++) {
-            $hoja->getColumnDimension($this->letraColumna($col))->setAutoSize(true);
+            $letra = $this->letraColumna($col);
+            $hoja->getColumnDimension($letra)->setAutoSize(true);
         }
 
-        $hoja->getPageSetup()->setFitToWidth(1)->setFitToHeight(0);
-        $hoja->getPageMargins()->setTop(0.35)->setBottom(0.35)->setLeft(0.3)->setRight(0.3);
-        $hoja->getHeaderFooter()->setOddFooter('&LRevive&C' . $titulo . '&RPágina &P de &N');
+        $hoja->getPageSetup()
+            ->setOrientation(\PhpOffice\PhpSpreadsheet\Worksheet\PageSetup::ORIENTATION_LANDSCAPE)
+            ->setPaperSize(\PhpOffice\PhpSpreadsheet\Worksheet\PageSetup::PAPERSIZE_A4)
+            ->setFitToPage(true)
+            ->setFitToWidth(1)
+            ->setFitToHeight(0);
 
-        $archivo = preg_replace('/[^A-Za-z0-9_-]+/', '-', $nombreArchivo) . '-' . now()->format('Ymd-His') . '.xlsx';
+        $hoja->setPrintArea("A1:{$ultimaColumna}{$ultimaFilaDatos}");
+        $hoja->getPageMargins()
+            ->setTop(0.35)
+            ->setBottom(0.55)
+            ->setLeft(0.45)
+            ->setRight(0.45)
+            ->setHeader(0.15)
+            ->setFooter(0.2);
+
+        $fechaGeneracion = $membrete['generado_el'];
+        $hoja->getHeaderFooter()->setOddFooter(
+            '&LRevive · Sistema de Gestión'
+            . '&CGenerado: ' . $fechaGeneracion
+            . '&RPágina &P-&N'
+        );
+
+        $hoja->getHeaderFooter()->setEvenFooter(
+            '&LRevive · Sistema de Gestión'
+            . '&CGenerado: ' . $fechaGeneracion
+            . '&RPágina &P-&N'
+        );
+
+        $archivo = preg_replace('/[^A-Za-z0-9_-]+/', '-', $nombreArchivo)
+            . '-' . now()->format('Ymd-His') . '.xlsx';
 
         return response()->streamDownload(
             function () use ($spreadsheet): void {

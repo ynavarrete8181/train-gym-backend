@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Ventas\Reportes\CarteraVencidaControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\MembresiasNuevasRenovacionesControlador;
+use App\Http\Controllers\Api\Ventas\Reportes\MembresiasPorVencerControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\CobrosMetodoPagoControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\ResumenComercialControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\VentasPeriodoControlador;
@@ -32,4 +33,8 @@ Route::prefix('reportes')->group(function (): void {
     Route::get('membresias-nuevas-renovaciones', [MembresiasNuevasRenovacionesControlador::class, 'index'])
         ->middleware('base.permiso:REPORTES-MEMBRESIAS-NUEVAS-RENOVACIONES')
         ->name('ventas.reportes.membresias-nuevas-renovaciones');
+
+    Route::get('membresias-por-vencer', [MembresiasPorVencerControlador::class, 'index'])
+        ->middleware('base.permiso:REPORTES-MEMBRESIAS-POR-VENCER')
+        ->name('ventas.reportes.membresias-por-vencer');
 });

@@ -85,6 +85,40 @@ class CarteraServicio
         ];
     }
 
+    public function catalogos(?int $usuarioId = null): array
+    {
+        $sedes = $this->alcance->sedesPermitidas($usuarioId, 'maneja_caja');
+
+        $responsables = DB::table('seguridad.users as u')
+            ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
+            ->where('u.usr_estado', 1)
+            ->where('r.activo', true)
+            ->whereIn('r.role', ['SUPERADMINISTRADOR', 'ADMINISTRADOR', 'SUPERVISOR DE VENTAS'])
+            ->where(function ($q) use ($sedes): void {
+                $q->whereIn('r.role', ['SUPERADMINISTRADOR'])
+                    ->orWhereExists(function ($sub) use ($sedes): void {
+                        $sub->selectRaw('1')
+                            ->from('institucional.usuario_contexto as uc')
+                            ->join('institucional.contextos as ctx', 'ctx.id_contexto', '=', 'uc.id_contexto')
+                            ->whereColumn('uc.id_usuario', 'u.id')
+                            ->where('uc.activo', true)
+                            ->where('ctx.activo', true)
+                            ->whereIn('ctx.id_sede', $sedes);
+                    });
+            })
+            ->distinct()
+            ->orderBy('u.name')
+            ->get(['u.id', 'u.name', 'r.role']);
+
+        return [
+            'responsables' => $responsables,
+            'prioridades' => ['BAJA', 'NORMAL', 'ALTA', 'URGENTE'],
+            'estados' => ['PENDIENTE', 'PARCIAL', 'VENCIDA', 'PAGADA', 'ANULADA'],
+            'tipos_gestion' => ['LLAMADA', 'WHATSAPP', 'CORREO', 'PRESENCIAL', 'NOTA'],
+            'resultados_gestion' => ['CONTACTADO', 'NO_CONTACTADO', 'COMPROMISO', 'INFORMATIVO'],
+        ];
+    }
+
     public function detalle(int $id, ?int $usuarioId = null): object
     {
         $cuenta = $this->consultaBase($usuarioId)->where('cc.id', $id)->first();

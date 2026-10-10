@@ -132,3 +132,22 @@ Todo nuevo reporte debe:
 3. usar `ReporteMembreteServicio` para Excel;
 4. usar `ReporteExportaciones` para PDF/imprimible y acciones;
 5. no copiar ni redefinir localmente el membrete.
+
+
+## Excel: mismo estándar visual del PDF
+
+El formato global de Excel replica el criterio documental del PDF:
+- logo Revive a la izquierda;
+- primera línea: `Centro de Entrenamiento Físico Revive`;
+- segunda línea: `Reporte de <nombre del reporte>`;
+- tercera línea compacta: `Generado por · Rol · Período · Sedes`;
+- línea institucional amarilla;
+- filtros adicionales solo cuando existen y sin repetir período/sede;
+- encabezado de tabla oscuro;
+- filas alternadas;
+- congelado del encabezado;
+- autofiltro únicamente sobre registros;
+- fila `TOTAL` fuera del autofiltro;
+- pie de impresión: `Revive · Sistema de Gestión | Generado: fecha/hora | Página X-Y`.
+
+La fila TOTAL es configurable por cada exportador. Solo se suman columnas cuya agregación sea conceptualmente válida; promedios, porcentajes, identificadores o métricas no aditivas se dejan vacías.

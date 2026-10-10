@@ -18,8 +18,11 @@ class CobrosMetodoPagoControlador extends Controller
         $filtros = $request->validate([
             'desde' => 'nullable|date',
             'hasta' => 'nullable|date|after_or_equal:desde',
+            'fecha' => 'nullable|string|max:30',
             'sede_id' => 'nullable',
             'metodo_pago' => 'nullable',
+            'operaciones' => 'nullable|string|max:20',
+            'total' => 'nullable|string|max:30',
             'page' => 'nullable|integer|min:1',
             'per_page' => 'nullable|integer|in:5,10,25,50',
         ]);

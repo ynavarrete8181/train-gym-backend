@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AutenticarTokenBase;
+use App\Http\Middleware\AuditarOperacionGlobal;
 use App\Http\Middleware\AutorizarFuncionBase;
 use App\Services\Logs\LogSistemaService;
 use Illuminate\Foundation\Application;
@@ -16,6 +17,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->appendToGroup('api', [
+            AuditarOperacionGlobal::class,
+        ]);
+
         $middleware->alias([
             'base.auth' => AutenticarTokenBase::class,
             'base.permiso' => AutorizarFuncionBase::class,

@@ -18,6 +18,12 @@ class AuditoriaServicio
      */
     public function registrar(array $datos): void
     {
+        try {
+            request()?->attributes->set('revive_auditoria_registrada', true);
+        } catch (Throwable) {
+            // Puede ejecutarse fuera de un request HTTP.
+        }
+
         if (DB::transactionLevel() > 0) {
             DB::afterCommit(function () use ($datos): void {
                 $this->registrar($datos);

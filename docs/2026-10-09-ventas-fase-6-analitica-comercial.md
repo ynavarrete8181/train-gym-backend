@@ -140,3 +140,12 @@ Objetivo:
 - retirar cualquier asignación accidental a otros roles.
 
 El menú se construye desde `seguridad.cpu_userfunction`, por lo que después de ejecutar la migración debe renovarse la sesión para reconstruir `base_menu`.
+
+
+## Nota de evolución arquitectónica
+
+La interfaz/controlador/servicio comercial monolítico descrito en esta fase fue posteriormente reemplazado por la arquitectura modular definida en:
+
+`docs/2026-10-09-reportes-fase-7-arquitectura-modular.md`
+
+Las reglas financieras y fuentes de verdad se conservan; cambia la organización técnica para aislar cada reporte.

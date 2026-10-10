@@ -67,3 +67,22 @@ Ejemplos:
 - `Acciones`: centro.
 
 El encabezado y las celdas de una misma columna deben usar la misma alineación.
+
+
+## Membrete global de reportes
+
+Todos los reportes exportables de Revive deben utilizar un único membrete institucional compartido.
+
+Contenido mínimo:
+- logo Revive;
+- identificación de reporte institucional;
+- título y descripción;
+- período/rango;
+- filtros aplicados;
+- usuario generador;
+- rol;
+- correo;
+- fecha y hora de generación;
+- pie institucional.
+
+No se deben crear membretes locales por reporte. Los cambios visuales del membrete se realizan en el componente/servicio global y deben reflejarse automáticamente en todas las exportaciones.

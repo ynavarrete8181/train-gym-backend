@@ -17,7 +17,7 @@ class TrazabilidadComercialExportacionServicio
 
     public function excel(array $filtros, int $usuarioId): StreamedResponse
     {
-        $items = $this->reporte->todos($filtros);
+        $items = $this->reporte->todos($filtros, $usuarioId);
 
         $filas = collect($items)->map(fn ($i) => [
             $i->created_at ?? '',

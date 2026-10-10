@@ -39,12 +39,25 @@ class MembresiasPorVencerExportacionServicio
             'Períodos vigentes próximos a finalizar para gestión de renovación.',
             ['Sede', 'Contrato', 'Cliente', 'Identificación', 'Plan', 'Modalidad', 'Período', 'Vence', 'Días restantes', 'Renovable', 'Estado', 'Saldo'],
             $filas,
-            [
-                'Vence desde' => $filtros['vence_desde'] ?? null,
-                'Vence hasta' => $filtros['vence_hasta'] ?? null,
-                'Filtros aplicados' => $this->recopila->filtrosTexto($filtros),
-            ],
+            array_merge(
+                $this->recopila->metadataPeriodo($filtros, 'vence_desde', 'vence_hasta'),
+                ['Sedes' => $this->recopila->sedesTexto($items)]
+            ),
             $usuarioId,
+            [
+                'TOTAL',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[11] ?? 0)),
+            ],
         );
     }
 }

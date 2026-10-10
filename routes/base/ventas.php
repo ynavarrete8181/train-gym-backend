@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Ventas\CarteraControlador;
 use App\Http\Controllers\Api\Ventas\TurnoCajaControlador;
 use App\Http\Controllers\Api\Ventas\VentaControlador;
 use Illuminate\Support\Facades\Route;
@@ -41,5 +42,14 @@ Route::middleware(['base.auth'])->prefix('ventas')->group(function (): void {
     Route::middleware(['base.permiso:VENTAS-COMPROBANTES'])->group(function (): void {
         Route::get('comprobantes', [VentaControlador::class, 'comprobantes'])->name('ventas.comprobantes.index');
         Route::post('comprobantes/{id}/reenviar', [VentaControlador::class, 'reenviarComprobante'])->name('ventas.comprobantes.reenviar');
+    });
+
+    Route::middleware(['base.permiso:VENTAS-CARTERA'])->group(function (): void {
+        Route::get('cartera', [CarteraControlador::class, 'index'])->name('ventas.cartera.index');
+        Route::get('cartera/{id}', [CarteraControlador::class, 'detalle'])->name('ventas.cartera.detalle');
+        Route::put('cartera/{id}', [CarteraControlador::class, 'actualizar'])->name('ventas.cartera.update');
+        Route::post('cartera/{id}/gestiones', [CarteraControlador::class, 'registrarGestion'])->name('ventas.cartera.gestiones.store');
+        Route::post('cartera/{id}/compromisos', [CarteraControlador::class, 'registrarCompromiso'])->name('ventas.cartera.compromisos.store');
+        Route::patch('cartera/compromisos/{id}', [CarteraControlador::class, 'actualizarCompromiso'])->name('ventas.cartera.compromisos.update');
     });
 });

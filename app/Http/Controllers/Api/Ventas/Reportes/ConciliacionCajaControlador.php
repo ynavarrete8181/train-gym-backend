@@ -22,6 +22,8 @@ class ConciliacionCajaControlador extends Controller
             'fecha' => 'nullable|string|max:30',
             'sede_id' => 'nullable',
             'caja' => 'nullable|string|max:120',
+            'apertura' => 'nullable|string|max:10',
+            'cierre' => 'nullable|string|max:10',
             'cajero' => 'nullable|string|max:120',
             'saldo_inicial' => 'nullable|string|max:30',
             'efectivo_cobrado' => 'nullable|string|max:30',

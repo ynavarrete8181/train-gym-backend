@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Schedule;
 use App\Services\Gimnasio\CobroProgramadoMembresiaServicio;
+use App\Services\Logs\LogRetencionServicio;
 use App\Services\Ventas\CierreAutomaticoCajaServicio;
 use App\Services\Ventas\SincronizarVentasMembresiasServicio;
 
@@ -144,4 +145,25 @@ Artisan::command('revive:cerrar-turnos-caja-vencidos {--fecha=}', function (Cier
 
 Schedule::command('revive:cerrar-turnos-caja-vencidos')
     ->dailyAt('00:01')
+    ->withoutOverlapping();
+
+
+Artisan::command('revive:limpiar-logs', function (LogRetencionServicio $servicio): int {
+    $resultado = $servicio->limpiar();
+
+    $this->info(
+        "Logs eliminados: {$resultado['total']} | "
+        . "INFO: {$resultado['eventos_info']} | "
+        . "WARNING: {$resultado['eventos_warning']} | "
+        . "ERROR: {$resultado['eventos_error']} | "
+        . "Excepciones: {$resultado['excepciones']} | "
+        . "Integraciones OK: {$resultado['integraciones_ok']} | "
+        . "Integraciones error: {$resultado['integraciones_error']}"
+    );
+
+    return 0;
+})->purpose('Aplica la política de retención de logs técnicos. Nunca elimina auditoría funcional.');
+
+Schedule::command('revive:limpiar-logs')
+    ->dailyAt('02:30')
     ->withoutOverlapping();

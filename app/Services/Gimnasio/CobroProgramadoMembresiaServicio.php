@@ -7,8 +7,10 @@ use Illuminate\Support\Facades\DB;
 
 class CobroProgramadoMembresiaServicio
 {
-    public function __construct(private readonly MembresiaServicio $membresias)
-    {
+    public function __construct(
+        private readonly MembresiaServicio $membresias,
+        private readonly CarteraServicio $cartera,
+    ) {
     }
 
     public function procesar(?string $fecha = null): array
@@ -144,6 +146,8 @@ class CobroProgramadoMembresiaServicio
                             'venta_id' => $ventaId,
                             'updated_at' => now(),
                         ]);
+
+                    $this->cartera->sincronizarVenta($ventaId);
                 } else {
                     $omitidas++;
                 }

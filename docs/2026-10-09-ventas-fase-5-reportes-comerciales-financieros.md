@@ -129,3 +129,12 @@ Alcance:
 La exportación PDF/Excel y las conciliaciones históricas quedan como evolución posterior.
 
 Se mantiene `VENTAS-REPORTES` como permiso de acceso y las fuentes transaccionales existentes como única fuente de verdad.
+
+
+## Nota de evolución arquitectónica
+
+La interfaz/controlador/servicio comercial monolítico descrito en esta fase fue posteriormente reemplazado por la arquitectura modular definida en:
+
+`docs/2026-10-09-reportes-fase-7-arquitectura-modular.md`
+
+Las reglas financieras y fuentes de verdad se conservan; cambia la organización técnica para aislar cada reporte.

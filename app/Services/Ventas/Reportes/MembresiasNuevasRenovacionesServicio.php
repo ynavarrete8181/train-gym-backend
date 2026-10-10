@@ -84,7 +84,7 @@ class MembresiasNuevasRenovacionesServicio
 
         if (! empty($filtros['tipo_movimiento'])) {
             $valores = is_array($filtros['tipo_movimiento']) ? $filtros['tipo_movimiento'] : [$filtros['tipo_movimiento']];
-            $query->whereRaw("{$tipoMovimientoSql} = ANY(?)", ['{' . implode(',', array_filter($valores)) . '}']);
+            $query->whereIn(DB::raw($tipoMovimientoSql), array_filter($valores));
         }
 
         if (! empty($filtros['codigo_contrato'])) {

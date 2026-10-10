@@ -128,3 +128,27 @@ Desde Gestionar se puede:
 - registrar compromiso
 
 Desde Cobrar se reutiliza VentaPosFormulario y las reglas existentes de turno de caja.
+
+
+## Corrección incremental de menú y permisos
+
+Se agregó la migración:
+
+`database/migrations/2026_10_09_001100_ensure_cartera_menu_permissions.php`
+
+Objetivo:
+- garantizar que `VENTAS-CARTERA` exista dentro del menú **Ventas** aunque la migración inicial de Fase 4 ya se hubiera ejecutado;
+- registrar `CarteraPage` en `seguridad.cpu_pagina_sistema`;
+- asignar el submenú únicamente a:
+  - SUPERADMINISTRADOR
+  - ADMINISTRADOR
+  - SUPERVISOR DE VENTAS
+- sincronizar `seguridad.cpu_userrolefunction` y `seguridad.cpu_userfunction` para usuarios existentes;
+- retirar `VENTAS-CARTERA` de roles no autorizados.
+
+El backend continúa protegiendo todas las rutas de cartera con:
+
+`base.auth`
+`base.permiso:VENTAS-CARTERA`
+
+Por tanto, la visibilidad del submenú y la autorización real quedan alineadas.

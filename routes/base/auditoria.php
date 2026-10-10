@@ -9,6 +9,9 @@ Route::middleware(['base.auth'])->prefix('auditoria')->group(function (): void {
     Route::get('accesos', [AuditoriaControlador::class, 'accesos'])->middleware('base.permiso:AUDITORIA-ACCESOS')->name('auditoria.accesos');
     Route::get('resumen', [AuditoriaControlador::class, 'resumen'])->middleware('base.permiso:AUDITORIA-RESUMEN')->name('auditoria.resumen');
     Route::get('logs', [AuditoriaControlador::class, 'logs'])->middleware('base.permiso:AUDITORIA-LOGS')->name('auditoria.logs');
+    Route::get('integraciones', [AuditoriaControlador::class, 'integraciones'])
+        ->middleware('base.permiso:AUDITORIA-INTEGRACIONES')
+        ->name('auditoria.integraciones');
     Route::get('trazabilidad-comercial', [TrazabilidadComercialControlador::class, 'index'])
         ->middleware('base.permiso:AUDITORIA-TRAZABILIDAD-COMERCIAL')
         ->name('auditoria.trazabilidad-comercial');

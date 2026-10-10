@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Ventas\Reportes\CarteraVencidaControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\CobrosMetodoPagoControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\ResumenComercialControlador;
+use App\Http\Controllers\Api\Ventas\Reportes\VentasPeriodoControlador;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('reportes')->group(function (): void {
@@ -17,4 +18,8 @@ Route::prefix('reportes')->group(function (): void {
     Route::get('cobros-metodo-pago', [CobrosMetodoPagoControlador::class, 'index'])
         ->middleware('base.permiso:REPORTES-COBROS-METODOS')
         ->name('ventas.reportes.cobros-metodo-pago');
+
+    Route::get('ventas-periodo', [VentasPeriodoControlador::class, 'index'])
+        ->middleware('base.permiso:REPORTES-VENTAS-PERIODO')
+        ->name('ventas.reportes.ventas-periodo');
 });

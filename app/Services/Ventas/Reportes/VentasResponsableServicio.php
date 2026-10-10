@@ -32,11 +32,14 @@ class VentasResponsableServicio
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
             ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
             ->leftJoin('seguridad.users as responsable', 'responsable.id', '=', 'v.responsable_comercial_id')
+            ->leftJoin('institucional.sedes as s', 's.id_sede', '=', DB::raw('COALESCE(c.sede_id, m.sede_id)'))
             ->whereBetween(DB::raw('DATE(v.fecha_venta)'), [$desde, $hasta])
             ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes)
             ->where('v.estado', '<>', 'ANULADA')
             ->selectRaw('v.responsable_comercial_id')
             ->selectRaw("COALESCE(responsable.name, 'Sin responsable') as responsable")
+            ->selectRaw('COALESCE(c.sede_id, m.sede_id) as sede_id')
+            ->selectRaw("COALESCE(s.nombre, 'Sin sede') as sede")
             ->selectRaw('COUNT(v.id) as ventas')
             ->selectRaw('COUNT(DISTINCT v.cliente_id) as clientes')
             ->selectRaw('COALESCE(SUM(v.total), 0) as total_ventas')
@@ -45,7 +48,9 @@ class VentasResponsableServicio
             ->selectRaw('COALESCE(AVG(v.total), 0) as ticket_promedio')
             ->selectRaw("CASE WHEN SUM(v.total) > 0 THEN (SUM({$pagadoSql}) / SUM(v.total)) * 100 ELSE 0 END as porcentaje_cobrado")
             ->groupBy('v.responsable_comercial_id')
-            ->groupByRaw("COALESCE(responsable.name, 'Sin responsable')");
+            ->groupByRaw("COALESCE(responsable.name, 'Sin responsable')")
+            ->groupByRaw('COALESCE(c.sede_id, m.sede_id)')
+            ->groupByRaw("COALESCE(s.nombre, 'Sin sede')");
 
         if (! empty($filtros['responsable_id'])) {
             $ids = collect(is_array($filtros['responsable_id']) ? $filtros['responsable_id'] : [$filtros['responsable_id']])
@@ -102,7 +107,7 @@ class VentasResponsableServicio
 
         $resumen = DB::query()
             ->fromSub(clone $query, 'reporte')
-            ->selectRaw('COUNT(*) as responsables')
+            ->selectRaw('COUNT(DISTINCT responsable) as responsables')
             ->selectRaw('COALESCE(SUM(ventas), 0) as ventas')
             ->selectRaw('COALESCE(SUM(total_ventas), 0) as total_ventas')
             ->selectRaw('COALESCE(SUM(total_cobrado), 0) as total_cobrado')

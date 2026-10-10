@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Ventas\Reportes\CarteraVencidaControlador;
+use App\Http\Controllers\Api\Ventas\Reportes\ConciliacionCajaControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\MembresiasNuevasRenovacionesControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\MembresiasPorVencerControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\CobrosMetodoPagoControlador;
@@ -37,4 +38,8 @@ Route::prefix('reportes')->group(function (): void {
     Route::get('membresias-por-vencer', [MembresiasPorVencerControlador::class, 'index'])
         ->middleware('base.permiso:REPORTES-MEMBRESIAS-POR-VENCER')
         ->name('ventas.reportes.membresias-por-vencer');
+
+    Route::get('conciliacion-caja', [ConciliacionCajaControlador::class, 'index'])
+        ->middleware('base.permiso:REPORTES-CONCILIACION-CAJA')
+        ->name('ventas.reportes.conciliacion-caja');
 });

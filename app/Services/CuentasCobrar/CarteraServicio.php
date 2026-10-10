@@ -61,6 +61,41 @@ class CarteraServicio
             }
         }
 
+        if (! empty($filtros['venta_numero'])) {
+            $query->whereRaw('LOWER(v.numero) LIKE ?', ['%' . mb_strtolower((string) $filtros['venta_numero']) . '%']);
+        }
+
+        if (! empty($filtros['cliente'])) {
+            $textoCliente = '%' . mb_strtolower((string) $filtros['cliente']) . '%';
+            $query->where(function ($q) use ($textoCliente): void {
+                $q->whereRaw("LOWER(COALESCE(NULLIF(TRIM(p.nombre_completo), ''), NULLIF(TRIM(u.name), ''), '')) LIKE ?", [$textoCliente])
+                    ->orWhereRaw("LOWER(COALESCE(NULLIF(TRIM(p.identificacion), ''), NULLIF(TRIM(u.cedula), '')) LIKE ?", [$textoCliente]);
+            });
+        }
+
+        if (! empty($filtros['vencimiento'])) {
+            $textoFecha = '%' . trim((string) $filtros['vencimiento']) . '%';
+            $query->where(function ($q) use ($textoFecha): void {
+                $q->whereRaw("CAST(cc.fecha_vencimiento AS TEXT) LIKE ?", [$textoFecha])
+                    ->orWhereRaw("TO_CHAR(cc.fecha_vencimiento, 'DD/MM/YYYY') LIKE ?", [$textoFecha]);
+            });
+        }
+
+        $pagadoFiltroSql = "(SELECT COALESCE(SUM(pg.monto), 0) FROM ventas.pagos pg WHERE pg.venta_id = v.id AND pg.estado = 'CONFIRMADO')";
+        $saldoFiltroSql = "GREATEST(v.total - {$pagadoFiltroSql}, 0)";
+
+        if (! empty($filtros['total'])) {
+            $query->whereRaw('CAST(v.total AS TEXT) LIKE ?', ['%' . trim((string) $filtros['total']) . '%']);
+        }
+
+        if (! empty($filtros['pagado'])) {
+            $query->whereRaw("CAST({$pagadoFiltroSql} AS TEXT) LIKE ?", ['%' . trim((string) $filtros['pagado']) . '%']);
+        }
+
+        if (! empty($filtros['saldo'])) {
+            $query->whereRaw("CAST({$saldoFiltroSql} AS TEXT) LIKE ?", ['%' . trim((string) $filtros['saldo']) . '%']);
+        }
+
         if (! empty($filtros['desde'])) {
             $query->whereDate('cc.fecha_vencimiento', '>=', $filtros['desde']);
         }

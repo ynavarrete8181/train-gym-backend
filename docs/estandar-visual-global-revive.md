@@ -86,3 +86,19 @@ Contenido mínimo:
 - pie institucional.
 
 No se deben crear membretes locales por reporte. Los cambios visuales del membrete se realizan en el componente/servicio global y deben reflejarse automáticamente en todas las exportaciones.
+
+
+### PDF institucional: márgenes y composición
+
+El patrón global de PDF debe conservar:
+- márgenes laterales uniformes de 16 mm;
+- margen superior de 16 mm y margen inferior de 18 mm;
+- logo/escudo Revive alineado a la izquierda;
+- bloque principal del encabezado centrado respecto de la hoja;
+- jerarquía: REVIVE → REPORTE INSTITUCIONAL → nombre del reporte → descripción;
+- datos de generación en bloque compacto de dos columnas;
+- filtros en franja separada;
+- tabla sin tocar los bordes laterales;
+- pie institucional fijo en todas las páginas.
+
+Los reportes no deben redefinir estos márgenes ni la composición del membrete de forma individual.

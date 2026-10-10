@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\Api\Ventas\CarteraControlador;
-use App\Http\Controllers\Api\Ventas\ReporteComercialControlador;
 use App\Http\Controllers\Api\Ventas\TurnoCajaControlador;
 use App\Http\Controllers\Api\Ventas\VentaControlador;
 use Illuminate\Support\Facades\Route;
@@ -45,12 +44,7 @@ Route::middleware(['base.auth'])->prefix('ventas')->group(function (): void {
         Route::post('comprobantes/{id}/reenviar', [VentaControlador::class, 'reenviarComprobante'])->name('ventas.comprobantes.reenviar');
     });
 
-    Route::middleware(['base.permiso:VENTAS-REPORTES'])->group(function (): void {
-        Route::get('reportes-comerciales', [ReporteComercialControlador::class, 'index'])
-            ->name('ventas.reportes-comerciales.index');
-        Route::get('reportes-comerciales/analitica', [ReporteComercialControlador::class, 'analitica'])
-            ->name('ventas.reportes-comerciales.analitica');
-    });
+    require __DIR__.'/ventas/reportes.php';
 
     Route::middleware(['base.permiso:VENTAS-CARTERA'])->group(function (): void {
         Route::get('cartera', [CarteraControlador::class, 'index'])->name('ventas.cartera.index');

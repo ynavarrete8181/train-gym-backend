@@ -45,8 +45,31 @@ class ConciliacionCajaExportacionServicio
             'Cierres de caja, efectivo esperado, efectivo contado y diferencias.',
             ['Fecha', 'Sede', 'Caja', 'Código caja', 'Cajero', 'Apertura', 'Cierre', 'Saldo inicial', 'Efectivo cobrado', 'Esperado', 'Contado', 'Diferencia', 'Transferencias', 'Tarjetas', 'Depósitos', 'Otros', 'Tipo cierre', 'Conciliación'],
             $filas,
-            $this->recopila->metadataPeriodo($filtros),
+            array_merge(
+                $this->recopila->metadataPeriodo($filtros),
+                ['Sedes' => $this->recopila->sedesTexto($items)]
+            ),
             $usuarioId,
+            [
+                'TOTAL',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[7] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[8] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[9] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[10] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[11] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[12] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[13] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[14] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[15] ?? 0)),
+                '',
+                '',
+            ],
         );
     }
 }

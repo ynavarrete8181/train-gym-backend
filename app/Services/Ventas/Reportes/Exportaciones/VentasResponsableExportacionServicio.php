@@ -36,8 +36,22 @@ class VentasResponsableExportacionServicio
             'Desempeño comercial por responsable y sede.',
             ['Responsable', 'Sede', 'Ventas', 'Clientes', 'Total vendido', 'Cobrado', 'Saldo', 'Ticket promedio', '% cobrado'],
             $filas,
-            $this->recopila->metadataPeriodo($filtros),
+            array_merge(
+                $this->recopila->metadataPeriodo($filtros),
+                ['Sedes' => $this->recopila->sedesTexto($items)]
+            ),
             $usuarioId,
+            [
+                'TOTAL',
+                '',
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (int) ($row[2] ?? 0)),
+                '',
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[4] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[5] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[6] ?? 0)),
+                '',
+                '',
+            ],
         );
     }
 }

@@ -40,6 +40,7 @@ class ReporteComercialControlador extends Controller
             'desde' => 'nullable|date',
             'hasta' => 'nullable|date|after_or_equal:desde',
             'sede_id' => 'nullable',
+            'tipo_venta' => 'nullable',
         ]);
 
         return ApiResponse::exito(

@@ -41,7 +41,11 @@ class CarteraServicio
         }
 
         if (! empty($filtros['responsable_id'])) {
-            $query->where('cc.responsable_id', (int) $filtros['responsable_id']);
+            $responsables = is_array($filtros['responsable_id']) ? $filtros['responsable_id'] : [$filtros['responsable_id']];
+            $responsables = array_map('intval', array_filter($responsables));
+            if (! empty($responsables)) {
+                $query->whereIn('cc.responsable_id', $responsables);
+            }
         }
 
         if (! empty($filtros['prioridad'])) {

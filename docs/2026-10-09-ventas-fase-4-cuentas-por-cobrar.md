@@ -152,3 +152,15 @@ El backend continúa protegiendo todas las rutas de cartera con:
 `base.permiso:VENTAS-CARTERA`
 
 Por tanto, la visibilidad del submenú y la autorización real quedan alineadas.
+
+
+## Alineación con filtros globales de tablas
+
+La vista Cartera utiliza el patrón global del Sistema Base:
+- `GestionToolbar` para búsqueda general;
+- `TablaGestion` para tabla y paginación;
+- `FilterHeaderCell` para filtros por columna;
+- filtros por sede, responsable, prioridad y estado enviados al backend;
+- el backend conserva el alcance autorizado por sede y combina los filtros solicitados con ese alcance.
+
+No se realiza filtrado financiero maestro en frontend.

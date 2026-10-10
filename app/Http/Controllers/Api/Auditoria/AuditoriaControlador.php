@@ -59,4 +59,18 @@ class AuditoriaControlador extends Controller
             'opciones_filtro' => $this->logs->opcionesFiltro(),
         ]);
     }
+
+    public function integraciones(Request $request)
+    {
+        $resultado = $this->logs->listarIntegraciones($request->all());
+        $paginador = $resultado['paginador'];
+
+        return ApiResponse::exito('Integraciones consultadas.', $paginador->items(), [
+            'pagina_actual' => $paginador->currentPage(),
+            'por_pagina' => $paginador->perPage(),
+            'total' => $paginador->total(),
+            'ultima_pagina' => $paginador->lastPage(),
+            'opciones_filtro' => $resultado['opciones'],
+        ]);
+    }
 }

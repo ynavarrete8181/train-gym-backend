@@ -4,6 +4,7 @@ namespace App\Services\Ventas;
 
 use App\Services\Concerns\RegistraAuditoria;
 use App\Services\Configuracion\EstadoCatalogoServicio;
+use App\Services\CuentasCobrar\CarteraServicio;
 use App\Services\Inventario\InventarioServicio;
 use App\Services\Seguridad\AlcanceOperativoService;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,7 @@ class VentaServicio
         private readonly EstadoCatalogoServicio $estados,
         private readonly AlcanceOperativoService $alcance,
         private readonly InventarioServicio $inventario,
+        private readonly CarteraServicio $cartera,
     ) {
     }
 
@@ -154,6 +156,8 @@ class VentaServicio
                     'updated_at' => now(),
                 ]
             );
+
+            $this->cartera->sincronizarVenta($ventaId);
 
             return $this->obtenerVenta($ventaId);
         });
@@ -637,6 +641,8 @@ class VentaServicio
                     'updated_at' => now(),
                 ]);
         }
+
+        $this->cartera->sincronizarVenta($ventaId);
     }
 
     private function guardar(string $tabla, array $datos, ?int $id): object

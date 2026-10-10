@@ -169,7 +169,7 @@ class ReporteExcelDocumentoServicio
             ->setFitToWidth(1)
             ->setFitToHeight(0);
 
-        $hoja->setPrintArea("A1:{$ultimaColumna}{$ultimaFilaDocumento}");
+        $hoja->getPageSetup()->setPrintArea("A1:{$ultimaColumna}{$ultimaFilaDocumento}");
         $hoja->getPageMargins()
             ->setTop(0.35)
             ->setBottom(0.55)

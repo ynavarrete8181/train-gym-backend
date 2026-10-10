@@ -38,8 +38,24 @@ class VentasPeriodoExportacionServicio
             'Detalle transaccional de ventas por rango de fechas.',
             ['Fecha', 'Sede', 'N.º venta', 'Cliente', 'Identificación', 'Tipo', 'Estado', 'Responsable', 'Total', 'Cobrado', 'Saldo'],
             $filas,
-            $this->recopila->metadataPeriodo($filtros),
+            array_merge(
+                $this->recopila->metadataPeriodo($filtros),
+                ['Sedes' => $this->recopila->sedesTexto($items)]
+            ),
             $usuarioId,
+            [
+                'TOTAL',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[8] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[9] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[10] ?? 0)),
+            ],
         );
     }
 }

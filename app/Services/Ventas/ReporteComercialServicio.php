@@ -127,6 +127,11 @@ class ReporteComercialServicio
             ->values()
             ->all();
         $sedes = ! empty($sedesFiltro) ? $sedesFiltro : $sedesPermitidas;
+        $tiposVenta = collect(is_array($filtros['tipo_venta'] ?? null) ? $filtros['tipo_venta'] : [$filtros['tipo_venta'] ?? null])
+            ->filter()
+            ->map(fn ($valor) => (string) $valor)
+            ->values()
+            ->all();
 
         $desde = Carbon::parse($filtros['desde'] ?? now()->startOfMonth()->toDateString())->startOfDay();
         $hasta = Carbon::parse($filtros['hasta'] ?? now()->toDateString())->endOfDay();
@@ -134,23 +139,35 @@ class ReporteComercialServicio
         $hastaAnterior = $desde->copy()->subDay()->endOfDay();
         $desdeAnterior = $hastaAnterior->copy()->subDays($dias - 1)->startOfDay();
 
-        $baseVentas = function (Carbon $inicio, Carbon $fin) use ($sedes) {
-            return DB::table('ventas.ventas as v')
+        $baseVentas = function (Carbon $inicio, Carbon $fin) use ($sedes, $tiposVenta) {
+            $query = DB::table('ventas.ventas as v')
                 ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
                 ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
                 ->whereBetween('v.fecha_venta', [$inicio, $fin])
                 ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes)
                 ->where('v.estado', '<>', 'ANULADA');
+
+            if (! empty($tiposVenta)) {
+                $query->whereIn('v.tipo_venta', $tiposVenta);
+            }
+
+            return $query;
         };
 
-        $basePagos = function (Carbon $inicio, Carbon $fin) use ($sedes) {
-            return DB::table('ventas.pagos as p')
+        $basePagos = function (Carbon $inicio, Carbon $fin) use ($sedes, $tiposVenta) {
+            $query = DB::table('ventas.pagos as p')
                 ->join('ventas.ventas as v', 'v.id', '=', 'p.venta_id')
                 ->leftJoin('ventas.cajas as c', 'c.id', '=', 'p.caja_id')
                 ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
                 ->where('p.estado', 'CONFIRMADO')
                 ->whereBetween('p.fecha_pago', [$inicio, $fin])
                 ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes);
+
+            if (! empty($tiposVenta)) {
+                $query->whereIn('v.tipo_venta', $tiposVenta);
+            }
+
+            return $query;
         };
 
         $ventasActual = (float) $baseVentas($desde, $hasta)->sum('v.total');
@@ -177,6 +194,7 @@ class ReporteComercialServicio
             ->whereBetween('v.fecha_venta', [$desde, $hasta])
             ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes)
             ->where('v.estado', '<>', 'ANULADA')
+            ->when(! empty($tiposVenta), fn ($q) => $q->whereIn('v.tipo_venta', $tiposVenta))
             ->selectRaw("COALESCE(r.name, 'Sin responsable') as responsable")
             ->selectRaw('COUNT(v.id) as transacciones')
             ->selectRaw('SUM(v.total) as total_ventas')
@@ -200,6 +218,7 @@ class ReporteComercialServicio
             ->whereBetween('v.fecha_venta', [$desde, $hasta])
             ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes)
             ->where('v.estado', '<>', 'ANULADA')
+            ->when(! empty($tiposVenta), fn ($q) => $q->whereIn('v.tipo_venta', $tiposVenta))
             ->selectRaw("SUM(CASE WHEN mp.numero_periodo = 1 THEN 1 ELSE 0 END) as nuevas")
             ->selectRaw("SUM(CASE WHEN mp.numero_periodo > 1 THEN 1 ELSE 0 END) as renovaciones")
             ->selectRaw('COUNT(*) as total')

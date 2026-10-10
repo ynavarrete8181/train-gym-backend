@@ -48,15 +48,18 @@ El diseño del membrete no se implementa individualmente dentro de cada reporte.
 
 ## PDF
 
-El botón **PDF** genera una vista documental profesional en modo impresión:
-- orientación horizontal;
+El botón **PDF** genera un archivo PDF real `.pdf` desde el componente global de reportes:
+- orientación horizontal A4;
 - membrete institucional;
+- logo Revive;
 - tabla con encabezado repetible;
 - alineaciones según tipo de dato;
-- colores institucionales;
-- pie de documento.
+- pie fijo con sistema, fecha/hora y paginación `Página X-Y`;
+- nombre profesional de archivo.
 
-El navegador abre el diálogo de impresión para guardar el documento como PDF.
+El archivo se abre directamente en una nueva pestaña utilizando el visor PDF nativo del navegador y, al mismo tiempo, se descarga con su nombre institucional.
+
+No se utiliza una vista HTML `about:blank` como resultado final.
 
 El PDF recupera todos los registros que cumplen los filtros, no solo la página visible.
 

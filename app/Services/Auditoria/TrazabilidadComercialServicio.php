@@ -2,6 +2,7 @@
 
 namespace App\Services\Auditoria;
 
+use App\Services\Seguridad\AlcanceOperativoService;
 use Illuminate\Support\Facades\DB;
 
 class TrazabilidadComercialServicio
@@ -18,10 +19,14 @@ class TrazabilidadComercialServicio
         'membresias.membresia_periodos',
     ];
 
-    public function consultar(array $filtros)
+    public function __construct(
+        private readonly AlcanceOperativoService $alcance,
+    ) {}
+
+    public function consultar(array $filtros, ?int $usuarioId = null): array
     {
         $query = $this->base();
-
+        $this->aplicarAlcance($query, $usuarioId);
         $this->filtrar($query, $filtros);
 
         $resumen = DB::query()
@@ -38,6 +43,14 @@ class TrazabilidadComercialServicio
             ->orderByDesc('e.created_at')
             ->orderByDesc('e.id')
             ->paginate($filtros['per_page'] ?? 10, ['*'], 'page', $filtros['page'] ?? 1);
+
+        $sedesPermitidas = $this->alcance->esGlobal($usuarioId)
+            ? DB::table('institucional.sedes')->where('activo', true)->orderBy('nombre')->get(['id_sede as id', 'nombre'])
+            : DB::table('institucional.sedes')
+                ->whereIn('id_sede', $this->alcance->sedesPermitidas($usuarioId))
+                ->where('activo', true)
+                ->orderBy('nombre')
+                ->get(['id_sede as id', 'nombre']);
 
         return [
             'datos' => $paginador->items(),
@@ -56,40 +69,25 @@ class TrazabilidadComercialServicio
                 ],
                 'catalogos' => [
                     'procesos' => $this->opciones($query, 'proceso'),
-                    'acciones' => DB::table('auditoria.eventos')
-                        ->whereIn('tabla', self::TABLAS)
-                        ->distinct()
-                        ->orderBy('accion')
-                        ->pluck('accion')
-                        ->filter()
-                        ->values(),
-                    'usuarios' => DB::table('auditoria.eventos')
-                        ->whereIn('tabla', self::TABLAS)
-                        ->distinct()
-                        ->orderBy('usuario_nombre')
-                        ->pluck('usuario_nombre')
-                        ->filter()
-                        ->values(),
-                    'roles' => DB::table('auditoria.eventos')
-                        ->whereIn('tabla', self::TABLAS)
-                        ->distinct()
-                        ->orderBy('rol')
-                        ->pluck('rol')
-                        ->filter()
-                        ->values(),
-                    'sedes' => DB::table('institucional.sedes')->where('activo', true)->orderBy('nombre')->get(['id_sede as id', 'nombre']),
+                    'acciones' => $this->opciones($query, 'accion'),
+                    'usuarios' => $this->opciones($query, 'usuario_nombre'),
+                    'roles' => $this->opciones($query, 'rol'),
+                    'sedes' => $sedesPermitidas,
                 ],
             ],
         ];
     }
 
-    public function todos(array $filtros): array
+    public function todos(array $filtros, ?int $usuarioId = null): array
     {
         $pagina = 1;
         $resultado = [];
 
         do {
-            $consulta = $this->consultar(array_merge($filtros, ['page' => $pagina, 'per_page' => 50]));
+            $consulta = $this->consultar(
+                array_merge($filtros, ['page' => $pagina, 'per_page' => 50]),
+                $usuarioId
+            );
             $resultado = array_merge($resultado, $consulta['datos']);
             $ultima = (int) ($consulta['meta']['ultima_pagina'] ?? 1);
             $pagina++;
@@ -129,22 +127,39 @@ class TrazabilidadComercialServicio
             ->selectRaw("COALESCE(s.nombre, 'Sin sede') as sede");
     }
 
+    private function aplicarAlcance($query, ?int $usuarioId): void
+    {
+        if ($this->alcance->esGlobal($usuarioId)) {
+            return;
+        }
+
+        $sedes = $this->alcance->sedesPermitidas($usuarioId);
+
+        if (empty($sedes)) {
+            $query->whereRaw('1 = 0');
+            return;
+        }
+
+        $query->whereIn(DB::raw($this->sedeIdSql()), $sedes);
+    }
+
     private function filtrar($query, array $filtros): void
     {
         if (! empty($filtros['busqueda'])) {
             $texto = '%' . mb_strtolower((string) $filtros['busqueda']) . '%';
             $query->where(function ($q) use ($texto): void {
-                $q->whereRaw('LOWER(COALESCE(e.usuario_nombre, '')) LIKE ?', [$texto])
-                    ->orWhereRaw('LOWER(COALESCE(e.descripcion, '')) LIKE ?', [$texto])
-                    ->orWhereRaw('LOWER(COALESCE(e.accion, '')) LIKE ?', [$texto])
-                    ->orWhereRaw('LOWER(COALESCE(e.tabla, '')) LIKE ?', [$texto])
-                    ->orWhereRaw('LOWER(COALESCE(e.registro_id, '')) LIKE ?', [$texto]);
+                $q->whereRaw("LOWER(COALESCE(e.usuario_nombre, '')) LIKE ?", [$texto])
+                    ->orWhereRaw("LOWER(COALESCE(e.descripcion, '')) LIKE ?", [$texto])
+                    ->orWhereRaw("LOWER(COALESCE(e.accion, '')) LIKE ?", [$texto])
+                    ->orWhereRaw("LOWER(COALESCE(e.tabla, '')) LIKE ?", [$texto])
+                    ->orWhereRaw("LOWER(COALESCE(e.registro_id, '')) LIKE ?", [$texto]);
             });
         }
 
         if (! empty($filtros['desde'])) {
             $query->where('e.created_at', '>=', $filtros['desde'] . ' 00:00:00');
         }
+
         if (! empty($filtros['hasta'])) {
             $query->where('e.created_at', '<=', $filtros['hasta'] . ' 23:59:59');
         }
@@ -160,11 +175,17 @@ class TrazabilidadComercialServicio
         }
 
         if (! empty($filtros['referencia'])) {
-            $query->whereRaw('LOWER(' . $this->referenciaSql() . ') LIKE ?', ['%' . mb_strtolower((string) $filtros['referencia']) . '%']);
+            $query->whereRaw(
+                'LOWER(' . $this->referenciaSql() . ') LIKE ?',
+                ['%' . mb_strtolower((string) $filtros['referencia']) . '%']
+            );
         }
 
         if (! empty($filtros['descripcion'])) {
-            $query->whereRaw('LOWER(COALESCE(e.descripcion, '')) LIKE ?', ['%' . mb_strtolower((string) $filtros['descripcion']) . '%']);
+            $query->whereRaw(
+                "LOWER(COALESCE(e.descripcion, '')) LIKE ?",
+                ['%' . mb_strtolower((string) $filtros['descripcion']) . '%']
+            );
         }
     }
 
@@ -222,8 +243,14 @@ class TrazabilidadComercialServicio
                 LEFT JOIN membresias.membresias m ON m.id = v.membresia_id
                 WHERE cc.id::text = COALESCE(
                     CASE WHEN e.tabla = 'cuentas_cobrar.cuentas' THEN e.registro_id END,
-                    CASE WHEN e.tabla = 'cuentas_cobrar.gestiones' THEN (SELECT g.cuenta_id::text FROM cuentas_cobrar.gestiones g WHERE g.id::text = e.registro_id LIMIT 1) END,
-                    CASE WHEN e.tabla = 'cuentas_cobrar.compromisos_pago' THEN (SELECT cp.cuenta_id::text FROM cuentas_cobrar.compromisos_pago cp WHERE cp.id::text = e.registro_id LIMIT 1) END
+                    CASE WHEN e.tabla = 'cuentas_cobrar.gestiones' THEN (
+                        SELECT g.cuenta_id::text FROM cuentas_cobrar.gestiones g
+                        WHERE g.id::text = e.registro_id LIMIT 1
+                    ) END,
+                    CASE WHEN e.tabla = 'cuentas_cobrar.compromisos_pago' THEN (
+                        SELECT cp.cuenta_id::text FROM cuentas_cobrar.compromisos_pago cp
+                        WHERE cp.id::text = e.registro_id LIMIT 1
+                    ) END
                 )
                 LIMIT 1
             )
@@ -234,11 +261,23 @@ class TrazabilidadComercialServicio
     private function referenciaSql(): string
     {
         return "CASE
-            WHEN e.tabla = 'ventas.ventas' THEN COALESCE((SELECT v.numero FROM ventas.ventas v WHERE v.id::text = e.registro_id LIMIT 1), '#' || e.registro_id)
-            WHEN e.tabla = 'ventas.pagos' THEN COALESCE((SELECT p.codigo_cobro FROM ventas.pagos p WHERE p.id::text = e.registro_id LIMIT 1), 'Pago #' || e.registro_id)
-            WHEN e.tabla = 'ventas.cajas' THEN COALESCE((SELECT c.codigo FROM ventas.cajas c WHERE c.id::text = e.registro_id LIMIT 1), 'Caja #' || e.registro_id)
+            WHEN e.tabla = 'ventas.ventas' THEN COALESCE(
+                (SELECT v.numero FROM ventas.ventas v WHERE v.id::text = e.registro_id LIMIT 1),
+                '#' || e.registro_id
+            )
+            WHEN e.tabla = 'ventas.pagos' THEN COALESCE(
+                (SELECT p.codigo_cobro FROM ventas.pagos p WHERE p.id::text = e.registro_id LIMIT 1),
+                'Pago #' || e.registro_id
+            )
+            WHEN e.tabla = 'ventas.cajas' THEN COALESCE(
+                (SELECT c.codigo FROM ventas.cajas c WHERE c.id::text = e.registro_id LIMIT 1),
+                'Caja #' || e.registro_id
+            )
             WHEN e.tabla = 'ventas.turnos_caja' THEN 'Turno #' || e.registro_id
-            WHEN e.tabla = 'membresias.membresias' THEN COALESCE((SELECT m.codigo_contrato FROM membresias.membresias m WHERE m.id::text = e.registro_id LIMIT 1), 'Membresía #' || e.registro_id)
+            WHEN e.tabla = 'membresias.membresias' THEN COALESCE(
+                (SELECT m.codigo_contrato FROM membresias.membresias m WHERE m.id::text = e.registro_id LIMIT 1),
+                'Membresía #' || e.registro_id
+            )
             WHEN e.tabla = 'membresias.membresia_periodos' THEN 'Período #' || e.registro_id
             WHEN e.tabla = 'cuentas_cobrar.cuentas' THEN 'Cuenta #' || e.registro_id
             WHEN e.tabla = 'cuentas_cobrar.gestiones' THEN 'Gestión #' || e.registro_id
@@ -270,10 +309,16 @@ class TrazabilidadComercialServicio
         }
 
         if ($columna instanceof \Illuminate\Database\Query\Expression) {
-            $query->whereRaw('LOWER(' . $this->procesoSql() . ') LIKE ?', ['%' . mb_strtolower((string) $valor) . '%']);
+            $query->whereRaw(
+                'LOWER(' . $this->procesoSql() . ') LIKE ?',
+                ['%' . mb_strtolower((string) $valor) . '%']
+            );
             return;
         }
 
-        $query->whereRaw("LOWER({$columna}) LIKE ?", ['%' . mb_strtolower((string) $valor) . '%']);
+        $query->whereRaw(
+            "LOWER({$columna}) LIKE ?",
+            ['%' . mb_strtolower((string) $valor) . '%']
+        );
     }
 }

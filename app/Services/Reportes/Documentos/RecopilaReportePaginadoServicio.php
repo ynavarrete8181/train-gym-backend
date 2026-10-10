@@ -4,7 +4,7 @@ namespace App\Services\Reportes\Documentos;
 
 class RecopilaReportePaginadoServicio
 {
-    public function todos(callable $consultar, array $filtros, int $usuarioId, int $porPagina = 500): array
+    public function todos(callable $consultar, array $filtros, int $usuarioId, int $porPagina = 50): array
     {
         $pagina = 1;
         $resultado = [];

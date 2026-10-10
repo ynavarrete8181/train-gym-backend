@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Ventas\Reportes\CarteraVencidaControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\CobrosMetodoPagoControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\ResumenComercialControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\VentasPeriodoControlador;
+use App\Http\Controllers\Api\Ventas\Reportes\VentasResponsableControlador;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('reportes')->group(function (): void {
@@ -22,4 +23,8 @@ Route::prefix('reportes')->group(function (): void {
     Route::get('ventas-periodo', [VentasPeriodoControlador::class, 'index'])
         ->middleware('base.permiso:REPORTES-VENTAS-PERIODO')
         ->name('ventas.reportes.ventas-periodo');
+
+    Route::get('ventas-responsable', [VentasResponsableControlador::class, 'index'])
+        ->middleware('base.permiso:REPORTES-VENTAS-RESPONSABLE')
+        ->name('ventas.reportes.ventas-responsable');
 });

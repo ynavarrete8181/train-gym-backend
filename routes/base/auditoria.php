@@ -16,6 +16,9 @@ Route::middleware(['base.auth'])->prefix('auditoria')->group(function (): void {
     Route::get('reportes', [ReportesAuditoriaControlador::class, 'index'])
         ->middleware('base.permiso:AUDITORIA-REPORTES')
         ->name('auditoria.reportes');
+    Route::get('reportes/excel', [ReportesAuditoriaControlador::class, 'excel'])
+        ->middleware('base.permiso:AUDITORIA-REPORTES')
+        ->name('auditoria.reportes.excel');
     Route::get('trazabilidad-comercial', [TrazabilidadComercialControlador::class, 'index'])
         ->middleware('base.permiso:AUDITORIA-TRAZABILIDAD-COMERCIAL')
         ->name('auditoria.trazabilidad-comercial');

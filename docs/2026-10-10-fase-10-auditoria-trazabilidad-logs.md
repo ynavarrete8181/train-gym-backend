@@ -135,3 +135,68 @@ Auditoría registra operaciones válidas e importantes del negocio.
 Logs registran fallos, advertencias y diagnóstico técnico.
 
 No se auditan clics, paginación, búsquedas ni navegación sin cambio de estado.
+
+
+## Cobertura transversal de todo Revive
+
+Auditoría y logs son infraestructura global del sistema, no funcionalidades exclusivas de un módulo.
+
+### Auditoría global de respaldo
+
+El middleware `AuditarOperacionGlobal` se ejecuta sobre todo el grupo API.
+
+Para toda operación exitosa:
+
+- POST
+- PUT
+- PATCH
+- DELETE
+
+si ningún servicio de negocio registró una auditoría detallada durante el request, se crea automáticamente un evento `OPERACION_HTTP` en `auditoria.eventos`.
+
+Esto garantiza cobertura para módulos actuales y futuros, entre ellos:
+
+- Personas
+- Clientes
+- Membresías
+- Ventas
+- Pagos
+- Caja
+- Cartera
+- Agenda
+- Entrenadores
+- Entrenamiento
+- Servicios
+- Inventario
+- Seguridad
+- Usuarios
+- Roles y permisos
+- Configuración
+- Notificaciones
+- Comunicaciones
+- Resultados
+- Reportes
+- Accesos
+- Integraciones
+
+Cuando el servicio de negocio usa `RegistraAuditoria`, el middleware detecta la auditoría detallada y no crea un duplicado.
+
+El evento global no persiste payloads de formularios, contraseñas, tokens ni datos sensibles. Solo conserva método, ruta, nombre de ruta y estado HTTP.
+
+### Correlación técnica global
+
+Todo request del API recibe un `request_id` mediante `AsignarRequestId`.
+
+El identificador:
+
+- se conserva si llega un `X-Request-ID` válido;
+- se genera como UUID cuando no existe;
+- se devuelve en la respuesta `X-Request-ID`;
+- es reutilizado por `LogSistemaService`;
+- permite relacionar request, error e integración.
+
+### Regla permanente
+
+`auditoria.*` no tiene proceso de borrado automático.
+
+La retención automática aplica únicamente sobre `logs.*`.

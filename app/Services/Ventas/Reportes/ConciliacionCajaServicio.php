@@ -77,6 +77,14 @@ class ConciliacionCajaServicio
             });
         }
 
+        if (! empty($filtros['apertura'])) {
+            $query->whereRaw("TO_CHAR(t.fecha_apertura, 'HH24:MI') LIKE ?", ['%' . trim((string) $filtros['apertura']) . '%']);
+        }
+
+        if (! empty($filtros['cierre'])) {
+            $query->whereRaw("TO_CHAR(t.fecha_cierre, 'HH24:MI') LIKE ?", ['%' . trim((string) $filtros['cierre']) . '%']);
+        }
+
         if (! empty($filtros['caja'])) {
             $query->whereRaw('LOWER(c.nombre) LIKE ?', ['%' . mb_strtolower((string) $filtros['caja']) . '%']);
         }

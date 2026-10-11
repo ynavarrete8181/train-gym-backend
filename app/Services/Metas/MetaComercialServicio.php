@@ -60,24 +60,32 @@ class MetaComercialServicio
             });
         }
 
-        $paginador = $query
+        $items = $query
             ->orderByDesc('m.anio')
             ->orderByDesc('m.mes')
             ->orderBy('s.nombre')
-            ->paginate($filtros['per_page'] ?? 10, ['*'], 'page', $filtros['page'] ?? 1);
-
-        $items = collect($paginador->items())
+            ->get()
             ->map(fn ($meta) => $this->conSeguimiento($meta, $usuarioId))
+            ->filter(fn (array $item) => $this->coincideFiltrosCalculados($item, $filtros))
+            ->values();
+
+        $porPagina = (int) ($filtros['per_page'] ?? 10);
+        $paginaActual = max(1, (int) ($filtros['page'] ?? 1));
+        $total = $items->count();
+        $ultimaPagina = max(1, (int) ceil($total / max(1, $porPagina)));
+        $paginaActual = min($paginaActual, $ultimaPagina);
+        $itemsPagina = $items
+            ->slice(($paginaActual - 1) * $porPagina, $porPagina)
             ->values()
             ->all();
 
         return [
-            'datos' => $items,
+            'datos' => $itemsPagina,
             'meta' => [
-                'pagina_actual' => $paginador->currentPage(),
-                'por_pagina' => $paginador->perPage(),
-                'total' => $paginador->total(),
-                'ultima_pagina' => $paginador->lastPage(),
+                'pagina_actual' => $paginaActual,
+                'por_pagina' => $porPagina,
+                'total' => $total,
+                'ultima_pagina' => $ultimaPagina,
                 'catalogos' => [
                     'sedes' => DB::table('institucional.sedes')
                         ->whereIn('id_sede', $sedesPermitidas)
@@ -461,6 +469,54 @@ class MetaComercialServicio
             'hasta' => $finMes->isAfter($hoy) ? $hoy->toDateString() : $finMes->toDateString(),
             'futuro' => false,
         ];
+    }
+
+    private function coincideFiltrosCalculados(array $item, array $filtros): bool
+    {
+        if (! empty($filtros['periodo'])) {
+            $periodo = mb_strtolower(sprintf(
+                '%02d/%04d %s %d',
+                (int) $item['mes'],
+                (int) $item['anio'],
+                Carbon::create((int) $item['anio'], (int) $item['mes'], 1)->locale('es')->translatedFormat('F'),
+                (int) $item['anio'],
+            ));
+
+            if (! str_contains($periodo, mb_strtolower(trim((string) $filtros['periodo'])))) {
+                return false;
+            }
+        }
+
+        foreach ([
+            'ventas' => ['real_ventas', 'meta_ventas', 'cumplimiento_ventas'],
+            'cobros' => ['real_cobros', 'meta_cobros', 'cumplimiento_cobros'],
+            'nuevas' => ['real_membresias_nuevas', 'meta_membresias_nuevas', 'cumplimiento_membresias_nuevas'],
+            'renovaciones' => ['real_renovaciones', 'meta_renovaciones', 'cumplimiento_renovaciones'],
+        ] as $filtro => $campos) {
+            if (empty($filtros[$filtro])) {
+                continue;
+            }
+
+            $busqueda = mb_strtolower(trim((string) $filtros[$filtro]));
+            $coincide = collect($campos)->contains(function (string $campo) use ($item, $busqueda): bool {
+                $valor = $item[$campo] ?? '';
+                $variantes = [
+                    (string) $valor,
+                    number_format((float) $valor, 2, '.', ''),
+                    number_format((float) $valor, 0, '.', ''),
+                ];
+
+                return collect($variantes)->contains(
+                    fn (string $texto) => str_contains(mb_strtolower($texto), $busqueda)
+                );
+            });
+
+            if (! $coincide) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function porcentaje(float $real, float $meta): float

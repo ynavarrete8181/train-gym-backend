@@ -9,6 +9,7 @@ require __DIR__.'/channels.php';
 Route::prefix('base')->group(function (): void {
     require __DIR__.'/base/base.php';
     require __DIR__.'/base/dashboard.php';
+    require __DIR__.'/base/metas.php';
     require __DIR__.'/base/auth.php';
     require __DIR__.'/base/menu.php';
     require __DIR__.'/base/seguridad.php';

@@ -23,6 +23,11 @@ class MetaComercialControlador extends Controller
             'mes' => 'nullable|integer|min:1|max:12',
             'estado' => 'nullable|in:ACTIVA,INACTIVA',
             'sede_id' => 'nullable',
+            'periodo' => 'nullable|string|max:80',
+            'ventas' => 'nullable|string|max:80',
+            'cobros' => 'nullable|string|max:80',
+            'nuevas' => 'nullable|string|max:80',
+            'renovaciones' => 'nullable|string|max:80',
             'page' => 'nullable|integer|min:1',
             'per_page' => 'nullable|integer|in:5,10,25,50',
         ]);
@@ -78,6 +83,11 @@ class MetaComercialControlador extends Controller
             'mes' => 'nullable|integer|min:1|max:12',
             'estado' => 'nullable|in:ACTIVA,INACTIVA',
             'sede_id' => 'nullable',
+            'periodo' => 'nullable|string|max:80',
+            'ventas' => 'nullable|string|max:80',
+            'cobros' => 'nullable|string|max:80',
+            'nuevas' => 'nullable|string|max:80',
+            'renovaciones' => 'nullable|string|max:80',
         ]);
 
         return $this->exportacion->excel(

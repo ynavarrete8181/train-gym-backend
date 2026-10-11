@@ -102,3 +102,59 @@ El patrón global de PDF debe conservar:
 - pie institucional fijo en todas las páginas.
 
 Los reportes no deben redefinir estos márgenes ni la composición del membrete de forma individual.
+
+
+## Jerarquía obligatoria de referencia
+
+Revive no define patrones visuales o de navegación desde cero.
+
+Antes de crear o refactorizar una vista se debe revisar, en este orden:
+
+1. **Sistema Base**: repositorio `1312721242/dbanu-frontend`, especialmente `docs/estandar-visual-vistas.md` y las vistas modernas equivalentes.
+2. **Estándar visual global de Revive**: este documento y los componentes globales ya adaptados a Revive.
+3. **Documentación funcional del módulo**: reglas específicas del dominio que se está implementando.
+4. **Vistas Revive ya validadas**: reutilizar su estructura cuando representen el mismo tipo de flujo.
+
+Si existe un patrón equivalente en Sistema Base o en un componente global de Revive, no se crea una variante local sin una razón funcional documentada.
+
+### Navegación interna obligatoria
+
+Para listados que navegan internamente a crear, editar, configurar, revisar o consultar seguimiento, usar estado de vista dentro de la página o un componente hijo del feature.
+
+Patrón:
+
+```text
+LISTADO
+  ↓ Añadir / Editar / Ver
+VISTA INTERNA
+  ↓
+Paper 1: PageHeader + Botón Volver
+Paper 2: formulario / detalle / seguimiento
+  ↓
+AccionesFormulario cuando exista guardado
+```
+
+Reglas:
+
+- no usar un `Dialog` como sustituto de una vista interna cuando el flujo requiere formularios o detalles de trabajo;
+- mantener un solo Paper principal de cabecera visible;
+- mantener un solo Paper principal de contenido;
+- las secciones internas del formulario son `Box`, `Stack`, `Grid`, tabs o contenedores internos, no nuevos Paper principales;
+- el primer Paper debe conservar separación visual respecto al contenido siguiente;
+- título y botón `Volver` deben estar alineados y simétricos;
+- reutilizar `BotonVolver` y `AccionesFormulario`;
+- las acciones de tabla deben reutilizar `dbanuStyles.actionView`, `actionEdit`, `actionDelete` o equivalentes globales;
+- el CRUD debe mantener backend como fuente de verdad para validaciones y alcance.
+
+### Estructura por feature
+
+Para un dominio funcional propio:
+
+```text
+src/features/<modulo>/
+├── pages/
+├── components/
+└── services/
+```
+
+Una pantalla no debe ubicarse bajo otro feature únicamente porque aparezca dentro de su menú. Por ejemplo, **Metas comerciales** pertenece a `features/metas`, aunque su entrada de navegación se encuentre bajo Dashboard.

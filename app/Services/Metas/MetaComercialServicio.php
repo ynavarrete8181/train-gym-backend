@@ -90,6 +90,25 @@ class MetaComercialServicio
         ];
     }
 
+    public function todos(array $filtros, int $usuarioId): array
+    {
+        $pagina = 1;
+        $resultado = [];
+
+        do {
+            $consulta = $this->listar(
+                array_merge($filtros, ['page' => $pagina, 'per_page' => 50]),
+                $usuarioId
+            );
+
+            $resultado = array_merge($resultado, $consulta['datos']);
+            $ultima = (int) ($consulta['meta']['ultima_pagina'] ?? 1);
+            $pagina++;
+        } while ($pagina <= $ultima);
+
+        return $resultado;
+    }
+
     public function guardar(array $datos, int $usuarioId, ?int $id = null): array
     {
         $sedeId = $this->alcance->validarSede(

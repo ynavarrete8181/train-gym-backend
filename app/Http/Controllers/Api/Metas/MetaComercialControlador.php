@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Metas;
 
 use App\Http\Controllers\Controller;
 use App\Services\Metas\MetaComercialServicio;
+use App\Services\Metas\Exportaciones\MetasComercialesExportacionServicio;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
 
@@ -11,6 +12,7 @@ class MetaComercialControlador extends Controller
 {
     public function __construct(
         private readonly MetaComercialServicio $servicio,
+        private readonly MetasComercialesExportacionServicio $exportacion,
     ) {}
 
     public function index(Request $request)
@@ -65,6 +67,22 @@ class MetaComercialControlador extends Controller
                 (int) $request->user()->id,
                 $meta,
             ),
+        );
+    }
+
+    public function excel(Request $request)
+    {
+        $filtros = $request->validate([
+            'busqueda' => 'nullable|string|max:160',
+            'anio' => 'nullable|integer|min:2020|max:2100',
+            'mes' => 'nullable|integer|min:1|max:12',
+            'estado' => 'nullable|in:ACTIVA,INACTIVA',
+            'sede_id' => 'nullable',
+        ]);
+
+        return $this->exportacion->excel(
+            $filtros,
+            (int) $request->user()->id,
         );
     }
 

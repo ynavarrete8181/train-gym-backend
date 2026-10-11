@@ -14,6 +14,7 @@ class AlertaOperativaServicio
         'MEMBRESIAS_POR_VENCER',
         'CONCILIACION_CAJA',
         'DIFERENCIA_CAJA',
+        'META_EN_RIESGO',
     ];
 
     public function __construct(
@@ -28,6 +29,7 @@ class AlertaOperativaServicio
             ->merge($this->detectarMembresiasPorVencer())
             ->merge($this->detectarConciliacionesPendientes())
             ->merge($this->detectarDiferenciasCajaHoy())
+            ->merge($this->detectarMetasEnRiesgo())
             ->values();
 
         $identidadesActivas = [];
@@ -287,6 +289,67 @@ class AlertaOperativaServicio
                 'vista' => 'REPORTES-CONCILIACION-CAJA',
                 'contexto' => ['cantidad' => (int) $fila->cantidad, 'diferencia' => round((float) $fila->diferencia, 2)],
             ]);
+    }
+
+    private function detectarMetasEnRiesgo(): Collection
+    {
+        $hoy = now();
+        $inicio = $hoy->copy()->startOfMonth()->toDateString();
+        $fin = $hoy->toDateString();
+        $ritmoEsperado = round(($hoy->day / max(1, $hoy->daysInMonth)) * 100, 2);
+
+        if ($ritmoEsperado < 50) {
+            return collect();
+        }
+
+        return DB::table('metas.metas as meta')
+            ->join('institucional.sedes as s', 's.id_sede', '=', 'meta.sede_id')
+            ->where('meta.anio', $hoy->year)
+            ->where('meta.mes', $hoy->month)
+            ->where('meta.estado', 'ACTIVA')
+            ->where('meta.meta_ventas', '>', 0)
+            ->select('meta.id', 'meta.sede_id', 'meta.meta_ventas', 's.nombre as sede')
+            ->get()
+            ->map(function ($meta) use ($inicio, $fin, $ritmoEsperado) {
+                $real = (float) DB::table('ventas.ventas as v')
+                    ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
+                    ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
+                    ->whereRaw('COALESCE(c.sede_id, m.sede_id) = ?', [(int) $meta->sede_id])
+                    ->whereBetween(DB::raw('DATE(v.fecha_venta)'), [$inicio, $fin])
+                    ->where('v.estado', '<>', 'ANULADA')
+                    ->sum('v.total');
+
+                $cumplimiento = round(($real / max(0.01, (float) $meta->meta_ventas)) * 100, 2);
+
+                if ($cumplimiento + 15 >= $ritmoEsperado) {
+                    return null;
+                }
+
+                return [
+                    'clave' => 'META_EN_RIESGO',
+                    'tipo' => 'META_EN_RIESGO',
+                    'nivel' => 'WARNING',
+                    'sede_id' => (int) $meta->sede_id,
+                    'titulo' => 'Meta comercial en riesgo',
+                    'mensaje' => sprintf(
+                        '%s registra %.1f%% de cumplimiento en ventas frente a %.1f%% de avance esperado del mes.',
+                        $meta->sede,
+                        $cumplimiento,
+                        $ritmoEsperado
+                    ),
+                    'referencia_tipo' => 'META_COMERCIAL',
+                    'referencia_id' => (int) $meta->id,
+                    'vista' => 'DASHBOARD-METAS-COMERCIALES',
+                    'contexto' => [
+                        'meta_ventas' => round((float) $meta->meta_ventas, 2),
+                        'real_ventas' => round($real, 2),
+                        'cumplimiento' => $cumplimiento,
+                        'ritmo_esperado' => $ritmoEsperado,
+                    ],
+                ];
+            })
+            ->filter()
+            ->values();
     }
 
     private function registrarOActualizar(array $alerta): void

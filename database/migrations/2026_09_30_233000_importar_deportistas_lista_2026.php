@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -8,6 +9,11 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Importación histórica: nunca poblar una base limpia de producción.
+        if (App::environment('production')) {
+            return;
+        }
+
         $nombres = [
             'JESSAEL PALMA',
             'THIARA CHAMORRO',

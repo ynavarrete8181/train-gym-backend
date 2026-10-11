@@ -111,7 +111,30 @@ class MetaComercialServicio
             ]);
         }
 
-        $antes = $id ? DB::table('metas.metas')->where('id', $id)->first() : null;
+        $antes = null;
+
+        if ($id) {
+            $sedesPermitidas = $this->alcance->sedesPermitidas($usuarioId, 'maneja_caja');
+            $antes = DB::table('metas.metas')
+                ->where('id', $id)
+                ->whereIn('sede_id', $sedesPermitidas)
+                ->first();
+
+            abort_unless($antes, 404, 'Meta comercial no encontrada.');
+        }
+
+        $responsablesPermitidos = collect($this->catalogoResponsables($sedeId))
+            ->pluck('id')
+            ->map(fn ($valor) => (int) $valor)
+            ->all();
+
+        foreach ($datos['responsables'] ?? [] as $responsable) {
+            if (! in_array((int) $responsable['usuario_id'], $responsablesPermitidos, true)) {
+                throw ValidationException::withMessages([
+                    'responsables' => 'Uno de los responsables seleccionados no pertenece al alcance comercial de la sede.',
+                ]);
+            }
+        }
 
         $payload = [
             'sede_id' => $sedeId,
@@ -126,6 +149,8 @@ class MetaComercialServicio
             'actualizado_por' => $usuarioId,
             'updated_at' => now(),
         ];
+
+        $metaId = $id;
 
         DB::transaction(function () use ($id, $payload, $datos, $usuarioId, &$metaId): void {
             if ($id) {

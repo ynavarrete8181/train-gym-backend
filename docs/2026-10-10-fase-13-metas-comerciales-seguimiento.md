@@ -242,3 +242,14 @@ Aunque la opción visual se encuentra bajo Dashboard, las rutas pertenecen al do
 - `PUT /base/metas/{meta}`.
 
 `routes/base/dashboard.php` queda reservado para Dashboard y alertas relacionadas con esa superficie; la lógica CRUD de metas no se acopla a ese archivo.
+
+
+## Atribución individual
+
+El seguimiento por responsable distingue quién vende de quién cobra:
+
+- **Ventas**: se atribuyen a `ventas.ventas.responsable_comercial_id`.
+- **Cobros**: se atribuyen a `ventas.pagos.usuario_id`, es decir, al usuario que realmente registró el pago.
+- **Membresías nuevas y renovaciones**: se atribuyen al responsable comercial de la venta asociada al período de membresía.
+
+Esta separación es obligatoria para no adjudicar un cobro al vendedor cuando el pago fue realizado posteriormente por un cajero diferente.

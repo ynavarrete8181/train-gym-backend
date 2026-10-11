@@ -3,10 +3,15 @@
     "name": "revive/train-gym-backend",
     "type": "project",
     "description": "Backend Laravel API para Revive.",
-    "keywords": ["laravel", "api", "train-gym"],
+    "keywords": [
+        "laravel",
+        "api",
+        "train-gym"
+    ],
     "license": "MIT",
     "require": {
-        "php": "^8.3",
+        "php": "^8.4",
+        "ext-gd": "*",
         "laravel/framework": "^13.8",
         "laravel/reverb": "^1.11",
         "laravel/tinker": "^3.0",

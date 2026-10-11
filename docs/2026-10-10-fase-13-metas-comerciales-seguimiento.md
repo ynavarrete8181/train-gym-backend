@@ -131,7 +131,7 @@ El alcance por sede se valida siempre en backend.
 - `app/Services/Metas/MetaComercialServicio.php`
 - `app/Services/Metas/Exportaciones/MetasComercialesExportacionServicio.php`
 - `app/Http/Controllers/Api/Metas/MetaComercialControlador.php`
-- `routes/base/dashboard.php`
+- `routes/base/metas.php`
 
 ## Arquitectura frontend
 
@@ -228,3 +228,17 @@ Observaciones
 ```
 
 No se crean cabeceras repetidas ni Paper principales adicionales.
+
+
+## Rutas del dominio
+
+Aunque la opción visual se encuentra bajo Dashboard, las rutas pertenecen al dominio Metas:
+
+- `GET /base/metas`;
+- `GET /base/metas/catalogos`;
+- `GET /base/metas/excel`;
+- `GET /base/metas/{meta}`;
+- `POST /base/metas`;
+- `PUT /base/metas/{meta}`.
+
+`routes/base/dashboard.php` queda reservado para Dashboard y alertas relacionadas con esa superficie; la lógica CRUD de metas no se acopla a ese archivo.

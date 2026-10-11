@@ -211,3 +211,19 @@ Ejemplos:
 - Responsable: nombre + rol.
 
 Evitar listas desplegables de texto plano cuando el contexto permita una representación más clara.
+
+
+### Regla global para todos los Select
+
+El estilo base de todos los selectores de Revive se define en `src/styles/theme.js` mediante overrides globales de MUI.
+
+Esto aplica automáticamente a cualquier `Select` o `TextField select` del sistema:
+
+- menú con borde, radio y sombra institucional;
+- separación uniforme entre icono y texto;
+- hover y opción seleccionada;
+- tipografía compacta;
+- alineación de la flecha;
+- espaciado consistente de `ListItemIcon` y `ListItemText`.
+
+`CampoSelectIcono` se utiliza únicamente cuando la opción necesita información enriquecida como icono específico, descripción secundaria y check visual. No se deben repetir estilos de menú localmente salvo una excepción funcional.

@@ -356,7 +356,7 @@ class MetaComercialServicio
             ->join('ventas.ventas as v', 'v.id', '=', 'p.venta_id')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'p.caja_id')
             ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
-            ->where('v.responsable_comercial_id', $fila->usuario_id)
+            ->where('p.usuario_id', $fila->usuario_id)
             ->where(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $meta->sede_id)
             ->whereBetween(DB::raw('DATE(p.fecha_pago)'), [$rango['desde'], $rango['hasta']])
             ->where('p.estado', 'CONFIRMADO')

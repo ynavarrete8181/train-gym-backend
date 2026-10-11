@@ -1,10 +1,31 @@
 <?php
 
 use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
 Broadcast::routes(['middleware' => ['base.auth']]);
 require __DIR__.'/channels.php';
+
+Route::get('health', function () {
+    try {
+        DB::select('select 1');
+
+        return response()->json([
+            'status' => 'ok',
+            'database' => 'ok',
+            'app' => config('app.name'),
+            'environment' => app()->environment(),
+        ]);
+    } catch (Throwable $e) {
+        report($e);
+
+        return response()->json([
+            'status' => 'error',
+            'database' => 'unavailable',
+        ], 503);
+    }
+});
 
 Route::prefix('base')->group(function (): void {
     require __DIR__.'/base/base.php';

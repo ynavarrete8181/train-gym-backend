@@ -180,7 +180,7 @@ class AlertaOperativaServicio
             ->whereDate('cc.fecha_vencimiento', '<', now()->toDateString())
             ->where('v.estado', '<>', 'ANULADA')
             ->whereRaw("{$saldoSql} > 0")
-            ->whereNotNull(DB::raw('COALESCE(c.sede_id, m.sede_id)'))
+            ->whereRaw('COALESCE(c.sede_id, m.sede_id) IS NOT NULL')
             ->groupByRaw('COALESCE(c.sede_id, m.sede_id)')
             ->selectRaw('COALESCE(c.sede_id, m.sede_id) as sede_id')
             ->selectRaw('COUNT(*) as cantidad')

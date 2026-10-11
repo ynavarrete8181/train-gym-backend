@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
@@ -119,40 +120,44 @@ return new class extends Migration
             ]);
         }
 
-        $adminId = DB::table('users')->insertGetId([
-            'name' => 'Administrador Revive',
-            'email' => 'admin@revive.local',
-            'password' => Hash::make('Admin12345*'),
-            'usr_tipo' => $rolAdmin,
-            'usr_estado' => 1,
-            'nombres' => 'Administrador',
-            'apellidos' => 'Base',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        $funcionesRol = DB::table('base.cpu_userrolefunction')->where('id_userrole', $rolAdmin)->get();
-        foreach ($funcionesRol as $funcion) {
-            DB::table('base.cpu_userfunction')->insert([
-                'id_users' => $adminId,
-                'id_userrole' => $rolAdmin,
-                'id_usermenu' => $funcion->id_usermenu,
-                'nombre' => $funcion->nombre,
-                'accion' => $funcion->accion,
-                'id_menu' => $funcion->id_menu,
-                'activo' => true,
-                'orden' => $funcion->orden,
+        // El usuario con credenciales fijas es exclusivamente de desarrollo.
+        // En producción el acceso inicial se crea con ProductionBootstrapSeeder.
+        if (! App::environment('production')) {
+            $adminId = DB::table('users')->insertGetId([
+                'name' => 'Administrador Revive',
+                'email' => 'admin@revive.local',
+                'password' => Hash::make('Admin12345*'),
+                'usr_tipo' => $rolAdmin,
+                'usr_estado' => 1,
+                'nombres' => 'Administrador',
+                'apellidos' => 'Base',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+    
+            $funcionesRol = DB::table('base.cpu_userrolefunction')->where('id_userrole', $rolAdmin)->get();
+            foreach ($funcionesRol as $funcion) {
+                DB::table('base.cpu_userfunction')->insert([
+                    'id_users' => $adminId,
+                    'id_userrole' => $rolAdmin,
+                    'id_usermenu' => $funcion->id_usermenu,
+                    'nombre' => $funcion->nombre,
+                    'accion' => $funcion->accion,
+                    'id_menu' => $funcion->id_menu,
+                    'activo' => true,
+                    'orden' => $funcion->orden,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+    
+            DB::table('base.preferencias_usuario')->insert([
+                'id_usuario' => $adminId,
+                'tema' => 'sistema',
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
         }
-
-        DB::table('base.preferencias_usuario')->insert([
-            'id_usuario' => $adminId,
-            'tema' => 'sistema',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
     }
 
     public function down(): void

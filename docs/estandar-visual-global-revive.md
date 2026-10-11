@@ -177,3 +177,17 @@ No crear Paper principales adicionales para:
 Esos elementos deben vivir dentro del Paper 2 mediante `Box`, `Stack`, `Grid`, secciones internas o componentes transversales.
 
 En navegación interna se reemplaza el contenido de los dos Paper de la vista; no se apilan nuevas cabeceras encima de la pantalla anterior.
+
+
+### Selects con icono
+
+Cuando un selector represente una entidad o dimensión claramente identificable, usar el componente global `CampoSelectIcono` del frontend Revive.
+
+Ejemplos:
+- Sede → icono institucional / edificio.
+- Año → calendario anual.
+- Mes → calendario mensual.
+- Estado → bandera / estado.
+- Responsable → persona.
+
+No repetir manualmente `InputAdornment`, tamaño, color o espaciado en cada módulo si el selector puede reutilizar el patrón global.

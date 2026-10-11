@@ -162,3 +162,15 @@ Una alerta no equivale a un aviso.
 `seguridad.avisos_usuario` representa la entrega de esa condición a cada usuario.
 
 Esta separación evita duplicados, conserva historial y permite futuras extensiones a correo, push o app móvil sin modificar la lógica de detección.
+
+
+### Meta comercial en riesgo
+
+La Fase 13 agrega la condición `META_EN_RIESGO`.
+
+Se evalúa para metas activas del mes actual cuando:
+
+- el mes ya alcanzó al menos 50% de avance temporal;
+- el porcentaje de cumplimiento de ventas queda más de 15 puntos por debajo del ritmo esperado.
+
+La alerta dirige al módulo `DASHBOARD-METAS-COMERCIALES` y utiliza el mismo ciclo de vida ACTIVA / RESUELTA y la misma política de deduplicación de la Fase 12.

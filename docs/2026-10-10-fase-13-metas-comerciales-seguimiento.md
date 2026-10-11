@@ -135,8 +135,15 @@ El alcance por sede se valida siempre en backend.
 
 ## Arquitectura frontend
 
-- `src/features/dashboard/pages/MetasComercialesPage.jsx`
-- `src/features/dashboard/services/metasComercialesServicio.js`
+Metas se mantiene como dominio propio aunque su acceso esté agrupado bajo Dashboard:
+
+- `src/features/metas/pages/MetasComercialesPage.jsx`
+- `src/features/metas/components/MetasComercialesTable.jsx`
+- `src/features/metas/components/MetaComercialFormulario.jsx`
+- `src/features/metas/components/MetaComercialSeguimiento.jsx`
+- `src/features/metas/services/metasComercialesServicio.js`
+
+La implementación anterior dentro de `features/dashboard` fue retirada para evitar acoplamiento entre navegación y dominio.
 
 ## Exportaciones
 
@@ -160,3 +167,64 @@ La meta es configuración.
 El cumplimiento es cálculo.
 
 Por lo tanto, Revive no persiste snapshots de cumplimiento como fuente de verdad; siempre se recalculan contra los datos operativos reales.
+
+
+## Patrón visual y navegación interna
+
+La interfaz sigue el estándar del Sistema Base y `docs/estandar-visual-global-revive.md`.
+
+### Listado
+
+```text
+Paper 1
+Metas comerciales
+
+Paper 2
+GestionToolbar
+Filtros
+TablaGestion
+Paginación
+```
+
+### Nueva / editar meta
+
+La navegación se realiza dentro de `MetasComercialesPage`, no mediante Dialog:
+
+```text
+Paper 1
+Nueva meta comercial / Editar meta comercial
+[Volver]
+
+Paper 2
+Configuración mensual
+Metas por responsable
+[Cancelar] [Guardar]
+```
+
+Se reutilizan:
+
+- `PageHeader`;
+- `BotonVolver`;
+- `AccionesFormulario`;
+- `GestionToolbar`;
+- `TablaGestion`;
+- `FilterHeaderCell`;
+- `StatusChip`;
+- `dbanuStyles`;
+- `formStyles`.
+
+### Seguimiento
+
+```text
+Paper 1
+Seguimiento de meta comercial
+[Volver]
+
+Paper 2
+Resumen sede/período
+Cumplimiento consolidado
+Cumplimiento por responsable
+Observaciones
+```
+
+No se crean cabeceras repetidas ni Paper principales adicionales.

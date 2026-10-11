@@ -1,12 +1,18 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
     public function up(): void
     {
+        // Importación histórica: nunca poblar una base limpia de producción.
+        if (App::environment('production')) {
+            return;
+        }
+
         /*
          * Regla tomada del formato original del Excel:
          * solo el segundo nombre en NEGRITA después de " - " es representante legal.

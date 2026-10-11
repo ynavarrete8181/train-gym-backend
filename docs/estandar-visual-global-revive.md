@@ -227,3 +227,21 @@ Esto aplica automáticamente a cualquier `Select` o `TextField select` del siste
 - espaciado consistente de `ListItemIcon` y `ListItemText`.
 
 `CampoSelectIcono` se utiliza únicamente cuando la opción necesita información enriquecida como icono específico, descripción secundaria y check visual. No se deben repetir estilos de menú localmente salvo una excepción funcional.
+
+
+### Regla global de filtros en tablas
+
+Siguiendo el Sistema Base, toda tabla de gestión o reporte debe usar `FilterHeaderCell` en cada columna de datos que admita filtrado.
+
+Regla:
+
+- columnas descriptivas: filtro por texto u opciones;
+- fechas/períodos: filtro textual o por catálogo;
+- estados: filtro por opciones;
+- cantidades, métricas y valores monetarios: filtro textual/numérico;
+- columnas calculadas: el backend debe aplicar el filtro real sobre el valor calculado;
+- **Acciones** no lleva filtro.
+
+No se deben mezclar encabezados simples `TableCell` con columnas filtrables dentro de una misma tabla si existe soporte para `FilterHeaderCell`.
+
+El frontend solo captura y representa los filtros. El backend es la fuente de verdad para aplicar el filtrado y respetar alcance, seguridad y paginación.

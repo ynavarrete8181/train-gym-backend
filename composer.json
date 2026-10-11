@@ -12,6 +12,7 @@
     "require": {
         "php": "^8.4",
         "ext-gd": "*",
+        "ext-zip": "*",
         "laravel/framework": "^13.8",
         "laravel/reverb": "^1.11",
         "laravel/tinker": "^3.0",

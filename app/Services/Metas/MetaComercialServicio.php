@@ -421,6 +421,7 @@ class MetaComercialServicio
             ->where('u.usr_estado', 1)
             ->where('r.activo', true)
             ->whereIn('r.role', [
+                'CAJERO',
                 'RESPONSABLE',
                 'SUPERVISOR DE VENTAS',
                 'ADMINISTRADOR',

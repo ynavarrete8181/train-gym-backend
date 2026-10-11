@@ -6,6 +6,7 @@ use App\Services\Concerns\RegistraAuditoria;
 use App\Services\Seguridad\AlcanceOperativoService;
 use App\Services\Ventas\Reportes\ResumenComercialServicio;
 use App\Services\Ventas\Reportes\VentasResponsableServicio;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -16,7 +17,6 @@ class MetaComercialServicio
     public function __construct(
         private readonly AlcanceOperativoService $alcance,
         private readonly ResumenComercialServicio $resumenComercial,
-        private readonly VentasResponsableServicio $ventasResponsable,
     ) {}
 
     public function listar(array $filtros, int $usuarioId): array
@@ -220,24 +220,28 @@ class MetaComercialServicio
 
     private function conSeguimiento(object $meta, int $usuarioId): array
     {
-        $desde = sprintf('%04d-%02d-01', $meta->anio, $meta->mes);
-        $hastaMes = now()->create($meta->anio, $meta->mes, 1)->endOfMonth();
-        $hasta = $hastaMes->isFuture() ? min(now(), $hastaMes)->toDateString() : $hastaMes->toDateString();
+        $rango = $this->rangoMeta((int) $meta->anio, (int) $meta->mes);
 
-        $comercial = $this->resumenComercial->consultar([
-            'desde' => $desde,
-            'hasta' => $hasta,
-            'sede_id' => [(int) $meta->sede_id],
-        ], $usuarioId);
+        if ($rango['futuro']) {
+            $ventas = 0.0;
+            $cobros = 0.0;
+            $movimientos = ['nuevas' => 0, 'renovaciones' => 0];
+        } else {
+            $comercial = $this->resumenComercial->consultar([
+                'desde' => $rango['desde'],
+                'hasta' => $rango['hasta'],
+                'sede_id' => [(int) $meta->sede_id],
+            ], $usuarioId);
 
-        $movimientos = $this->movimientosMembresias(
-            (int) $meta->sede_id,
-            $desde,
-            $hasta
-        );
+            $movimientos = $this->movimientosMembresias(
+                (int) $meta->sede_id,
+                $rango['desde'],
+                $rango['hasta']
+            );
 
-        $ventas = (float) ($comercial['indicadores']['total_ventas'] ?? 0);
-        $cobros = (float) ($comercial['indicadores']['total_cobrado'] ?? 0);
+            $ventas = (float) ($comercial['indicadores']['total_ventas'] ?? 0);
+            $cobros = (float) ($comercial['indicadores']['total_cobrado'] ?? 0);
+        }
 
         return [
             'id' => (int) $meta->id,
@@ -260,22 +264,40 @@ class MetaComercialServicio
             'cumplimiento_membresias_nuevas' => $this->porcentaje((float) $movimientos['nuevas'], (float) $meta->meta_membresias_nuevas),
             'cumplimiento_renovaciones' => $this->porcentaje((float) $movimientos['renovaciones'], (float) $meta->meta_renovaciones),
             'dias_transcurridos' => now()->year === (int) $meta->anio && now()->month === (int) $meta->mes ? now()->day : null,
-            'dias_mes' => now()->create($meta->anio, $meta->mes, 1)->daysInMonth,
+            'dias_mes' => Carbon::create((int) $meta->anio, (int) $meta->mes, 1)->daysInMonth,
         ];
     }
 
     private function seguimientoResponsable(object $fila, object $meta): array
     {
-        $desde = sprintf('%04d-%02d-01', $meta->anio, $meta->mes);
-        $hastaMes = now()->create($meta->anio, $meta->mes, 1)->endOfMonth();
-        $hasta = $hastaMes->isFuture() ? min(now(), $hastaMes)->toDateString() : $hastaMes->toDateString();
+        $rango = $this->rangoMeta((int) $meta->anio, (int) $meta->mes);
+
+        if ($rango['futuro']) {
+            return [
+                'id' => (int) $fila->id,
+                'usuario_id' => (int) $fila->usuario_id,
+                'responsable' => $fila->responsable,
+                'meta_ventas' => (float) $fila->meta_ventas,
+                'real_ventas' => 0.0,
+                'cumplimiento_ventas' => 0.0,
+                'meta_cobros' => (float) $fila->meta_cobros,
+                'real_cobros' => 0.0,
+                'cumplimiento_cobros' => 0.0,
+                'meta_membresias_nuevas' => (int) $fila->meta_membresias_nuevas,
+                'real_membresias_nuevas' => 0,
+                'cumplimiento_membresias_nuevas' => 0.0,
+                'meta_renovaciones' => (int) $fila->meta_renovaciones,
+                'real_renovaciones' => 0,
+                'cumplimiento_renovaciones' => 0.0,
+            ];
+        }
 
         $ventas = DB::table('ventas.ventas as v')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
             ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
             ->where('v.responsable_comercial_id', $fila->usuario_id)
             ->where(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $meta->sede_id)
-            ->whereBetween(DB::raw('DATE(v.fecha_venta)'), [$desde, $hasta])
+            ->whereBetween(DB::raw('DATE(v.fecha_venta)'), [$rango['desde'], $rango['hasta']])
             ->where('v.estado', '<>', 'ANULADA')
             ->sum('v.total');
 
@@ -285,14 +307,14 @@ class MetaComercialServicio
             ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
             ->where('v.responsable_comercial_id', $fila->usuario_id)
             ->where(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $meta->sede_id)
-            ->whereBetween(DB::raw('DATE(p.fecha_pago)'), [$desde, $hasta])
+            ->whereBetween(DB::raw('DATE(p.fecha_pago)'), [$rango['desde'], $rango['hasta']])
             ->where('p.estado', 'CONFIRMADO')
             ->sum('p.monto');
 
         $movimientos = $this->movimientosMembresias(
             (int) $meta->sede_id,
-            $desde,
-            $hasta,
+            $rango['desde'],
+            $rango['hasta'],
             (int) $fila->usuario_id
         );
 
@@ -323,7 +345,7 @@ class MetaComercialServicio
             ->where('m.sede_id', $sedeId)
             ->whereBetween(
                 DB::raw('COALESCE(DATE(mp.generado_at), DATE(mp.created_at), mp.fecha_inicio)'),
-                [$desde, $hasta]
+                [$rango['desde'], $rango['hasta']]
             );
 
         if ($responsableId) {
@@ -343,18 +365,59 @@ class MetaComercialServicio
 
     private function catalogoResponsables(int $sedeId): array
     {
-        return DB::table('ventas.ventas as v')
-            ->join('seguridad.users as u', 'u.id', '=', 'v.responsable_comercial_id')
-            ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
-            ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
-            ->where(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedeId)
-            ->whereNotNull('v.responsable_comercial_id')
-            ->select('u.id', 'u.name as nombre')
+        return DB::table('seguridad.users as u')
+            ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
+            ->where('u.usr_estado', 1)
+            ->where('r.activo', true)
+            ->whereIn('r.role', [
+                'RESPONSABLE',
+                'SUPERVISOR DE VENTAS',
+                'ADMINISTRADOR',
+                'SUPERADMINISTRADOR',
+            ])
+            ->where(function ($q) use ($sedeId): void {
+                $q->where('r.role', 'SUPERADMINISTRADOR')
+                    ->orWhereExists(function ($sub) use ($sedeId): void {
+                        $sub->selectRaw('1')
+                            ->from('institucional.usuario_contexto as uc')
+                            ->join('institucional.contextos as c', 'c.id_contexto', '=', 'uc.id_contexto')
+                            ->whereColumn('uc.id_usuario', 'u.id')
+                            ->where('uc.activo', true)
+                            ->where('c.activo', true)
+                            ->where('c.id_sede', $sedeId);
+                    });
+            })
+            ->select('u.id', 'u.name as nombre', 'r.role as rol')
             ->distinct()
             ->orderBy('u.name')
             ->get()
-            ->map(fn ($fila) => ['id' => (int) $fila->id, 'nombre' => $fila->nombre])
+            ->map(fn ($fila) => [
+                'id' => (int) $fila->id,
+                'nombre' => $fila->nombre,
+                'rol' => $fila->rol,
+            ])
             ->all();
+    }
+
+    private function rangoMeta(int $anio, int $mes): array
+    {
+        $inicio = Carbon::create($anio, $mes, 1)->startOfDay();
+        $finMes = $inicio->copy()->endOfMonth();
+        $hoy = now();
+
+        if ($inicio->isAfter($hoy)) {
+            return [
+                'desde' => $inicio->toDateString(),
+                'hasta' => $inicio->toDateString(),
+                'futuro' => true,
+            ];
+        }
+
+        return [
+            'desde' => $inicio->toDateString(),
+            'hasta' => $finMes->isAfter($hoy) ? $hoy->toDateString() : $finMes->toDateString(),
+            'futuro' => false,
+        ];
     }
 
     private function porcentaje(float $real, float $meta): float

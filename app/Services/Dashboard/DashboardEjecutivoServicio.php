@@ -3,6 +3,8 @@
 namespace App\Services\Dashboard;
 
 use App\Services\Seguridad\AlcanceOperativoService;
+use App\Services\Metas\MetaComercialServicio;
+use Carbon\Carbon;
 use App\Services\Ventas\Reportes\CarteraVencidaServicio;
 use App\Services\Ventas\Reportes\ConciliacionCajaServicio;
 use App\Services\Ventas\Reportes\MembresiasNuevasRenovacionesServicio;
@@ -23,6 +25,7 @@ class DashboardEjecutivoServicio
         private readonly ConciliacionCajaServicio $conciliacionCaja,
         private readonly VentasResponsableServicio $ventasResponsable,
         private readonly ProductosServiciosVendidosServicio $productosServicios,
+        private readonly MetaComercialServicio $metasComerciales,
     ) {}
 
     public function consultar(array $filtros, int $usuarioId): array
@@ -50,6 +53,16 @@ class DashboardEjecutivoServicio
         $caja = $this->conciliacionCaja->consultar(array_merge($base, ['page' => 1, 'per_page' => 5]), $usuarioId);
         $responsables = $this->ventasResponsable->consultar(array_merge($base, ['page' => 1, 'per_page' => 5]), $usuarioId);
         $productos = $this->productosServicios->consultar(array_merge($base, ['page' => 1, 'per_page' => 5]), $usuarioId);
+
+        $fechaMeta = Carbon::parse($hasta);
+        $metas = $this->metasComerciales->listar([
+            'anio' => $fechaMeta->year,
+            'mes' => $fechaMeta->month,
+            'sede_id' => $sedeId,
+            'estado' => 'ACTIVA',
+            'page' => 1,
+            'per_page' => 50,
+        ], $usuarioId);
 
         $sedes = $this->resolverSedes($sedeId, $usuarioId);
         $membresiasActivas = DB::table('membresias.membresias')
@@ -95,11 +108,13 @@ class DashboardEjecutivoServicio
             'top_productos_servicios' => collect($productos['datos'] ?? [])->take(5)->values(),
             'cartera_critica' => collect($cartera['datos'] ?? [])->take(5)->values(),
             'membresias_proximas_vencer' => collect($porVencer['datos'] ?? [])->take(5)->values(),
+            'metas_comerciales' => collect($metas['datos'] ?? [])->take(8)->values(),
             'alertas' => $this->alertas(
                 $resumenCartera,
                 $resumenVencimientos,
                 $resumenCaja,
                 $turnosAbiertos,
+                $metas['datos'] ?? [],
             ),
             'catalogos' => [
                 'sedes' => $comercial['catalogos']['sedes'] ?? [],
@@ -121,7 +136,7 @@ class DashboardEjecutivoServicio
         return $solicitadas ?: $permitidas;
     }
 
-    private function alertas(array $cartera, array $vencimientos, array $caja, int $turnosAbiertos): array
+    private function alertas(array $cartera, array $vencimientos, array $caja, int $turnosAbiertos, array $metas = []): array
     {
         $alertas = [];
 
@@ -172,6 +187,29 @@ class DashboardEjecutivoServicio
                 'titulo' => 'Turnos de caja abiertos',
                 'detalle' => $turnosAbiertos . ' turno(s) permanecen abiertos actualmente.',
             ];
+        }
+
+        foreach ($metas as $meta) {
+            if (($meta['dias_transcurridos'] ?? null) === null || (int) ($meta['meta_ventas'] ?? 0) <= 0) {
+                continue;
+            }
+
+            $ritmoEsperado = round(((int) $meta['dias_transcurridos'] / max(1, (int) $meta['dias_mes'])) * 100, 1);
+            $cumplimiento = (float) ($meta['cumplimiento_ventas'] ?? 0);
+
+            if ($ritmoEsperado >= 50 && $cumplimiento + 15 < $ritmoEsperado) {
+                $alertas[] = [
+                    'tipo' => 'META',
+                    'nivel' => 'warning',
+                    'titulo' => 'Meta comercial en riesgo',
+                    'detalle' => sprintf(
+                        '%s registra %.1f%% de cumplimiento en ventas frente a %.1f%% de avance esperado del mes.',
+                        $meta['sede'] ?? 'La sede',
+                        $cumplimiento,
+                        $ritmoEsperado
+                    ),
+                ];
+            }
         }
 
         return $alertas;

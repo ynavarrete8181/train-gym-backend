@@ -1,0 +1,295 @@
+<?php
+
+namespace App\Http\Controllers\Api\Seguridad;
+
+use App\Http\Controllers\Controller;
+use App\Models\Institucional\Contexto;
+use App\Models\User;
+use App\Services\Institucional\ContextoOperativoService;
+use App\Services\Institucional\EstructuraInstitucionalService;
+use App\Services\Notificaciones\NotificacionUsuarioService;
+use App\Services\Seguridad\UsuarioService;
+use App\Support\ApiResponse;
+use App\Support\ReglasClave;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+
+class UsuarioController extends Controller
+{
+    public function __construct(
+        private readonly UsuarioService $usuarioService,
+        private readonly EstructuraInstitucionalService $estructuraService,
+        private readonly NotificacionUsuarioService $notificacionService,
+        private readonly ContextoOperativoService $contextoOperativoService,
+    ) {}
+
+    public function index(Request $request): JsonResponse
+    {
+        $usuarios = $this->usuarioService->listar($request->only(['busqueda', 'usuario', 'correo', 'cedula', 'rol', 'estado', 'per_page']));
+
+        return ApiResponse::exito('Usuarios consultados correctamente.', $usuarios->items(), [
+            'pagina_actual' => $usuarios->currentPage(),
+            'por_pagina' => $usuarios->perPage(),
+            'total' => $usuarios->total(),
+            'ultima_pagina' => $usuarios->lastPage(),
+            'opciones_filtro' => $this->usuarioService->opcionesFiltro(),
+        ]);
+    }
+
+    public function clientesDisponibles(): JsonResponse
+    {
+        $clientes = DB::table('clientes.deportistas as d')
+            ->join('personas.personas as p', 'p.id', '=', 'd.persona_id')
+            ->leftJoin('seguridad.users as u', 'u.persona_id', '=', 'p.id')
+            ->whereNull('u.id')
+            ->where('p.activo', true)
+            ->whereIn('d.estado', ['PROSPECTO', 'ACTIVO'])
+            ->orderBy('p.nombre_completo')
+            ->get([
+                'd.id as deportista_id',
+                'd.codigo_deportista',
+                'p.id as persona_id',
+                'p.tipo_identificacion',
+                'p.identificacion',
+                'p.nombres',
+                'p.apellidos',
+                'p.nombre_completo',
+                'p.email',
+                'p.telefono',
+            ]);
+
+        return ApiResponse::exito('Clientes disponibles para crear usuario.', $clientes->all());
+    }
+
+    public function store(Request $request): JsonResponse
+    {
+        $this->contextoOperativoService->asegurarContextosSede();
+
+        $datos = $request->validate([
+            'persona_id' => ['required', 'integer', Rule::exists('pgsql.personas.personas', 'id'), Rule::unique(User::class, 'persona_id')],
+            'email' => ['required', 'email', 'max:255', Rule::unique(User::class, 'email')],
+            'password' => ['required', 'string', 'confirmed', ReglasClave::segura()],
+            'usr_tipo' => ['required', 'integer'],
+            'usr_estado' => ['nullable', 'integer', Rule::in([1, 0])],
+            'funciones' => ['nullable', 'array'],
+            'funciones.*' => ['string', 'max:120'],
+            'contextos' => ['nullable', 'array'],
+            'contextos.*' => ['integer', 'distinct', Rule::exists(Contexto::class, 'id_contexto')->where('activo', true)],
+        ]);
+
+        $persona = DB::table('personas.personas')->where('id', $datos['persona_id'])->first();
+        if (! $persona) {
+            throw ValidationException::withMessages([
+                'persona_id' => 'La persona seleccionada no existe.',
+            ]);
+        }
+
+        $datos['nombres'] = $persona->nombres ?: $persona->nombre_completo;
+        $datos['apellidos'] = $persona->apellidos;
+        $datos['cedula'] = $persona->identificacion;
+
+        $this->validarRol((int) $datos['usr_tipo']);
+        $datos['contextos'] = $this->normalizarContextosSegunRol((int) $datos['usr_tipo'], $datos['contextos'] ?? []);
+        $datos['contextos'] = $this->contextoOperativoService->validarContextos($datos['contextos']);
+        $datos['funciones'] = $this->normalizarFuncionesSegunRol((int) $datos['usr_tipo'], $datos['funciones'] ?? []);
+
+        $usuario = DB::transaction(function () use ($datos, $request) {
+            $usuario = $this->usuarioService->crear($datos);
+            $this->estructuraService->asignarUsuario($usuario->id, $datos['contextos']);
+            $this->notificacionService->registrarPendiente($usuario, $request->user()?->id);
+
+            return $usuario;
+        });
+
+        return ApiResponse::exito('Usuario creado correctamente.', $usuario, codigo: 201);
+    }
+
+    public function show(User $usuario): JsonResponse
+    {
+        return ApiResponse::exito('Usuario obtenido correctamente.', [
+            'usuario' => $usuario,
+            'funciones' => $this->usuarioService->obtenerFuncionesUsuario($usuario->id),
+            'contextos' => $this->estructuraService->contextosUsuario($usuario->id),
+        ]);
+    }
+
+    public function update(Request $request, User $usuario): JsonResponse
+    {
+        $this->contextoOperativoService->asegurarContextosSede();
+
+        $datos = $request->validate([
+            'persona_id' => ['nullable', 'integer', Rule::exists('pgsql.personas.personas', 'id')],
+            'email' => ['required', 'email', 'max:255', Rule::unique(User::class, 'email')->ignore($usuario->id)],
+            'usr_tipo' => ['required', 'integer'],
+            'usr_estado' => ['required', 'integer', Rule::in([1, 0])],
+            'funciones' => ['nullable', 'array'],
+            'funciones.*' => ['string', 'max:120'],
+            'contextos' => ['nullable', 'array'],
+            'contextos.*' => ['integer', 'distinct', Rule::exists(Contexto::class, 'id_contexto')->where('activo', true)],
+        ]);
+
+        $personaId = (int) ($usuario->persona_id ?: ($datos['persona_id'] ?? 0));
+        if ($personaId) {
+            $persona = DB::table('personas.personas')->where('id', $personaId)->first();
+            if ($persona) {
+                $datos['persona_id'] = $personaId;
+                $datos['nombres'] = $persona->nombres ?: $persona->nombre_completo;
+                $datos['apellidos'] = $persona->apellidos;
+                $datos['cedula'] = $persona->identificacion;
+            }
+        }
+
+        $this->validarRol((int) $datos['usr_tipo']);
+        $this->validarCambioPropio($request, $usuario, (int) $datos['usr_tipo'], (int) $datos['usr_estado']);
+        $datos['contextos'] = $this->normalizarContextosSegunRol((int) $datos['usr_tipo'], $datos['contextos'] ?? []);
+        $datos['contextos'] = $this->contextoOperativoService->validarContextos($datos['contextos']);
+        $datos['funciones'] = $this->normalizarFuncionesSegunRol((int) $datos['usr_tipo'], $datos['funciones'] ?? []);
+
+        $usuarioActualizado = DB::transaction(function () use ($usuario, $datos) {
+            $actualizado = $this->usuarioService->actualizar($usuario, $datos);
+            $this->estructuraService->asignarUsuario($usuario->id, $datos['contextos']);
+            $this->usuarioService->guardarFuncionesUsuario($usuario->id, (int) $datos['usr_tipo'], $datos['funciones']);
+
+            return $actualizado;
+        });
+
+        return ApiResponse::exito('Usuario actualizado correctamente.', $usuarioActualizado);
+    }
+
+    public function cambiarEstado(Request $request, User $usuario): JsonResponse
+    {
+        $datos = $request->validate([
+            'usr_estado' => ['required', 'integer', Rule::in([1, 0])],
+        ]);
+
+        $this->validarCambioPropio($request, $usuario, (int) $usuario->usr_tipo, (int) $datos['usr_estado']);
+        $usuarioActualizado = $this->usuarioService->cambiarEstado($usuario, (int) $datos['usr_estado']);
+
+        return ApiResponse::exito('Estado actualizado correctamente.', $usuarioActualizado);
+    }
+
+    public function restablecerClave(Request $request, User $usuario): JsonResponse
+    {
+        $this->notificacionService->solicitarRestablecimiento($usuario, $request->user()?->id);
+
+        return ApiResponse::exito('Se programó el correo para restablecer la contraseña.', codigo: 202);
+    }
+
+    public function funciones(User $usuario): JsonResponse
+    {
+        return ApiResponse::exito('Funciones del usuario consultadas correctamente.', [
+            'funciones' => $this->usuarioService->obtenerFuncionesUsuario($usuario->id),
+        ]);
+    }
+
+    public function guardarFunciones(Request $request, User $usuario): JsonResponse
+    {
+        $datos = $request->validate([
+            'funciones' => ['present', 'array'],
+            'funciones.*' => ['string', 'max:120'],
+        ]);
+
+        $funciones = $this->normalizarFuncionesSegunRol((int) $usuario->usr_tipo, $datos['funciones']);
+        $this->usuarioService->guardarFuncionesUsuario($usuario->id, (int) $usuario->usr_tipo, $funciones);
+
+        return ApiResponse::exito('Funciones del usuario actualizadas correctamente.');
+    }
+
+    public function guardarAccesos(Request $request, User $usuario): JsonResponse
+    {
+        $datos = $request->validate([
+            'usr_tipo' => ['required', 'integer'],
+            'funciones' => ['present', 'array'],
+            'funciones.*' => ['string', 'max:120'],
+        ]);
+
+        $this->validarRol((int) $datos['usr_tipo']);
+        $this->validarCambioPropio($request, $usuario, (int) $datos['usr_tipo']);
+        $funciones = $this->normalizarFuncionesSegunRol((int) $datos['usr_tipo'], $datos['funciones']);
+        $this->usuarioService->actualizarAccesos($usuario, (int) $datos['usr_tipo'], $funciones);
+
+        return ApiResponse::exito('Rol y permisos del usuario actualizados correctamente.');
+    }
+
+    public function sincronizarFuncionesRol(User $usuario): JsonResponse
+    {
+        if ($this->rolEsAppSinPermisosWeb((int) $usuario->usr_tipo)) {
+            $this->usuarioService->guardarFuncionesUsuario($usuario->id, (int) $usuario->usr_tipo, []);
+        } else {
+            $this->usuarioService->sincronizarFuncionesDesdeRol($usuario->id, (int) $usuario->usr_tipo);
+        }
+
+        return ApiResponse::exito('Funciones sincronizadas desde el rol correctamente.');
+    }
+
+    private function validarRol(int $idRol): void
+    {
+        $existe = DB::table('seguridad.cpu_userrole')
+            ->where('id_userrole', $idRol)
+            ->where('activo', true)
+            ->exists();
+
+        if (! $existe) {
+            throw ValidationException::withMessages([
+                'usr_tipo' => 'El rol seleccionado no existe o está inactivo.',
+            ]);
+        }
+    }
+
+    private function validarCambioPropio(Request $request, User $usuario, int $idRol, ?int $estado = null): void
+    {
+        if ((int) $request->user()?->id !== (int) $usuario->id) {
+            return;
+        }
+
+        if ((int) $usuario->usr_tipo !== $idRol) {
+            throw ValidationException::withMessages([
+                'usr_tipo' => 'No puedes cambiar tu propio rol desde Usuarios. Usa otra cuenta administradora para evitar perder acceso.',
+            ]);
+        }
+
+        if ($estado !== null && $estado !== 1) {
+            throw ValidationException::withMessages([
+                'usr_estado' => 'No puedes inactivar tu propio usuario mientras tienes la sesión abierta.',
+            ]);
+        }
+    }
+
+    private function normalizarContextosSegunRol(int $idRol, array $contextos): array
+    {
+        $rol = DB::table('seguridad.cpu_userrole')
+            ->where('id_userrole', $idRol)
+            ->value('role');
+
+        if (in_array($rol, ['SUPERADMINISTRADOR', 'DEPORTISTA', 'RESPONSABLE'], true)) {
+            return [];
+        }
+
+        if (empty($contextos)) {
+            throw ValidationException::withMessages([
+                'contextos' => 'Selecciona al menos una asignación operativa para este rol.',
+            ]);
+        }
+
+        return array_values(array_unique(array_map('intval', $contextos)));
+    }
+
+    private function normalizarFuncionesSegunRol(int $idRol, array $funciones): array
+    {
+        return $this->rolEsAppSinPermisosWeb($idRol)
+            ? []
+            : array_values(array_unique($funciones));
+    }
+
+    private function rolEsAppSinPermisosWeb(int $idRol): bool
+    {
+        $rol = DB::table('seguridad.cpu_userrole')
+            ->where('id_userrole', $idRol)
+            ->value('role');
+
+        return in_array($rol, ['DEPORTISTA', 'RESPONSABLE'], true);
+    }
+}

@@ -1,60 +1,62 @@
 <?php
 
+use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
-/*
-|--------------------------------------------------------------------------
-| API Routes
-|--------------------------------------------------------------------------
-|
-| Aquí es donde puedes registrar las rutas API para tu aplicación. Estas
-| rutas son cargadas por el RouteServiceProvider y todas ellas serán
-| asignadas al grupo "api". ¡Haz algo grande!
-|
-*/
+Broadcast::routes(['middleware' => ['base.auth']]);
+require __DIR__.'/channels.php';
 
-// Rutas de Autenticación (Tienen sus propios middlewares internos)
-require __DIR__ . '/api_auth.php';
+Route::get('health', function () {
+    try {
+        DB::select('select 1');
 
-// Rutas del módulo de Notificaciones
-require __DIR__ . '/api_notificaciones.php';
+        return response()->json([
+            'status' => 'ok',
+            'database' => 'ok',
+            'app' => config('app.name'),
+            'environment' => app()->environment(),
+        ]);
+    } catch (Throwable $e) {
+        report($e);
 
-// Rutas de Gimnasio (Agrupadas bajo el prefijo 'gimnasio' y autenticadas)
-Route::middleware('auth:sanctum')->prefix('gimnasio')->group(function () {
-    
-    // Módulo de Seguridad y Auditoría
-    require __DIR__ . '/api_seguridad.php';
-    require __DIR__ . '/api_logs.php';
-    require __DIR__ . '/api_staff.php';
-    
-    // Módulo de Servicios y Horarios
-    require __DIR__ . '/api_servicios.php';
-
-    // Módulo de Personas y Membresías
-    require __DIR__ . '/api_personas.php';
-
-    // Módulos operativos de agenda, reservas y asistencia
-    require __DIR__ . '/api_reservas.php';
-    require __DIR__ . '/api_asistencia.php';
-    require __DIR__ . '/api_acceso.php';
-    
-    // Módulo de Entrenamiento (Rutinas, Evaluaciones)
-    require __DIR__ . '/api_entrenamiento.php';
-
-    // Módulo de Ventas y Punto de Venta
-    require __DIR__ . '/api_ventas.php';
-
-    // Reportes gerenciales
-    require __DIR__ . '/api_reportes.php';
-
+        return response()->json([
+            'status' => 'error',
+            'database' => 'unavailable',
+        ], 503);
+    }
 });
 
-// Rutas de Inventario (Agrupadas bajo el prefijo 'inventario' y autenticadas)
-Route::middleware('auth:sanctum')->prefix('inventario')->group(function () {
-    require __DIR__ . '/api_inventario.php';
+Route::prefix('base')->group(function (): void {
+    require __DIR__.'/base/base.php';
+    require __DIR__.'/base/dashboard.php';
+    require __DIR__.'/base/metas.php';
+    require __DIR__.'/base/auth.php';
+    require __DIR__.'/base/menu.php';
+    require __DIR__.'/base/seguridad.php';
+    require __DIR__.'/base/institucional.php';
+    require __DIR__.'/base/notificaciones.php';
+    require __DIR__.'/base/integraciones.php';
+    require __DIR__.'/base/configuracion.php';
+    require __DIR__.'/base/gimnasio.php';
+    require __DIR__.'/base/entrenamiento.php';
+    require __DIR__.'/base/inventario.php';
+    require __DIR__.'/base/ventas.php';
+    require __DIR__.'/base/acceso.php';
+    require __DIR__.'/base/resultados.php';
+    require __DIR__.'/base/comunicaciones.php';
+    require __DIR__.'/base/reportes.php';
+    require __DIR__.'/base/auditoria.php';
 });
 
-// Rutas exclusivas para la App Móvil (BFF)
-Route::middleware('auth:sanctum')->prefix('app')->group(function () {
-    require __DIR__ . '/api_app.php';
+Route::prefix('gimnasio')->as('gimnasio.alias.')->group(function (): void {
+    require __DIR__.'/gimnasio/dominio.php';
+    require __DIR__.'/base/entrenamiento.php';
+    require __DIR__.'/base/inventario.php';
+    require __DIR__.'/base/ventas.php';
+    require __DIR__.'/base/acceso.php';
+    require __DIR__.'/base/resultados.php';
+    require __DIR__.'/base/comunicaciones.php';
+    require __DIR__.'/base/reportes.php';
+    require __DIR__.'/base/auditoria.php';
 });

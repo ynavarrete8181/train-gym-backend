@@ -1,0 +1,153 @@
+# Reportes · Fase 9 · Exportaciones PDF y Excel con membrete global
+
+Fecha: 2026-10-10
+
+## Objetivo
+
+Estandarizar las exportaciones de todos los reportes especializados de Revive mediante un único membrete institucional reutilizable.
+
+El membrete es global. Los reportes no duplican diseño documental; únicamente aportan sus datos, título, descripción, filtros y columnas.
+
+## Membrete global
+
+Servicio backend:
+
+`app/Services/Reportes/Documentos/ReporteMembreteServicio.php`
+
+Formato Excel:
+
+`app/Services/Reportes/Documentos/ReporteExcelDocumentoServicio.php`
+
+Componente PDF/imprimible frontend:
+
+`src/features/reportes/components/ReporteExportaciones.jsx`
+
+Logo institucional:
+
+`public/brand/revive-logo.jpeg`
+
+Origen visual del logo:
+`src/assets/brand/revive-logo.jpeg`
+
+## Información común del membrete
+
+Todos los reportes muestran:
+- logo Revive;
+- REVIVE · REPORTE INSTITUCIONAL;
+- nombre del reporte;
+- descripción del reporte;
+- usuario que generó el documento;
+- rol;
+- correo;
+- fecha y hora de generación;
+- período o rango consultado;
+- filtros aplicados;
+- pie institucional.
+
+El diseño del membrete no se implementa individualmente dentro de cada reporte.
+
+## PDF
+
+El botón **PDF** genera un archivo PDF real `.pdf` desde el componente global de reportes:
+- orientación horizontal A4;
+- membrete institucional;
+- logo Revive;
+- tabla con encabezado repetible;
+- alineaciones según tipo de dato;
+- pie fijo con sistema, fecha/hora y paginación `Página X-Y`;
+- nombre profesional de archivo.
+
+El archivo se abre directamente en una nueva pestaña utilizando el visor PDF nativo del navegador y, al mismo tiempo, se descarga con su nombre institucional.
+
+No se utiliza una vista HTML `about:blank` como resultado final.
+
+El PDF recupera todos los registros que cumplen los filtros, no solo la página visible.
+
+## Excel
+
+El Excel se genera en backend con `PhpSpreadsheet`.
+
+Incluye:
+- logo institucional;
+- nombre y descripción del reporte;
+- usuario, rol, correo y fecha de generación;
+- período y filtros;
+- encabezados profesionales;
+- autofiltro;
+- congelado de encabezados;
+- ajuste automático de columnas;
+- pie con nombre del reporte y numeración de página para impresión.
+
+Cada reporte mantiene su exportador independiente bajo:
+
+`app/Services/Ventas/Reportes/Exportaciones/`
+
+## Reportes habilitados
+
+- Resumen comercial
+- Cartera vencida
+- Cobros por método de pago
+- Ventas por período
+- Ventas por responsable
+- Membresías nuevas y renovaciones
+- Membresías por vencer
+- Conciliación de caja
+- Productos y servicios vendidos
+
+Todos incluyen botones **PDF** y **Excel**.
+
+## Principio de aislamiento
+
+Se comparte únicamente infraestructura documental:
+- membrete;
+- renderizado Excel;
+- utilidad de recopilación paginada;
+- componente visual de exportación.
+
+No se comparte la consulta de negocio de los reportes.
+
+Cada exportador llama exclusivamente al servicio de su propio reporte.
+
+Por lo tanto, modificar datos o columnas de un reporte no altera otro reporte.
+
+## Seguridad
+
+Los endpoints de Excel reutilizan exactamente el mismo permiso del reporte correspondiente.
+
+Ejemplo:
+
+`/base/ventas/reportes/ventas-periodo/excel`
+
+usa:
+
+`REPORTES-VENTAS-PERIODO`
+
+El alcance por sede continúa siendo validado por el servicio backend específico.
+
+## Regla para reportes futuros
+
+Todo nuevo reporte debe:
+1. tener controlador y servicio propios;
+2. tener exportador propio;
+3. usar `ReporteMembreteServicio` para Excel;
+4. usar `ReporteExportaciones` para PDF/imprimible y acciones;
+5. no copiar ni redefinir localmente el membrete.
+
+
+## Excel: mismo estándar visual del PDF
+
+El formato global de Excel replica el criterio documental del PDF:
+- logo Revive a la izquierda;
+- primera línea: `Centro de Entrenamiento Físico Revive`;
+- segunda línea: `Reporte de <nombre del reporte>`;
+- tercera línea compacta: `Generado por · Rol · Período · Sedes`;
+- línea institucional amarilla;
+- filtros adicionales solo cuando existen y sin repetir período/sede;
+- encabezado de tabla oscuro;
+- filas alternadas;
+- congelado del encabezado;
+- autofiltro únicamente sobre registros;
+- fila `TOTAL` fuera del autofiltro;
+- pie de impresión: `Revive · Sistema de Gestión | Generado: fecha/hora | Página X-Y`.
+
+La fila TOTAL es configurable por cada exportador. Solo se suman columnas cuya agregación sea conceptualmente válida; promedios, porcentajes, identificadores o métricas no aditivas se dejan vacías.

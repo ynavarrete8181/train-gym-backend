@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Schedule;
 use App\Services\Gimnasio\CobroProgramadoMembresiaServicio;
+use App\Services\Alertas\AlertaOperativaServicio;
 use App\Services\Logs\LogRetencionServicio;
 use App\Services\Ventas\CierreAutomaticoCajaServicio;
 use App\Services\Ventas\SincronizarVentasMembresiasServicio;
@@ -166,4 +167,24 @@ Artisan::command('revive:limpiar-logs', function (LogRetencionServicio $servicio
 
 Schedule::command('revive:limpiar-logs')
     ->dailyAt('02:30')
+    ->withoutOverlapping();
+
+
+Artisan::command('revive:procesar-alertas-operativas', function (AlertaOperativaServicio $servicio): int {
+    $resultado = $servicio->procesar();
+
+    $this->info(
+        "Alertas detectadas: {$resultado['detectadas']} | "
+        . "resueltas: {$resultado['resueltas']}"
+    );
+
+    foreach ($resultado['tipos'] as $tipo => $cantidad) {
+        $this->line("{$tipo}: {$cantidad}");
+    }
+
+    return 0;
+})->purpose('Evalúa condiciones operativas y actualiza las alertas de Revive.');
+
+Schedule::command('revive:procesar-alertas-operativas')
+    ->hourly()
     ->withoutOverlapping();

@@ -191,3 +191,23 @@ Ejemplos:
 - Responsable → persona.
 
 No repetir manualmente `InputAdornment`, tamaño, color o espaciado en cada módulo si el selector puede reutilizar el patrón global.
+
+
+#### Opciones enriquecidas del selector
+
+`CampoSelectIcono` no debe limitarse al icono del campo cerrado. Cuando el selector tenga opciones identificables, el desplegable debe mostrar:
+
+- icono por opción;
+- texto principal;
+- descripción secundaria cuando aporte contexto;
+- indicador visual de la opción seleccionada;
+- menú compacto con borde y sombra suaves.
+
+Ejemplos:
+- Sede: nombre + “Sede operativa”.
+- Año: año + “Año de cumplimiento”.
+- Mes: nombre + “Período mensual”.
+- Estado: nombre + explicación funcional.
+- Responsable: nombre + rol.
+
+Evitar listas desplegables de texto plano cuando el contexto permita una representación más clara.

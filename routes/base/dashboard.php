@@ -26,6 +26,9 @@ Route::middleware(['base.auth'])
         Route::get('metas/catalogos', [MetaComercialControlador::class, 'catalogos'])
             ->middleware('base.permiso:DASHBOARD-METAS-COMERCIALES')
             ->name('dashboard.metas.catalogos');
+        Route::get('metas/excel', [MetaComercialControlador::class, 'excel'])
+            ->middleware('base.permiso:DASHBOARD-METAS-COMERCIALES')
+            ->name('dashboard.metas.excel');
         Route::get('metas/{meta}', [MetaComercialControlador::class, 'show'])
             ->middleware('base.permiso:DASHBOARD-METAS-COMERCIALES')
             ->name('dashboard.metas.show');

@@ -60,4 +60,3 @@ Route::prefix('gimnasio')->as('gimnasio.alias.')->group(function (): void {
     require __DIR__.'/base/reportes.php';
     require __DIR__.'/base/auditoria.php';
 });
-require __DIR__.'/../routes/test_update.php';

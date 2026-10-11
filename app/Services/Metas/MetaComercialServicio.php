@@ -5,7 +5,6 @@ namespace App\Services\Metas;
 use App\Services\Concerns\RegistraAuditoria;
 use App\Services\Seguridad\AlcanceOperativoService;
 use App\Services\Ventas\Reportes\ResumenComercialServicio;
-use App\Services\Ventas\Reportes\VentasResponsableServicio;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -345,7 +344,7 @@ class MetaComercialServicio
             ->where('m.sede_id', $sedeId)
             ->whereBetween(
                 DB::raw('COALESCE(DATE(mp.generado_at), DATE(mp.created_at), mp.fecha_inicio)'),
-                [$rango['desde'], $rango['hasta']]
+                [$desde, $hasta]
             );
 
         if ($responsableId) {

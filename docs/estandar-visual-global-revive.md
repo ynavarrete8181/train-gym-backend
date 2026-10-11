@@ -158,3 +158,22 @@ src/features/<modulo>/
 ```
 
 Una pantalla no debe ubicarse bajo otro feature únicamente porque aparezca dentro de su menú. Por ejemplo, **Metas comerciales** pertenece a `features/metas`, aunque su entrada de navegación se encuentre bajo Dashboard.
+
+
+## Regla principal: dos Paper
+
+Siguiendo el Sistema Base, toda vista administrativa o de gestión debe tener, salvo excepción funcional documentada:
+
+1. **Paper 1 — Cabecera**: icono, título, descripción y acciones globales como `Volver`.
+2. **Paper 2 — Contenido operativo**: filtros, formularios, indicadores, tablas, seguimiento y acciones.
+
+No crear Paper principales adicionales para:
+- filtros;
+- bloques de formulario;
+- indicadores;
+- tablas;
+- resúmenes.
+
+Esos elementos deben vivir dentro del Paper 2 mediante `Box`, `Stack`, `Grid`, secciones internas o componentes transversales.
+
+En navegación interna se reemplaza el contenido de los dos Paper de la vista; no se apilan nuevas cabeceras encima de la pantalla anterior.

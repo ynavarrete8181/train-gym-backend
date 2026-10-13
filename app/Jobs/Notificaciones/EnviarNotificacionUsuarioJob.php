@@ -96,7 +96,12 @@ class EnviarNotificacionUsuarioJob implements ShouldQueue
 
         $resultado = $correo->enviar($this->notificacionId, $mensaje);
         if (! ($resultado['ok'] ?? false)) {
-            throw new \RuntimeException(data_get($resultado, 'respuesta.mensaje', 'El proveedor rechazó el correo.'));
+            $error = new \RuntimeException(data_get($resultado, 'respuesta.mensaje', 'El proveedor rechazó el correo.'));
+            if (($resultado['reintentable'] ?? true) === false) {
+                $this->fail($error);
+                return;
+            }
+            throw $error;
         }
 
         DB::table('notificaciones.notificaciones')->where('id', $this->notificacionId)->update([

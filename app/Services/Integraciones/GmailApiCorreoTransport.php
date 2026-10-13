@@ -56,12 +56,35 @@ class GmailApiCorreoTransport implements CorreoTransportContract
                 'raw' => $encoded,
             ]);
 
+        $error = $response->json('error', []);
+        $error = is_array($error) ? $error : [];
+        $razones = collect($error['errors'] ?? [])->pluck('reason')
+            ->merge(collect($error['details'] ?? [])->pluck('reason'))
+            ->filter(fn ($valor) => is_string($valor) && preg_match('/^[a-zA-Z0-9_.-]{1,100}$/', $valor))
+            ->values()->all();
+        $codigo = (string) ($error['status'] ?? '');
+        $razon = $razones[0] ?? $codigo;
+        $razon = preg_match('/^[a-zA-Z0-9_.-]{1,100}$/', $razon) ? $razon : 'UNKNOWN';
+        $temporal = in_array($response->status(), [408, 429, 500, 502, 503, 504], true)
+            || in_array($razon, ['rateLimitExceeded', 'userRateLimitExceeded', 'backendError', 'quotaExceeded'], true);
+        $causas = [
+            'accessNotConfigured' => 'La API de Gmail no está habilitada en el proyecto de Google Cloud.',
+            'SERVICE_DISABLED' => 'La API de Gmail está deshabilitada; verifica el proyecto de Google Cloud.',
+            'ACCESS_TOKEN_SCOPE_INSUFFICIENT' => 'Falta el permiso gmail.send. Vuelve a conectar Gmail con el alcance correcto.',
+            'insufficientPermissions' => 'El token OAuth no tiene permiso para enviar correos. Reconecta la cuenta.',
+            'PERMISSION_DENIED' => 'Google rechazó el permiso de envío. Verifica Gmail API, scopes y restricciones del proyecto.',
+            'rateLimitExceeded' => 'Se alcanzó temporalmente un límite de solicitudes de Gmail.',
+            'userRateLimitExceeded' => 'La cuenta alcanzó temporalmente su límite de solicitudes.',
+            'quotaExceeded' => 'Se alcanzó la cuota de Gmail API; revisa sus límites.',
+        ];
+        $diagnostico = $causas[$razon] ?? ($causas[$codigo] ?? 'Revisa los permisos OAuth, la API habilitada y las restricciones de Google Cloud.');
         return [
             'ok' => $response->successful(),
+            'reintentable' => $temporal,
             'http_status' => $response->status(),
             'respuesta' => $response->successful()
                 ? ['aceptado' => true, 'proveedor' => 'GMAIL_API', 'message_id' => $response->json('id')]
-                : ['mensaje' => 'Gmail rechazó el envío (HTTP '.$response->status().').', 'codigo' => $response->json('error.status')],
+                : ['mensaje' => 'Gmail API HTTP '.$response->status().' ['.$razon.']: '.$diagnostico, 'codigo' => $codigo, 'razon' => $razon, 'diagnostico' => $diagnostico, 'reintentable' => $temporal],
         ];
     }
 }

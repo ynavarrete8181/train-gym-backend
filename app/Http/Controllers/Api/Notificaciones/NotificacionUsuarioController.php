@@ -75,7 +75,7 @@ class NotificacionUsuarioController extends Controller
 
     public function historial(User $usuario): JsonResponse
     {
-        $datos = DB::table('notificaciones.notificaciones as n')->leftJoin('notificaciones.intentos as i', 'i.notificacion_id', '=', 'n.id')->where('n.usuario_id', $usuario->id)->select('n.id', 'n.tipo', 'n.estado', 'n.correo_destino', 'n.encolado_at', 'n.enviado_at', 'i.numero_intento', 'i.estado as estado_intento', 'i.http_status', 'i.mensaje_error', 'i.finalizado_at')->orderByDesc('n.id')->orderByDesc('i.numero_intento')->get();
+        $datos = DB::table('notificaciones.notificaciones as n')->leftJoin('notificaciones.intentos as i', 'i.notificacion_id', '=', 'n.id')->where('n.usuario_id', $usuario->id)->select('n.id', 'n.tipo', 'n.estado', 'n.correo_destino', 'n.encolado_at', 'n.enviado_at', 'i.numero_intento', 'i.estado as estado_intento', 'i.proveedor', 'i.http_status', 'i.mensaje_error', 'i.respuesta_sanitizada', 'i.iniciado_at', 'i.finalizado_at')->orderByDesc('n.id')->orderByDesc('i.numero_intento')->get();
 
         return ApiResponse::exito('Historial consultado.', $datos);
     }

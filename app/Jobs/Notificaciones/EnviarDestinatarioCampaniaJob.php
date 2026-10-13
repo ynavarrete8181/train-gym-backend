@@ -77,7 +77,12 @@ class EnviarDestinatarioCampaniaJob implements ShouldQueue
         ]);
 
         if (! ($resultado['ok'] ?? false)) {
-            throw new \RuntimeException(data_get($resultado, 'respuesta.mensaje', 'El proveedor rechazó el correo.'));
+            $error = new \RuntimeException(data_get($resultado, 'respuesta.mensaje', 'El proveedor rechazó el correo.'));
+            if (($resultado['reintentable'] ?? true) === false) {
+                $this->fail($error);
+                return;
+            }
+            throw $error;
         }
 
         DB::table('notificaciones.campania_destinatarios')->where('id', $this->destinatarioId)->update([

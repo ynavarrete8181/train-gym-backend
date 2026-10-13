@@ -59,7 +59,7 @@ class GmailOAuthService
             'client_id' => $datos['client_id'],
             'redirect_uri' => $this->redirectUri(),
             'response_type' => 'code',
-            'scope' => 'https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly',
+            'scope' => 'openid email https://www.googleapis.com/auth/gmail.send',
             'access_type' => 'offline',
             'prompt' => 'consent',
             'state' => $state,
@@ -80,8 +80,8 @@ class GmailOAuthService
         ]);
         if (! $respuesta->successful() || ! $respuesta->json('refresh_token')) throw new RuntimeException('Google no entregó una autorización permanente de Gmail.');
         $token = $respuesta->json('access_token');
-        $perfil = Http::withToken($token)->connectTimeout(5)->timeout(15)->get('https://gmail.googleapis.com/gmail/v1/users/me/profile');
-        if (! $perfil->successful() || strcasecmp((string) $perfil->json('emailAddress'), (string) ($datos['sender'] ?? '')) !== 0) {
+        $perfil = Http::withToken($token)->connectTimeout(5)->timeout(15)->get('https://openidconnect.googleapis.com/v1/userinfo');
+        if (! $perfil->successful() || strcasecmp((string) $perfil->json('email'), (string) ($datos['sender'] ?? '')) !== 0) {
             throw new RuntimeException('La cuenta de Google autorizada no coincide con el remitente configurado.');
         }
         $datos['refresh_token'] = $respuesta->json('refresh_token');

@@ -63,6 +63,30 @@ class UsuarioController extends Controller
         return ApiResponse::exito('Clientes disponibles para crear usuario.', $clientes->all());
     }
 
+    public function verificarDisponibilidad(Request $request): JsonResponse
+    {
+        $datos = $request->validate([
+            'persona_id' => ['required', 'integer'],
+            'email' => ['required', 'email', 'max:255'],
+        ]);
+        $correo = mb_strtolower(trim($datos['email']));
+        $usuarioPersona = User::query()->where('persona_id', $datos['persona_id'])->first();
+        $usuarioCorreo = User::query()->whereRaw('LOWER(email) = ?', [$correo])->first();
+
+        $mensaje = $usuarioPersona
+            ? 'Esta persona ya tiene una cuenta de usuario. Consulta el listado de usuarios.'
+            : ($usuarioCorreo
+                ? 'El correo ya pertenece a una cuenta de usuario. Puedes utilizar otro correo válido para esta persona.'
+                : 'Esta persona puede recibir una cuenta de acceso. Su registro como cliente no impide crearla.');
+
+        return ApiResponse::exito('Disponibilidad de usuario consultada.', [
+            'disponible' => ! $usuarioPersona && ! $usuarioCorreo,
+            'persona_tiene_usuario' => (bool) $usuarioPersona,
+            'correo_en_uso' => (bool) $usuarioCorreo,
+            'mensaje' => $mensaje,
+        ]);
+    }
+
     public function store(Request $request): JsonResponse
     {
         $this->contextoOperativoService->asegurarContextosSede();

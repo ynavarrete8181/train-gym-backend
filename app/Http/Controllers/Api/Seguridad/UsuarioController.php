@@ -10,7 +10,6 @@ use App\Services\Institucional\EstructuraInstitucionalService;
 use App\Services\Notificaciones\NotificacionUsuarioService;
 use App\Services\Seguridad\UsuarioService;
 use App\Support\ApiResponse;
-use App\Support\ReglasClave;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -71,7 +70,6 @@ class UsuarioController extends Controller
         $datos = $request->validate([
             'persona_id' => ['required', 'integer', Rule::exists('pgsql.personas.personas', 'id'), Rule::unique(User::class, 'persona_id')],
             'email' => ['required', 'email', 'max:255', Rule::unique(User::class, 'email')],
-            'password' => ['required', 'string', 'confirmed', ReglasClave::segura()],
             'usr_tipo' => ['required', 'integer'],
             'usr_estado' => ['nullable', 'integer', Rule::in([1, 0])],
             'funciones' => ['nullable', 'array'],
@@ -99,12 +97,12 @@ class UsuarioController extends Controller
         $usuario = DB::transaction(function () use ($datos, $request) {
             $usuario = $this->usuarioService->crear($datos);
             $this->estructuraService->asignarUsuario($usuario->id, $datos['contextos']);
-            $this->notificacionService->registrarPendiente($usuario, $request->user()?->id);
+            $this->notificacionService->solicitar($usuario, $request->user()?->id);
 
             return $usuario;
         });
 
-        return ApiResponse::exito('Usuario creado correctamente.', $usuario, codigo: 201);
+        return ApiResponse::exito('Usuario creado correctamente. La invitación para establecer la contraseña fue programada.', $usuario, codigo: 201);
     }
 
     public function show(User $usuario): JsonResponse

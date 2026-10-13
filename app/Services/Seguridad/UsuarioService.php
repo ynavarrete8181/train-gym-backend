@@ -7,6 +7,7 @@ use App\Services\Concerns\RegistraAuditoria;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class UsuarioService
@@ -94,7 +95,8 @@ class UsuarioService
                 'persona_id' => $datos['persona_id'],
                 'name' => $this->resolverNombreCompleto($datos),
                 'email' => mb_strtolower(trim($datos['email'])),
-                'password' => Hash::make($datos['password']),
+                // Clave técnica no comunicable: el usuario define la suya mediante el enlace de activación.
+                'password' => Hash::make(Str::random(64)),
                 'cedula' => $datos['cedula'] ?? null,
                 'nombres' => $datos['nombres'],
                 'apellidos' => $datos['apellidos'] ?? null,

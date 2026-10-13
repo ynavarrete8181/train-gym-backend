@@ -21,9 +21,12 @@ class GmailOAuthService
     public function datos(): array
     {
         $registro = $this->perfil();
-        if (! $registro) return [];
+        if (! $registro) {
+            return array_filter(config('services.gmail_api', []), fn ($valor) => $valor !== null && $valor !== '');
+        }
         try {
-            return json_decode(Crypt::decryptString($registro->datos_cifrados), true, 512, JSON_THROW_ON_ERROR);
+            $datos = json_decode(Crypt::decryptString($registro->datos_cifrados), true, 512, JSON_THROW_ON_ERROR);
+            return array_merge(array_filter(config('services.gmail_api', []), fn ($valor) => $valor !== null && $valor !== ''), $datos);
         } catch (\Throwable) {
             throw new RuntimeException('No se pudo leer la configuración cifrada de Gmail.');
         }

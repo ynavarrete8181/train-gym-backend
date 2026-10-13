@@ -43,6 +43,13 @@ return [
         'outlook_sender' => env('REVIVE_MAIL_SENDER', env('AZURE_OUTLOOK_SENDER')),
     ],
 
+    'gmail_api' => [
+        'client_id' => env('GMAIL_OAUTH_CLIENT_ID'),
+        'client_secret' => env('GMAIL_OAUTH_CLIENT_SECRET'),
+        'refresh_token' => env('GMAIL_OAUTH_REFRESH_TOKEN'),
+        'sender' => env('GMAIL_SENDER', 'ynavarrete8181@gmail.com'),
+    ],
+
     'revive_mail' => [
         'transport' => env('REVIVE_CORREO_TRANSPORT', 'GRAPH'),
     ],

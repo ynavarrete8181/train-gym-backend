@@ -69,6 +69,13 @@ class ActivacionUsuarioService
             $usuario->update(['password' => Hash::make($password), 'email_verified_at' => now()]);
             DB::table('seguridad.tokens_acceso')->where('id_usuario', $usuario->id)->delete();
             DB::table('notificaciones.tokens_activacion')->where('id', $registro->id)->update(['usado_at' => now(), 'updated_at' => now()]);
+            DB::table('notificaciones.tokens_activacion')
+                ->where('usuario_id', $usuario->id)
+                ->where('id', '<>', $registro->id)
+                ->whereNull('usado_at')
+                ->whereNull('invalidado_at')
+                ->update(['invalidado_at' => now(), 'updated_at' => now()]);
+            $this->auditar('seguridad', 'ACTUALIZAR', 'seguridad.users', $usuario->id, null, null, 'Contraseña definida mediante enlace de activación.');
 
             return $usuario;
         });

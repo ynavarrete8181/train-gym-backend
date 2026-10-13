@@ -115,7 +115,7 @@ class MicrosoftAuthService
             ->where('activo', true)
             ->exists();
 
-        if ((int) $usuario->usr_estado !== 1 || ! $rolActivo) {
+        if ((int) $usuario->usr_estado !== 1 || ! $rolActivo || ($usuario->email_verified_at === null && DB::table('notificaciones.notificaciones')->where('usuario_id', $usuario->id)->where('tipo', 'INVITACION_USUARIO')->exists())) {
             throw ValidationException::withMessages([
                 'microsoft' => 'El usuario está inactivo o su rol no está habilitado.',
             ]);

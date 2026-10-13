@@ -38,7 +38,7 @@ class AutenticarTokenBase
             ->where('activo', true)
             ->exists();
 
-        if (! $usuario || (int) $usuario->usr_estado !== 1 || ! $rolActivo) {
+        if (! $usuario || (int) $usuario->usr_estado !== 1 || ! $rolActivo || ($usuario->email_verified_at === null && DB::table('notificaciones.notificaciones')->where('usuario_id', $usuario->id)->where('tipo', 'INVITACION_USUARIO')->exists())) {
             return response()->json(['ok' => false, 'mensaje' => 'Usuario inactivo o no encontrado.'], 403);
         }
 

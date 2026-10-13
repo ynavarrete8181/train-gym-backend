@@ -63,9 +63,35 @@ class UsuarioController extends Controller
         return ApiResponse::exito('Clientes disponibles para crear usuario.', $clientes->all());
     }
 
+    public function verificarDisponibilidad(Request $request): JsonResponse
+    {
+        $datos = $request->validate([
+            'persona_id' => ['required', 'integer'],
+            'email' => ['required', 'email', 'max:255'],
+        ]);
+        $correo = mb_strtolower(trim($datos['email']));
+        $usuarioPersona = User::query()->where('persona_id', $datos['persona_id'])->first();
+        $usuarioCorreo = User::query()->whereRaw('LOWER(email) = ?', [$correo])->first();
+
+        $mensaje = $usuarioPersona
+            ? 'Esta persona ya tiene una cuenta de usuario. Consulta el listado de usuarios.'
+            : ($usuarioCorreo
+                ? 'El correo ya pertenece a una cuenta de usuario. Puedes utilizar otro correo válido para esta persona.'
+                : 'Esta persona puede recibir una cuenta de acceso. Su registro como cliente no impide crearla.');
+
+        return ApiResponse::exito('Disponibilidad de usuario consultada.', [
+            'disponible' => ! $usuarioPersona && ! $usuarioCorreo,
+            'persona_tiene_usuario' => (bool) $usuarioPersona,
+            'correo_en_uso' => (bool) $usuarioCorreo,
+            'mensaje' => $mensaje,
+        ]);
+    }
+
     public function store(Request $request): JsonResponse
     {
         $this->contextoOperativoService->asegurarContextosSede();
+
+        $request->merge(['email' => mb_strtolower(trim((string) $request->input('email', '')))]);
 
         $datos = $request->validate([
             'persona_id' => ['required', 'integer', Rule::exists('pgsql.personas.personas', 'id'), Rule::unique(User::class, 'persona_id')],
@@ -76,6 +102,9 @@ class UsuarioController extends Controller
             'funciones.*' => ['string', 'max:120'],
             'contextos' => ['nullable', 'array'],
             'contextos.*' => ['integer', 'distinct', Rule::exists(Contexto::class, 'id_contexto')->where('activo', true)],
+        ], [
+            'email.unique' => 'Este correo ya está registrado en una cuenta. Busca al usuario existente o utiliza otro correo.',
+            'persona_id.unique' => 'Esta persona ya tiene una cuenta de usuario registrada.',
         ]);
 
         $persona = DB::table('personas.personas')->where('id', $datos['persona_id'])->first();

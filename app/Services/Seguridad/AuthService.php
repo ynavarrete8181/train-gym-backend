@@ -55,7 +55,16 @@ class AuthService
             ->where('activo', true)
             ->exists();
 
-        return (int) $usuario->usr_estado === 1 && $rolActivo;
+        return (int) $usuario->usr_estado === 1 && $rolActivo && ! $this->invitacionPendiente($usuario);
+    }
+
+    private function invitacionPendiente(User $usuario): bool
+    {
+        return $usuario->email_verified_at === null
+            && DB::table('notificaciones.notificaciones')
+                ->where('usuario_id', $usuario->id)
+                ->where('tipo', 'INVITACION_USUARIO')
+                ->exists();
     }
 
     private function emitirSesion(User $usuario, string $nombre): array

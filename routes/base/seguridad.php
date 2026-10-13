@@ -72,6 +72,7 @@ Route::middleware('base.auth')->prefix('seguridad')->group(function (): void {
         Route::post('/usuarios/carga-masiva/procesar', [CargaMasivaUsuarioController::class, 'procesar'])->name('base.seguridad.usuarios.carga.procesar');
         Route::get('/usuarios/carga-masiva/recientes', [CargaMasivaUsuarioController::class, 'recientes'])->name('base.seguridad.usuarios.carga.recientes');
         Route::get('/usuarios/carga-masiva/{id}', [CargaMasivaUsuarioController::class, 'estado'])->whereNumber('id')->name('base.seguridad.usuarios.carga.estado');
+        Route::get('/usuarios/verificar-disponibilidad', [UsuarioController::class, 'verificarDisponibilidad'])->name('base.seguridad.usuarios.disponibilidad');
         Route::post('/usuarios', [UsuarioController::class, 'store'])->name('base.seguridad.usuarios.store');
         Route::get('/usuarios/{usuario}', [UsuarioController::class, 'show'])->name('base.seguridad.usuarios.show');
         Route::put('/usuarios/{usuario}', [UsuarioController::class, 'update'])->name('base.seguridad.usuarios.update');

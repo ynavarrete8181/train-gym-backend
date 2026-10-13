@@ -10,7 +10,7 @@ class GmailApiCorreoTransport implements CorreoTransportContract
 {
     public function enviar(array $mensaje): array
     {
-        $config = config('services.gmail_api');
+        $config = array_merge(config('services.gmail_api', []), app(GmailOAuthService::class)->datos());
         $clientId = trim((string) ($config['client_id'] ?? ''));
         $clientSecret = trim((string) ($config['client_secret'] ?? ''));
         $refreshToken = trim((string) ($config['refresh_token'] ?? ''));

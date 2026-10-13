@@ -108,6 +108,10 @@ class EnviarNotificacionUsuarioJob implements ShouldQueue
 
     public function failed(?Throwable $e): void
     {
+        DB::table('notificaciones.intentos')
+            ->where('notificacion_id', $this->notificacionId)
+            ->where('estado', 'PROCESANDO')
+            ->update(['estado' => 'ERROR', 'mensaje_error' => $e?->getMessage() ?: 'El trabajo terminó sin completar el envío.', 'finalizado_at' => now(), 'updated_at' => now()]);
         DB::table('notificaciones.notificaciones')->where('id', $this->notificacionId)->update([
             'estado' => 'ERROR',
             'updated_at' => now(),

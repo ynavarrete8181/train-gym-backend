@@ -5,15 +5,25 @@ namespace App\Services\Notificaciones;
 use App\Contracts\Integraciones\CorreoTransportContract;
 use Illuminate\Support\Facades\DB;
 use Throwable;
+use Illuminate\Support\Facades\Log;
 
 class CorreoService
 {
     public function __construct(private readonly CorreoTransportContract $transport) {}
 
+    private function proveedor(): string
+    {
+        return match (strtoupper((string) config('services.revive_mail.transport', 'GRAPH'))) {
+            'SMTP' => 'SMTP',
+            'GMAIL_API' => 'GMAIL_API',
+            default => 'MICROSOFT_GRAPH',
+        };
+    }
+
     public function enviar(int $notificacionId, array $mensaje): array
     {
         $numero = (int) DB::table('notificaciones.intentos')->where('notificacion_id', $notificacionId)->max('numero_intento') + 1;
-        $intentoId = DB::table('notificaciones.intentos')->insertGetId(['notificacion_id' => $notificacionId, 'numero_intento' => $numero, 'estado' => 'PROCESANDO', 'proveedor' => 'MICROSOFT_GRAPH', 'iniciado_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        $intentoId = DB::table('notificaciones.intentos')->insertGetId(['notificacion_id' => $notificacionId, 'numero_intento' => $numero, 'estado' => 'PROCESANDO', 'proveedor' => $this->proveedor(), 'iniciado_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
         try {
             $resultado = $this->transport->enviar($mensaje);
             DB::table('notificaciones.intentos')->where('id', $intentoId)->update([
@@ -34,7 +44,7 @@ class CorreoService
         $numero = (int) DB::table('notificaciones.campania_intentos')->where('destinatario_id', $destinatarioId)->max('numero_intento') + 1;
         $intentoId = DB::table('notificaciones.campania_intentos')->insertGetId([
             'destinatario_id' => $destinatarioId, 'numero_intento' => $numero, 'estado' => 'PROCESANDO',
-            'proveedor' => 'MICROSOFT_GRAPH', 'iniciado_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+            'proveedor' => $this->proveedor(), 'iniciado_at' => now(), 'created_at' => now(), 'updated_at' => now(),
         ]);
         try {
             $resultado = $this->transport->enviar($mensaje);

@@ -88,6 +88,10 @@ class EnviarDestinatarioCampaniaJob implements ShouldQueue
 
     public function failed(?Throwable $e): void
     {
+        DB::table('notificaciones.campania_intentos')
+            ->where('destinatario_id', $this->destinatarioId)
+            ->where('estado', 'PROCESANDO')
+            ->update(['estado' => 'ERROR', 'mensaje_error' => $e?->getMessage() ?: 'El trabajo terminó sin completar el envío.', 'finalizado_at' => now(), 'updated_at' => now()]);
         DB::table('notificaciones.campania_destinatarios')->where('id', $this->destinatarioId)->update([
             'estado_correo' => 'ERROR', 'ultimo_error' => $e?->getMessage(), 'updated_at' => now(),
         ]);

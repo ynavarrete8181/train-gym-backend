@@ -36,7 +36,7 @@ class CredencialIntegracionService
             'tipo_autenticacion' => $credencial->tipo_autenticacion,
             'token_url' => $credencial->token_url,
             'configuracion' => is_string($credencial->configuracion) ? json_decode($credencial->configuracion, true) ?? [] : [],
-            'datos' => $this->datosConRespaldo($credencial),
+            'datos' => $credencial->codigo === 'GMAIL_API_OAUTH' ? ['sender' => $this->datosConRespaldo($credencial)['sender'] ?? null] : $this->datosConRespaldo($credencial),
             'activo' => (bool) $credencial->activo,
         ];
     }

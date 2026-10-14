@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Gimnasio\DeportistaControlador;
+use App\Http\Controllers\Api\Gimnasio\FichaInicialControlador;
 use App\Http\Controllers\Api\Gimnasio\MembresiaControlador;
 use App\Http\Controllers\Api\Gimnasio\PlanControlador;
 use App\Http\Controllers\Api\Gimnasio\EntrenadorControlador;
@@ -70,6 +71,10 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         ->whereNumber('id')
         ->middleware('base.permiso:GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
         ->name('gimnasio.deportistas.show');
+
+    // Ficha inicial: el controlador valida ADMINISTRADOR o ENTRENADOR asignado; acceso autenticado.
+    Route::get('clientes/{id}/ficha-inicial', [FichaInicialControlador::class, 'mostrar'])->whereNumber('id');
+    Route::put('clientes/{id}/ficha-inicial', [FichaInicialControlador::class, 'guardar'])->whereNumber('id');
 
     // Membresías
     Route::middleware(['base.permiso:GIMNASIO-MEMBRESIAS'])->group(function (): void {

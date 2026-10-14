@@ -45,6 +45,11 @@ class FichaInicialControlador extends Controller
             'seccion' => ['required', Rule::in(['antecedentes', 'evaluacion', 'objetivos', 'valoracion'])],
             'datos' => ['required', 'array'],
             'datos.*' => ['nullable'],
+        ], [
+            'seccion.required' => 'Selecciona una sección de la ficha.',
+            'seccion.in' => 'La sección seleccionada no es válida.',
+            'datos.required' => 'Ingresa información antes de guardar la sección.',
+            'datos.array' => 'Los datos de la sección no tienen el formato esperado.',
         ]);
         $campos = [
             'antecedentes' => ['enfermedades', 'lesiones', 'medicamentos', 'restricciones'],
@@ -55,6 +60,11 @@ class FichaInicialControlador extends Controller
         $seccion = $datos['seccion'];
         $permitidos = $campos[$seccion];
         $valores = array_intersect_key($datos['datos'], array_flip($permitidos));
+        if (! collect($valores)->contains(fn ($valor) => is_scalar($valor) && trim((string) $valor) !== '')) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'datos' => 'Ingresa al menos un dato en esta sección antes de guardar.',
+            ]);
+        }
         foreach ($valores as $campo => $valor) {
             if (! is_null($valor) && ! is_scalar($valor)) {
                 abort(422, 'Los campos deben contener texto o números.');

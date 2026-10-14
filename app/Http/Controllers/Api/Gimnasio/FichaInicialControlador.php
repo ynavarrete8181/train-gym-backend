@@ -18,8 +18,10 @@ class FichaInicialControlador extends Controller
         abort_unless(in_array($rol, ['ADMINISTRADOR', 'ENTRENADOR'], true), 403);
         if ($rol === 'ENTRENADOR') {
             $asignado = DB::table('entrenamiento.asignaciones_entrenador_cliente')
-                ->where('deportista_id', $deportistaId)->where('entrenador_id', $user->id)
-                ->where('estado', 'ACTIVO')->exists();
+                ->join('entrenamiento.entrenadores as e', 'e.id', '=', 'entrenamiento.asignaciones_entrenador_cliente.entrenador_id')
+                ->where('entrenamiento.asignaciones_entrenador_cliente.deportista_id', $deportistaId)
+                ->where('e.usuario_id', $user->id)
+                ->where('entrenamiento.asignaciones_entrenador_cliente.estado', 'ACTIVO')->exists();
             abort_unless($asignado, 403, 'Solo puedes registrar fichas de tus deportistas asignados.');
         }
     }

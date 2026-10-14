@@ -72,18 +72,28 @@ class FichaInicialControlador extends Controller
         }
 
         DB::transaction(function () use ($id, $request, $seccion, $valores): void {
+            $antes = null;
             $actual = DB::table('clientes.fichas_iniciales')->where('deportista_id', $id)->lockForUpdate()->first();
             if ($actual) {
                 abort_if($actual->estado === 'COMPLETADA', 409, 'La ficha completada no puede sobrescribirse.');
+                $antes = $actual->$seccion;
                 DB::table('clientes.fichas_iniciales')->where('id', $actual->id)->update([
                     $seccion => json_encode($valores), 'updated_at' => now(),
                 ]);
             } else {
-                DB::table('clientes.fichas_iniciales')->insert([
+                $fichaId = DB::table('clientes.fichas_iniciales')->insertGetId([
                     'deportista_id' => $id, 'registrado_por' => $request->user()->id,
                     $seccion => json_encode($valores), 'created_at' => now(), 'updated_at' => now(),
                 ]);
             }
+            DB::table('clientes.fichas_iniciales_historial')->insert([
+                'ficha_id' => $actual?->id ?? $fichaId,
+                'modificado_por' => $request->user()->id,
+                'seccion' => $seccion,
+                'datos_anteriores' => $antes,
+                'datos_nuevos' => json_encode($valores),
+                'created_at' => now(),
+            ]);
         });
         return $this->mostrar($request, $id);
     }

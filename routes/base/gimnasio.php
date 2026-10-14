@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Gimnasio\DeportistaControlador;
 use App\Http\Controllers\Api\Gimnasio\FichaInicialControlador;
+use App\Http\Controllers\Api\Gimnasio\ValoracionDeportistaControlador;
 use App\Http\Controllers\Api\Gimnasio\MembresiaControlador;
 use App\Http\Controllers\Api\Gimnasio\PlanControlador;
 use App\Http\Controllers\Api\Gimnasio\EntrenadorControlador;
@@ -75,6 +76,10 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
     // Ficha inicial: el controlador valida ADMINISTRADOR o ENTRENADOR asignado; acceso autenticado.
     Route::get('clientes/{id}/ficha-inicial', [FichaInicialControlador::class, 'mostrar'])->whereNumber('id');
     Route::put('clientes/{id}/ficha-inicial', [FichaInicialControlador::class, 'guardar'])->whereNumber('id');
+
+    Route::get('clientes/{id}/valoraciones', [ValoracionDeportistaControlador::class, 'listar'])->whereNumber('id');
+    Route::post('clientes/{id}/valoraciones', [ValoracionDeportistaControlador::class, 'crear'])->whereNumber('id');
+    Route::get('valoraciones/controles-pendientes', [ValoracionDeportistaControlador::class, 'controles']);
 
     // Membresías
     Route::middleware(['base.permiso:GIMNASIO-MEMBRESIAS'])->group(function (): void {

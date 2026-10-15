@@ -91,6 +91,44 @@ class DeportistaControlador extends Controller
         ]);
     }
 
+    public function diagnosticoIdentidad(Request $request, $id)
+    {
+        if (! ctype_digit((string) $id)) {
+            return response()->json(['mensaje' => 'Identificador inválido.'], 404);
+        }
+
+        $cliente = DB::table('clientes.deportistas as d')
+            ->leftJoin('personas.personas as p', 'p.id', '=', 'd.persona_id')
+            ->leftJoin('seguridad.users as u', 'u.id', '=', 'd.usuario_id')
+            ->where('d.id', (int) $id)
+            ->first(['d.id', 'd.persona_id', 'd.usuario_id', 'p.identificacion', 'u.persona_id as usuario_persona_id']);
+
+        if (! $cliente) {
+            return response()->json(['mensaje' => 'Cliente no encontrado.'], 404);
+        }
+
+        $identificacion = trim((string) ($cliente->identificacion ?? ''));
+        $coincidencias = $identificacion === '' ? collect() :
+            DB::table('personas.personas')
+                ->whereRaw('LOWER(TRIM(identificacion)) = LOWER(TRIM(?))', [$identificacion])
+                ->orderBy('id')->get(['id']);
+
+        $resultado = [
+            'cliente_id' => (int) $cliente->id,
+            'persona_id' => $cliente->persona_id,
+            'usuario_id' => $cliente->usuario_id,
+            'persona_existente' => $cliente->persona_id !== null && $cliente->identificacion !== null,
+            'documento_registrado' => $identificacion !== '',
+            'coincidencias_documento' => $coincidencias->count(),
+            'persona_ids_coincidentes' => $coincidencias->pluck('id')->all(),
+            'usuario_consistente' => $cliente->usuario_id === null
+                ? null
+                : ((int) $cliente->usuario_persona_id === (int) $cliente->persona_id),
+        ];
+
+        return ApiResponse::exito('Diagnóstico de identidad consultado.', $resultado);
+    }
+
     public function store(Request $request)
     {
         $validados = $this->validarDatosCliente($request);

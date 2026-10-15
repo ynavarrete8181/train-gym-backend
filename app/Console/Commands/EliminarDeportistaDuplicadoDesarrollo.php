@@ -67,69 +67,130 @@ class EliminarDeportistaDuplicadoDesarrollo extends Command
 
             $venta = DB::table('ventas.ventas')->where('cliente_id', $id)->first();
             $membresia = DB::table('membresias.membresias')->where('deportista_id', $id)->first();
-            $borradoPrueba = false;
-            if ($venta && $membresia) {
-                $borradoPrueba = DB::table('ventas.ventas')->where('cliente_id', $id)->count() === 1
-                    && DB::table('membresias.membresias')->where('deportista_id', $id)->count() === 1
-                    && (int) ($venta->membresia_id ?? 0) === (int) $membresia->id
-                    && $venta->estado === 'PENDIENTE'
-                    && $membresia->estado === 'PENDIENTE_PAGO'
-                    && $venta->caja_id === null
-                    && $venta->turno_caja_id === null
-                    && $venta->inventario_aplicado_at === null
-                    && $this->referencias('ventas', 'ventas', (int) $venta->id) === []
-                    && $this->referencias('membresias', 'membresias', (int) $membresia->id, [
-                        'ventas.ventas:membresia_id' => (int) $venta->id,
-                    ]) === [];
-            }
-
-            if ($venta && $membresia) {
-                $this->line('Referencias a venta #'.$venta->id.': '.json_encode($this->referencias('ventas', 'ventas', (int) $venta->id)));
-                $this->line('Referencias a membresía #'.$membresia->id.': '.json_encode($this->referencias('membresias', 'membresias', (int) $membresia->id)));
-            }
-
             $referenciasCliente = $this->referencias('clientes', 'deportistas', $id);
             $referenciasPersona = $this->referencias('personas', 'personas', (int) $perfil->persona_id);
+            $referenciasVenta = $venta ? $this->referencias('ventas', 'ventas', (int) $venta->id) : [];
+            $referenciasMembresia = $membresia ? $this->referencias('membresias', 'membresias', (int) $membresia->id) : [];
+
+            $previstos = [
+                'cuentas_cobrar.cuentas' => ['venta_id', 'ABIERTA', 'estado'],
+                'ventas.venta_detalles' => ['venta_id', null, null],
+                'ventas.comprobantes' => ['venta_id', 'BORRADOR', 'estado'],
+                'membresias.membresia_periodos' => ['venta_id', 'PENDIENTE_PAGO', 'estado'],
+                'membresias.membresia_sedes' => ['membresia_id', null, null],
+            ];
+            $idsHijos = [];
+            $borradoPrueba = $venta && $membresia
+                && (int) $id === 3 && (int) $perfil->persona_id === 6
+                && (int) $principal->first()->id === 45 && (int) $principal->first()->persona_id === 48
+                && (int) $venta->id === 2 && (int) $membresia->id === 2
+                && DB::table('ventas.ventas')->where('cliente_id', $id)->count() === 1
+                && DB::table('membresias.membresias')->where('deportista_id', $id)->count() === 1
+                && (int) $venta->membresia_id === (int) $membresia->id
+                && $venta->estado === 'PENDIENTE'
+                && $membresia->estado === 'PENDIENTE_PAGO'
+                && $venta->caja_id === null && $venta->turno_caja_id === null
+                && $venta->inventario_aplicado_at === null
+                && count($referenciasCliente) === 2
+                && $this->soloReferencias($referenciasCliente, [
+                    'ventas.ventas:cliente_id' => 1,
+                    'membresias.membresias:deportista_id' => 1,
+                ])
+                && $this->soloReferencias($referenciasVenta, [
+                    'cuentas_cobrar.cuentas:venta_id' => 1,
+                    'ventas.venta_detalles:venta_id' => 1,
+                    'ventas.comprobantes:venta_id' => 1,
+                    'membresias.membresia_periodos:venta_id' => 1,
+                ])
+                && $this->soloReferencias($referenciasMembresia, [
+                    'ventas.ventas:membresia_id' => 1,
+                    'membresias.membresia_sedes:membresia_id' => 1,
+                    'membresias.membresia_periodos:membresia_id' => 1,
+                ]);
+            if ($borradoPrueba) {
+                foreach ($previstos as $tabla => [$columna, $estado, $campo]) {
+                    $padre = $columna === 'venta_id' ? (int) $venta->id : (int) $membresia->id;
+                    $filas = DB::table($tabla)->where($columna, $padre)->get();
+                    if ($filas->count() !== 1 || ($estado !== null && $filas->first()->{$campo} !== $estado)) {
+                        $borradoPrueba = false;
+                        break;
+                    }
+                    $hijo = $filas->first();
+                    $idsHijos[$tabla] = (int) $hijo->id;
+                    if ($this->referencias(explode('.', $tabla)[0], explode('.', $tabla)[1], (int) $hijo->id)) {
+                        $borradoPrueba = false;
+                        break;
+                    }
+                    if ($tabla === 'ventas.comprobantes' &&
+                        ($hijo->pago_id !== null || $hijo->emitido_at !== null || $hijo->enviado_at !== null || (int) $hijo->cantidad_envios !== 0)) {
+                        $borradoPrueba = false;
+                    }
+                }
+                $periodo = DB::table('membresias.membresia_periodos')->where('id', $idsHijos['membresias.membresia_periodos'] ?? 0)->first();
+                if (! $periodo || (int) $periodo->membresia_id !== (int) $membresia->id) {
+                    $borradoPrueba = false;
+                }
+            }
+
             $this->line('Inactivo: cliente #'.$id.' / persona #'.$perfil->persona_id);
             $this->line('Activo a conservar: cliente #'.$principal->first()->id.' / persona #'.$principal->first()->persona_id);
-            $this->line('Usuario vinculado: '.($usuario ? '#'.$usuario->id : 'ninguno'));
-            $this->line('Venta y membresía pendientes sin referencias adicionales: '.($borradoPrueba ? 'SÍ' : 'NO'));
-            $this->line('Referencias al usuario: '.json_encode($referenciasUsuario));
             $this->line('Referencias al cliente: '.json_encode($referenciasCliente));
+            $this->line('Referencias a venta: '.json_encode($referenciasVenta));
+            $this->line('Referencias a membresía: '.json_encode($referenciasMembresia));
+            $this->line('Referencias al usuario: '.json_encode($referenciasUsuario));
             $this->line('Referencias a la persona: '.json_encode($referenciasPersona));
+            $this->line('Depuración de prueba autorizable: '.($borradoPrueba ? 'SÍ' : 'NO'));
 
-            $soloReferenciasPrueba = $borradoPrueba
-                && count($referenciasCliente) === 2
-                && collect($referenciasCliente)->contains(fn ($r) => $r['tabla'] === 'ventas.ventas' && $r['columna'] === 'cliente_id' && $r['total'] === 1)
-                && collect($referenciasCliente)->contains(fn ($r) => $r['tabla'] === 'membresias.membresias' && $r['columna'] === 'deportista_id' && $r['total'] === 1);
-            if (($referenciasCliente && ! $soloReferenciasPrueba) || $referenciasPersona || $referenciasUsuario) {
-                $this->warn('Hay dependencias. No se elimina ni fusiona ningún dato.');
+            if (! $borradoPrueba || $referenciasPersona || $referenciasUsuario) {
+                $this->warn('Existen dependencias o estados no permitidos. No se elimina ningún dato.');
                 return self::FAILURE;
             }
             if (! $this->option('confirmar')) {
-                $this->info('Simulación completada. Si los IDs son correctos, repetir con --confirmar.');
+                $this->info('Simulación completada. No se ha eliminado ningún registro.');
                 return self::SUCCESS;
             }
 
-            DB::transaction(function () use ($perfil, $id, $principal, $usuario, $venta, $membresia, $soloReferenciasPrueba): void {
-                // Revalidar las referencias bajo bloqueo, sin deshabilitar claves foráneas.
+            DB::transaction(function () use ($perfil, $id, $principal, $usuario, $venta, $membresia, $idsHijos, $previstos): void {
                 DB::table('clientes.deportistas')->where('id', $id)->lockForUpdate()->first();
-                DB::table('personas.personas')->where('id', $perfil->persona_id)->lockForUpdate()->first();
-                if ((! $soloReferenciasPrueba && $this->referencias('clientes', 'deportistas', $id))
-                    || ($soloReferenciasPrueba && ($this->referencias('ventas', 'ventas', (int) $venta->id)
-                        || $this->referencias('membresias', 'membresias', (int) $membresia->id, ['ventas.ventas:membresia_id' => (int) $venta->id])
-                        || DB::table('ventas.ventas')->where('id', $venta->id)->where('estado', 'PENDIENTE')->whereNull('caja_id')->whereNull('turno_caja_id')->count() !== 1
-                        || DB::table('membresias.membresias')->where('id', $membresia->id)->where('estado', 'PENDIENTE_PAGO')->count() !== 1))
-                    || $this->referencias('personas', 'personas', (int) $perfil->persona_id)
-                    || ($usuario && $this->referencias('seguridad', 'users', (int) $usuario->id))) {
+                DB::table('ventas.ventas')->where('id', $venta->id)->lockForUpdate()->first();
+                DB::table('membresias.membresias')->where('id', $membresia->id)->lockForUpdate()->first();
+                foreach ($idsHijos as $tabla => $hijoId) {
+                    DB::table($tabla)->where('id', $hijoId)->lockForUpdate()->first();
+                    if ($this->referencias(explode('.', $tabla)[0], explode('.', $tabla)[1], $hijoId)) {
+                        throw new \RuntimeException('El registro asociado tiene nuevas dependencias: '.$tabla);
+                    }
+                    [$columna, $estado, $campo] = $previstos[$tabla];
+                    $padre = $columna === 'venta_id' ? $venta->id : $membresia->id;
+                    $query = DB::table($tabla)->where('id', $hijoId)->where($columna, $padre);
+                    if ($estado !== null) {
+                        $query->where($campo, $estado);
+                    }
+                    if ($tabla === 'ventas.comprobantes') {
+                        $query->whereNull('pago_id')->whereNull('emitido_at')->whereNull('enviado_at')->where('cantidad_envios', 0);
+                    }
+                    if ($query->count() !== 1) {
+                        throw new \RuntimeException('Cambió el registro relacionado: '.$tabla);
+                    }
+                }
+                if ($this->referencias('personas', 'personas', (int) $perfil->persona_id)
+                    || ($usuario && $this->referencias('seguridad', 'users', (int) $usuario->id))
+                    || ! $this->soloReferencias($this->referencias('ventas', 'ventas', (int) $venta->id), [
+                        'cuentas_cobrar.cuentas:venta_id' => 1, 'ventas.venta_detalles:venta_id' => 1,
+                        'ventas.comprobantes:venta_id' => 1, 'membresias.membresia_periodos:venta_id' => 1,
+                    ])
+                    || ! $this->soloReferencias($this->referencias('membresias', 'membresias', (int) $membresia->id), [
+                        'ventas.ventas:membresia_id' => 1, 'membresias.membresia_sedes:membresia_id' => 1,
+                        'membresias.membresia_periodos:membresia_id' => 1,
+                    ])) {
                     throw new \RuntimeException('Las dependencias cambiaron. Operación cancelada.');
                 }
-                if ($soloReferenciasPrueba) {
-                    DB::table('ventas.ventas')->where('id', $venta->id)->delete();
-                    DB::table('membresias.membresias')->where('id', $membresia->id)->delete();
-                    if ($this->referencias('clientes', 'deportistas', $id)) {
-                        throw new \RuntimeException('Se detectaron nuevas dependencias del cliente.');
-                    }
+                foreach ($idsHijos as $tabla => $hijoId) {
+                    DB::table($tabla)->where('id', $hijoId)->delete();
+                }
+                DB::table('ventas.ventas')->where('id', $venta->id)->where('estado', 'PENDIENTE')->delete();
+                DB::table('membresias.membresias')->where('id', $membresia->id)->where('estado', 'PENDIENTE_PAGO')->delete();
+                if ($this->referencias('clientes', 'deportistas', $id)) {
+                    throw new \RuntimeException('El cliente tiene nuevas dependencias.');
                 }
                 DB::table('clientes.deportistas')->where('id', $id)->where('estado', 'INACTIVO')->delete();
                 if ($usuario) {
@@ -142,7 +203,7 @@ class EliminarDeportistaDuplicadoDesarrollo extends Command
                 'modulo' => 'clientes', 'accion' => 'ELIMINAR',
                 'tabla' => 'clientes.deportistas', 'registro_id' => $id,
                 'descripcion' => 'Depuración de duplicado inactivo en desarrollo. Activo conservado #'.$principal->first()->id,
-                'datos_antes' => ['cliente_id' => $id, 'persona_id' => $perfil->persona_id, 'usuario_id' => $usuario?->id, 'venta_id' => $soloReferenciasPrueba ? $venta->id : null, 'membresia_id' => $soloReferenciasPrueba ? $membresia->id : null, 'estado' => 'INACTIVO'],
+                'datos_antes' => ['cliente_id' => $id, 'persona_id' => $perfil->persona_id, 'usuario_id' => $usuario?->id, 'venta_id' => $venta->id, 'membresia_id' => $membresia->id, 'estado' => 'INACTIVO'],
             ]);
             $this->info('Perfil duplicado sin referencias eliminado. Registro activo conservado.');
             return self::SUCCESS;
@@ -151,6 +212,20 @@ class EliminarDeportistaDuplicadoDesarrollo extends Command
             $this->error('Operación cancelada: '.$e->getMessage());
             return self::FAILURE;
         }
+    }
+
+    private function soloReferencias(array $actuales, array $esperadas): bool
+    {
+        if (count($actuales) !== count($esperadas)) {
+            return false;
+        }
+        foreach ($actuales as $item) {
+            $clave = $item['tabla'].':'.$item['columna'];
+            if (! isset($esperadas[$clave]) || (int) $item['total'] !== $esperadas[$clave]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private function referencias(string $schema, string $tabla, int $id, array $excluir = []): array

@@ -55,19 +55,26 @@ class EliminarDeportistaDuplicadoDesarrollo extends Command
                 return self::FAILURE;
             }
 
-            if ($perfil->usuario_id !== null) {
-                $this->error('Perfil inactivo vinculado a usuario: requiere revisión manual.');
+            $usuario = $perfil->usuario_id === null ? null
+                : DB::table('seguridad.users')->where('id', $perfil->usuario_id)->first(['id', 'persona_id']);
+
+            if ($perfil->usuario_id !== null && (! $usuario || (int) $usuario->persona_id !== (int) $perfil->persona_id)) {
+                $this->error('La cuenta está ausente o vinculada a otra persona. Requiere revisión manual.');
                 return self::FAILURE;
             }
+
+            $referenciasUsuario = $usuario ? $this->referencias('seguridad', 'users', (int) $usuario->id) : [];
 
             $referenciasCliente = $this->referencias('clientes', 'deportistas', $id);
             $referenciasPersona = $this->referencias('personas', 'personas', (int) $perfil->persona_id);
             $this->line('Inactivo: cliente #'.$id.' / persona #'.$perfil->persona_id);
             $this->line('Activo a conservar: cliente #'.$principal->first()->id.' / persona #'.$principal->first()->persona_id);
+            $this->line('Usuario vinculado: '.($usuario ? '#'.$usuario->id : 'ninguno'));
+            $this->line('Referencias al usuario: '.json_encode($referenciasUsuario));
             $this->line('Referencias al cliente: '.json_encode($referenciasCliente));
             $this->line('Referencias a la persona: '.json_encode($referenciasPersona));
 
-            if ($referenciasCliente || $referenciasPersona) {
+            if ($referenciasCliente || $referenciasPersona || $referenciasUsuario) {
                 $this->warn('Hay dependencias. No se elimina ni fusiona ningún dato.');
                 return self::FAILURE;
             }
@@ -76,14 +83,19 @@ class EliminarDeportistaDuplicadoDesarrollo extends Command
                 return self::SUCCESS;
             }
 
-            DB::transaction(function () use ($perfil, $id, $principal): void {
+            DB::transaction(function () use ($perfil, $id, $principal, $usuario): void {
                 // Revalidar las referencias bajo bloqueo, sin deshabilitar claves foráneas.
                 DB::table('clientes.deportistas')->where('id', $id)->lockForUpdate()->first();
                 DB::table('personas.personas')->where('id', $perfil->persona_id)->lockForUpdate()->first();
-                if ($this->referencias('clientes', 'deportistas', $id) || $this->referencias('personas', 'personas', (int) $perfil->persona_id)) {
+                if ($this->referencias('clientes', 'deportistas', $id)
+                    || $this->referencias('personas', 'personas', (int) $perfil->persona_id)
+                    || ($usuario && $this->referencias('seguridad', 'users', (int) $usuario->id))) {
                     throw new \RuntimeException('Las dependencias cambiaron. Operación cancelada.');
                 }
                 DB::table('clientes.deportistas')->where('id', $id)->where('estado', 'INACTIVO')->delete();
+                if ($usuario) {
+                    DB::table('seguridad.users')->where('id', $usuario->id)->where('persona_id', $perfil->persona_id)->delete();
+                }
                 DB::table('personas.personas')->where('id', $perfil->persona_id)->delete();
             });
 
@@ -91,7 +103,7 @@ class EliminarDeportistaDuplicadoDesarrollo extends Command
                 'modulo' => 'clientes', 'accion' => 'ELIMINAR',
                 'tabla' => 'clientes.deportistas', 'registro_id' => $id,
                 'descripcion' => 'Depuración de duplicado inactivo en desarrollo. Activo conservado #'.$principal->first()->id,
-                'datos_antes' => ['cliente_id' => $id, 'persona_id' => $perfil->persona_id, 'estado' => 'INACTIVO'],
+                'datos_antes' => ['cliente_id' => $id, 'persona_id' => $perfil->persona_id, 'usuario_id' => $usuario?->id, 'estado' => 'INACTIVO'],
             ]);
             $this->info('Perfil duplicado sin referencias eliminado. Registro activo conservado.');
             return self::SUCCESS;
@@ -118,11 +130,27 @@ SQL, [$schema, $tabla]);
 
         $resultados = [];
         foreach ($fks as $fk) {
+            if ($schema === 'seguridad' && $tabla === 'users'
+                && $fk->esquema === 'clientes' && $fk->tabla === 'deportistas' && $fk->columna === 'usuario_id') {
+                $count = DB::table('clientes.deportistas')->where('usuario_id', $id)->count();
+                if ($count === 1) {
+                    continue;
+                }
+            }
+
             if ($schema === 'personas' && $tabla === 'personas'
                 && $fk->esquema === 'clientes' && $fk->tabla === 'deportistas' && $fk->columna === 'persona_id') {
                 // El perfil duplicado será eliminado en la misma transacción.
                 $cantidad = DB::table('clientes.deportistas')->where('persona_id', $id)->count();
                 if ($cantidad <= 1) {
+                    continue;
+                }
+            }
+            if ($schema === 'personas' && $tabla === 'personas'
+                && $fk->esquema === 'seguridad' && $fk->tabla === 'users' && $fk->columna === 'persona_id') {
+                $usuarios = DB::table('seguridad.users')->where('persona_id', $id)->get(['id']);
+                $vinculado = DB::table('clientes.deportistas')->where('persona_id', $id)->value('usuario_id');
+                if ($usuarios->count() === 1 && $vinculado !== null && (int) $usuarios->first()->id === (int) $vinculado) {
                     continue;
                 }
             }

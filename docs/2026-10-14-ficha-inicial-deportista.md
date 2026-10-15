@@ -28,3 +28,12 @@ Autorización: ADMINISTRADOR o ENTRENADOR con asignación activa de un perfil de
 En base de desarrollo únicamente:
 `php artisan migrate --path=database/migrations/2026_10_14_170000_create_valoracion_registros_controles.php`
 Verificar previamente conexión de `.env`, existencia del esquema `clientes` y de `clientes.deportistas`, `seguridad.users`.
+
+## Progreso visual y fotografías — ampliación
+
+- `GET /api/base/gimnasio/clientes/{id}/progreso-informe` genera un informe de lectura desde `clientes.valoracion_registros` de sección `evaluacion`; calcula en Laravel IMC, masa magra y variación del peso. No genera nuevas mediciones ni permite editar este historial desde Progreso.
+- `clientes.valoracion_fotografias` se relaciona obligatoriamente con una evaluación física y su deportista. Imágenes JPG/PNG/WEBP hasta 5 MB en disco `local` **privado**, acceso protegido por autenticación y comprobación de rol/asignación. Endpoints GET listado, POST carga y GET imagen de `clientes/{id}/fotos-valoracion`.
+- En la pestaña Ficha inicial → Evaluación física → detalle se añaden las fotos; en Progreso se consultan las gráficas y la galería fotográfica.
+- **No almacenar imágenes como URLs públicas ni en la base PostgreSQL**. Antes de desplegar Railway, configurar almacenamiento privado persistente mediante volumen o proveedor compatible y verificar copias de seguridad, permisos del filesystem, retención y consentimiento informado. La interfaz actual recuerda el consentimiento, **pero aún no impone su registro ni permite revocación/retención automática**: completar esos controles antes de habilitar fotografías para usuarios reales.
+- **Pendiente de migración de históricos:** `entrenamiento.progresos_corporales` contiene datos anteriores y su servicio usa la relación antigua `gimnasio.deportistas`. No se modifica ni elimina esa tabla. Se debe verificar el mapeo contra `clientes.deportistas` usando el esquema real, conciliar registros y deduplicar de forma idempotente antes de declarar `clientes.valoracion_registros` como histórico íntegro. Actualmente los reportes nuevos leen solo valoraciones recientes.
+- **Validación pendiente:** sintaxis, rutas, subida/lectura de blobs autenticados, permisos, almacenamiento persistente, migraciones y UI en desarrollo. No se ha probado contra PostgreSQL ni desplegado en producción.

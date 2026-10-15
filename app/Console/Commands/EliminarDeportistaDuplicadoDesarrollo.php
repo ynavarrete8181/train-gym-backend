@@ -114,7 +114,7 @@ class EliminarDeportistaDuplicadoDesarrollo extends Command
                     || ($soloReferenciasPrueba && ($this->referencias('ventas', 'ventas', (int) $venta->id)
                         || $this->referencias('membresias', 'membresias', (int) $membresia->id, ['ventas.ventas:membresia_id' => (int) $venta->id])
                         || DB::table('ventas.ventas')->where('id', $venta->id)->where('estado', 'PENDIENTE')->whereNull('caja_id')->whereNull('turno_caja_id')->count() !== 1
-                        || DB::table('membresias.membresias')->where('id', $membresia->id)->where('estado', 'PENDIENTE_PAGO')->count() !== 1)))
+                        || DB::table('membresias.membresias')->where('id', $membresia->id)->where('estado', 'PENDIENTE_PAGO')->count() !== 1))
                     || $this->referencias('personas', 'personas', (int) $perfil->persona_id)
                     || ($usuario && $this->referencias('seguridad', 'users', (int) $usuario->id))) {
                     throw new \RuntimeException('Las dependencias cambiaron. Operación cancelada.');

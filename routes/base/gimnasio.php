@@ -51,6 +51,9 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
     Route::middleware(['base.permiso:GIMNASIO-DEPORTISTAS'])->group(function (): void {
         Route::get('clientes/capacidades', [ClienteCatalogoControlador::class, 'capacidades'])
             ->name('gimnasio.clientes.capacidades');
+        Route::get('clientes/{id}/diagnostico-identidad', [DeportistaControlador::class, 'diagnosticoIdentidad'])
+            ->whereNumber('id')
+            ->name('gimnasio.clientes.diagnostico-identidad');
         Route::get('clientes/usuarios-disponibles', [ClienteCatalogoControlador::class, 'usuariosDeportistasDisponibles'])
             ->name('gimnasio.clientes.usuarios-disponibles');
         Route::post('clientes', [DeportistaControlador::class, 'store'])->name('gimnasio.clientes.store');

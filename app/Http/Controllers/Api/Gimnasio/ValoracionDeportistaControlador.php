@@ -163,11 +163,41 @@ class ValoracionDeportistaControlador extends Controller
             ];
         })->values();
 
+        $pruebas = $evaluaciones->map(function ($fila) {
+            $datos = json_decode($fila->datos ?: '{}', true) ?: [];
+            $catalogo = ['FLEXIONES' => ['unidad'=>'repeticiones','sentido'=>'MAYOR','nombre'=>'Flexiones'],
+                'PLANCHA' => ['unidad'=>'segundos','sentido'=>'MAYOR','nombre'=>'Plancha abdominal'],
+                'CARRERA_2KM' => ['unidad'=>'segundos','sentido'=>'MENOR','nombre'=>'Carrera 2 km']];
+            $codigo = $datos['prueba_codigo'] ?? '';
+            if (!isset($catalogo[$codigo]) || !isset($datos['prueba_valor']) || !is_numeric($datos['prueba_valor'])
+                || ($datos['prueba_unidad'] ?? '') !== $catalogo[$codigo]['unidad']) return null;
+            return [
+                'id'=>$fila->id,'fecha'=>$fila->fecha_registro,'codigo'=>$codigo,
+                'nombre'=>$catalogo[$codigo]['nombre'],'unidad'=>$catalogo[$codigo]['unidad'],
+                'sentido'=>$catalogo[$codigo]['sentido'],'valor'=>(float)$datos['prueba_valor'],
+                'protocolo'=>$datos['prueba_protocolo'] ?? '',
+            ];
+        })->filter()->values();
+        $comparativas = $pruebas->groupBy('codigo')->map(function ($serie) {
+            $primero = $serie->first(); $ultimo = $serie->last();
+            $variacion = count($serie) > 1 ? round($ultimo['valor'] - $primero['valor'], 2) : null;
+            return [
+                'codigo'=>$primero['codigo'],'nombre'=>$primero['nombre'],'unidad'=>$primero['unidad'],
+                'sentido'=>$primero['sentido'],'inicial'=>$primero['valor'],'actual'=>$ultimo['valor'],
+                'variacion'=>$variacion,
+                // No emitir mensajes positivos con muestras aisladas o protocolos diferentes.
+                'mejora_verificada'=>count($serie) > 1 && $primero['protocolo'] !== ''
+                    && $primero['protocolo'] === $ultimo['protocolo']
+                    && ($primero['sentido'] === 'MAYOR' ? $variacion > 0 : $variacion < 0),
+            ];
+        })->values();
         $pesos = $mediciones->filter(fn ($m) => $m['peso_kg'] !== null)->values();
         $inicial = $pesos->first();
         $ultimo = $pesos->last();
         return ApiResponse::exito('Informe de progreso consultado.', [
             'mediciones' => $mediciones,
+            'pruebas' => $pruebas,
+            'comparativas_pruebas' => $comparativas,
             'resumen' => [
                 'evaluaciones' => $mediciones->count(),
                 'peso_inicial_kg' => $inicial['peso_kg'] ?? null,

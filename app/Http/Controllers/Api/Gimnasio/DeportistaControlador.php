@@ -113,7 +113,32 @@ class DeportistaControlador extends Controller
                 ->whereRaw('LOWER(TRIM(identificacion)) = LOWER(TRIM(?))', [$identificacion])
                 ->orderBy('id')->get(['id']);
 
+        // Diagnóstico de solo lectura: comparar todos los perfiles con el mismo documento.
+        // No exponer correo, documento ni notas clínicas en la respuesta.
+        $perfiles = $coincidencias->isEmpty() ? collect() :
+            DB::table('clientes.deportistas as d')
+                ->whereIn('d.persona_id', $coincidencias->pluck('id')->all())
+                ->orderBy('d.id')
+                ->get(['d.id', 'd.persona_id', 'd.usuario_id', 'd.estado', 'd.sede_principal_id', 'd.codigo_deportista']);
+
+        $relaciones = [];
+        foreach ($perfiles as $perfil) {
+            $idCliente = (int) $perfil->id;
+            $relaciones[] = [
+                'cliente_id' => $idCliente,
+                'persona_id' => (int) $perfil->persona_id,
+                'usuario_id' => $perfil->usuario_id,
+                'estado' => $perfil->estado,
+                'sede_principal_id' => $perfil->sede_principal_id,
+                'codigo_deportista' => $perfil->codigo_deportista,
+                'membresias' => DB::table('membresias.membresias')->where('deportista_id', $idCliente)->count(),
+                'valoraciones' => DB::table('clientes.valoracion_registros')->where('deportista_id', $idCliente)->count(),
+            ];
+        }
+
         $resultado = [
+            'perfiles_coincidentes' => $relaciones,
+            'requiere_revision_manual' => $coincidencias->count() > 1 || $perfiles->count() > 1,
             'cliente_id' => (int) $cliente->id,
             'persona_id' => $cliente->persona_id,
             'usuario_id' => $cliente->usuario_id,

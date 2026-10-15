@@ -100,6 +100,18 @@ class DeportistaControlador extends Controller
         }
 
         $validados['usuario_id'] = $validados['usuario_id'] ?? null;
+        if ($validados['usuario_id']) {
+            $usuario = DB::table('seguridad.users')->where('id', $validados['usuario_id'])->first(['persona_id']);
+            $documento = trim((string) ($validados['persona']['identificacion'] ?? ''));
+            $persona = $documento !== ''
+                ? DB::table('personas.personas')->whereRaw('LOWER(TRIM(identificacion)) = LOWER(TRIM(?))', [$documento])->first(['id'])
+                : null;
+            if (! $usuario?->persona_id || ! $persona || (int) $usuario->persona_id !== (int) $persona->id) {
+                throw ValidationException::withMessages([
+                    'usuario_id' => 'El usuario seleccionado debe pertenecer a la misma persona identificada. Registra el cliente y crea su acceso desde Usuarios si todavía no tiene cuenta.',
+                ]);
+            }
+        }
         $deportista = $this->deportistaServicio->crear($validados);
 
         return ApiResponse::exito('Cliente creado correctamente.', (array) $deportista, [], 201);

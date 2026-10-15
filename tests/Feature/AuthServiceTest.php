@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\Seguridad\AuthService;
+use App\Services\Auditoria\AuditoriaServicio;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
@@ -35,7 +36,11 @@ class AuthServiceTest extends TestCase
             'usr_estado' => 1,
         ]);
 
-        $resultado = (new AuthService)->intentarLogin('usuario@base.local', 'ClaveSegura123*');
+        $auditoria = $this->mock(AuditoriaServicio::class);
+        $auditoria->shouldReceive('registrarAcceso')->once()
+            ->with(1, 'usuario@base.local', 'LOGIN_FALLIDO', 'Credenciales inválidas o usuario deshabilitado.');
+
+        $resultado = app(AuthService::class)->intentarLogin('usuario@base.local', 'ClaveSegura123*');
 
         $this->assertNull($resultado);
         $this->assertSame(0, DB::table('seguridad.tokens_acceso')->count());

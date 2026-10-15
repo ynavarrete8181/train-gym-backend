@@ -157,6 +157,41 @@ class DeportistaServicio
         );
     }
 
+    /**
+     * Un documento identifica una única persona, incluso si se registró con espacios
+     * o diferencias de mayúsculas. Rechazamos ambigüedades históricas.
+     */
+    private function buscarPersonaPorDocumento(string $identificacion): ?object
+    {
+        if ($identificacion === '') {
+            return null;
+        }
+
+        $coincidencias = DB::table('personas.personas')
+            ->whereRaw('LOWER(TRIM(identificacion)) = LOWER(TRIM(?))', [$identificacion])
+            ->limit(2)->get(['id', 'identificacion']);
+
+        if ($coincidencias->count() > 1) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'persona.identificacion' => 'Existen personas duplicadas con esta identificación. Solicita una revisión antes de continuar.',
+            ]);
+        }
+
+        return $coincidencias->first();
+    }
+
+    private function validarDocumentoUnico(string $identificacion, int $personaId): void
+    {
+        if ($identificacion !== '' && DB::table('personas.personas')
+            ->where('id', '<>', $personaId)
+            ->whereRaw('LOWER(TRIM(identificacion)) = LOWER(TRIM(?))', [$identificacion])
+            ->exists()) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'persona.identificacion' => 'La identificación pertenece a otra persona.',
+            ]);
+        }
+    }
+
     private function resolverPersonaCliente(array $datos): int
     {
         $identificacion = trim((string) ($datos['identificacion'] ?? ''));
@@ -167,11 +202,7 @@ class DeportistaServicio
 
         $persona = null;
 
-        if ($identificacion !== '') {
-            $persona = DB::table('personas.personas')
-                ->whereRaw('LOWER(TRIM(identificacion)) = LOWER(TRIM(?))', [$identificacion])
-                ->first();
-        }
+        $persona = $this->buscarPersonaPorDocumento($identificacion);
 
         // El correo puede ser compartido por familiares: nunca acredita identidad.
         // Si el documento existe, resolvemos únicamente por identificación.
@@ -209,6 +240,7 @@ class DeportistaServicio
         $nombres = trim((string) ($datos['nombres'] ?? ''));
         $apellidos = trim((string) ($datos['apellidos'] ?? ''));
         $nombreCompleto = trim($nombres . ' ' . $apellidos);
+        $this->validarDocumentoUnico(trim((string) ($datos['identificacion'] ?? '')), $personaId);
 
         DB::table('personas.personas')->where('id', $personaId)->update([
             'tipo_identificacion' => $datos['tipo_identificacion'] ?? null,
@@ -235,11 +267,7 @@ class DeportistaServicio
 
         $persona = null;
 
-        if ($identificacion !== '') {
-            $persona = DB::table('personas.personas')
-                ->whereRaw('LOWER(TRIM(identificacion)) = LOWER(TRIM(?))', [$identificacion])
-                ->first();
-        }
+        $persona = $this->buscarPersonaPorDocumento($identificacion);
 
         // Nunca vincular o sobrescribir un representante por correo o nombre;
         // ambos pueden coincidir entre personas distintas.

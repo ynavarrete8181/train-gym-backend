@@ -65,16 +65,39 @@ class EliminarDeportistaDuplicadoDesarrollo extends Command
 
             $referenciasUsuario = $usuario ? $this->referencias('seguridad', 'users', (int) $usuario->id) : [];
 
+            $venta = DB::table('ventas.ventas')->where('cliente_id', $id)->first();
+            $membresia = DB::table('membresias.membresias')->where('deportista_id', $id)->first();
+            $borradoPrueba = false;
+            if ($venta && $membresia) {
+                $borradoPrueba = DB::table('ventas.ventas')->where('cliente_id', $id)->count() === 1
+                    && DB::table('membresias.membresias')->where('deportista_id', $id)->count() === 1
+                    && (int) ($venta->membresia_id ?? 0) === (int) $membresia->id
+                    && $venta->estado === 'PENDIENTE'
+                    && $membresia->estado === 'PENDIENTE_PAGO'
+                    && $venta->caja_id === null
+                    && $venta->turno_caja_id === null
+                    && $venta->inventario_aplicado_at === null
+                    && $this->referencias('ventas', 'ventas', (int) $venta->id) === []
+                    && $this->referencias('membresias', 'membresias', (int) $membresia->id, [
+                        'ventas.ventas:membresia_id' => (int) $venta->id,
+                    ]) === [];
+            }
+
             $referenciasCliente = $this->referencias('clientes', 'deportistas', $id);
             $referenciasPersona = $this->referencias('personas', 'personas', (int) $perfil->persona_id);
             $this->line('Inactivo: cliente #'.$id.' / persona #'.$perfil->persona_id);
             $this->line('Activo a conservar: cliente #'.$principal->first()->id.' / persona #'.$principal->first()->persona_id);
             $this->line('Usuario vinculado: '.($usuario ? '#'.$usuario->id : 'ninguno'));
+            $this->line('Venta y membresía pendientes sin referencias adicionales: '.($borradoPrueba ? 'SÍ' : 'NO'));
             $this->line('Referencias al usuario: '.json_encode($referenciasUsuario));
             $this->line('Referencias al cliente: '.json_encode($referenciasCliente));
             $this->line('Referencias a la persona: '.json_encode($referenciasPersona));
 
-            if ($referenciasCliente || $referenciasPersona || $referenciasUsuario) {
+            $soloReferenciasPrueba = $borradoPrueba
+                && count($referenciasCliente) === 2
+                && collect($referenciasCliente)->contains(fn ($r) => $r['tabla'] === 'ventas.ventas' && $r['columna'] === 'cliente_id' && $r['total'] === 1)
+                && collect($referenciasCliente)->contains(fn ($r) => $r['tabla'] === 'membresias.membresias' && $r['columna'] === 'deportista_id' && $r['total'] === 1);
+            if (($referenciasCliente && ! $soloReferenciasPrueba) || $referenciasPersona || $referenciasUsuario) {
                 $this->warn('Hay dependencias. No se elimina ni fusiona ningún dato.');
                 return self::FAILURE;
             }
@@ -83,14 +106,25 @@ class EliminarDeportistaDuplicadoDesarrollo extends Command
                 return self::SUCCESS;
             }
 
-            DB::transaction(function () use ($perfil, $id, $principal, $usuario): void {
+            DB::transaction(function () use ($perfil, $id, $principal, $usuario, $venta, $membresia, $soloReferenciasPrueba): void {
                 // Revalidar las referencias bajo bloqueo, sin deshabilitar claves foráneas.
                 DB::table('clientes.deportistas')->where('id', $id)->lockForUpdate()->first();
                 DB::table('personas.personas')->where('id', $perfil->persona_id)->lockForUpdate()->first();
-                if ($this->referencias('clientes', 'deportistas', $id)
+                if ((! $soloReferenciasPrueba && $this->referencias('clientes', 'deportistas', $id))
+                    || ($soloReferenciasPrueba && ($this->referencias('ventas', 'ventas', (int) $venta->id)
+                        || $this->referencias('membresias', 'membresias', (int) $membresia->id, ['ventas.ventas:membresia_id' => (int) $venta->id])
+                        || DB::table('ventas.ventas')->where('id', $venta->id)->where('estado', 'PENDIENTE')->whereNull('caja_id')->whereNull('turno_caja_id')->count() !== 1
+                        || DB::table('membresias.membresias')->where('id', $membresia->id)->where('estado', 'PENDIENTE_PAGO')->count() !== 1)))
                     || $this->referencias('personas', 'personas', (int) $perfil->persona_id)
                     || ($usuario && $this->referencias('seguridad', 'users', (int) $usuario->id))) {
                     throw new \RuntimeException('Las dependencias cambiaron. Operación cancelada.');
+                }
+                if ($soloReferenciasPrueba) {
+                    DB::table('ventas.ventas')->where('id', $venta->id)->delete();
+                    DB::table('membresias.membresias')->where('id', $membresia->id)->delete();
+                    if ($this->referencias('clientes', 'deportistas', $id)) {
+                        throw new \\RuntimeException('Se detectaron nuevas dependencias del cliente.');
+                    }
                 }
                 DB::table('clientes.deportistas')->where('id', $id)->where('estado', 'INACTIVO')->delete();
                 if ($usuario) {
@@ -103,7 +137,7 @@ class EliminarDeportistaDuplicadoDesarrollo extends Command
                 'modulo' => 'clientes', 'accion' => 'ELIMINAR',
                 'tabla' => 'clientes.deportistas', 'registro_id' => $id,
                 'descripcion' => 'Depuración de duplicado inactivo en desarrollo. Activo conservado #'.$principal->first()->id,
-                'datos_antes' => ['cliente_id' => $id, 'persona_id' => $perfil->persona_id, 'usuario_id' => $usuario?->id, 'estado' => 'INACTIVO'],
+                'datos_antes' => ['cliente_id' => $id, 'persona_id' => $perfil->persona_id, 'usuario_id' => $usuario?->id, 'venta_id' => $soloReferenciasPrueba ? $venta->id : null, 'membresia_id' => $soloReferenciasPrueba ? $membresia->id : null, 'estado' => 'INACTIVO'],
             ]);
             $this->info('Perfil duplicado sin referencias eliminado. Registro activo conservado.');
             return self::SUCCESS;
@@ -114,7 +148,7 @@ class EliminarDeportistaDuplicadoDesarrollo extends Command
         }
     }
 
-    private function referencias(string $schema, string $tabla, int $id): array
+    private function referencias(string $schema, string $tabla, int $id, array $excluir = []): array
     {
         $fks = DB::select(<<<'SQL'
 SELECT ns.nspname AS esquema, cl.relname AS tabla, att.attname AS columna
@@ -157,7 +191,12 @@ SQL, [$schema, $tabla]);
 
             $relation = DB::getQueryGrammar()->wrapTable($fk->esquema.'.'.$fk->tabla);
             $column = DB::getQueryGrammar()->wrap($fk->columna);
-            $count = DB::table(DB::raw($relation))->whereRaw($column.' = ?', [$id])->count();
+            $consulta = DB::table(DB::raw($relation))->whereRaw($column.' = ?', [$id]);
+            $clave = $fk->esquema.'.'.$fk->tabla.':'.$fk->columna;
+            if (isset($excluir[$clave])) {
+                $consulta->where('id', '<>', $excluir[$clave]);
+            }
+            $count = $consulta->count();
             if ($count > 0) {
                 $resultados[] = ['tabla' => $fk->esquema.'.'.$fk->tabla, 'columna' => $fk->columna, 'total' => $count];
             }

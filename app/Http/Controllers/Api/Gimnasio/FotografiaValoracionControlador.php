@@ -43,6 +43,7 @@ class FotografiaValoracionControlador extends Controller
             'vista' => ['required', Rule::in(['FRONTAL', 'LATERAL', 'POSTERIOR', 'OTRA'])],
             'fecha_fotografia' => ['required', 'date'],
             'foto' => ['required', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'consentimiento_confirmado' => ['required', 'accepted'],
         ]);
         abort_unless(DB::table('clientes.valoracion_registros')
             ->where('id', $datos['valoracion_registro_id'])
@@ -52,12 +53,15 @@ class FotografiaValoracionControlador extends Controller
         // Disco local privado; Railway requiere volumen persistente antes de producción.
         $archivo = $request->file('foto');
         $ruta = $archivo->store("valoraciones/{$id}", 'local');
+        abort_unless($ruta, 500, 'No fue posible almacenar la fotografía.');
         try {
             $fotoId = DB::table('clientes.valoracion_fotografias')->insertGetId([
                 'valoracion_registro_id' => $datos['valoracion_registro_id'],
                 'deportista_id' => $id, 'subido_por' => $request->user()->id,
                 'ubicacion_privada' => $ruta, 'mime_type' => $archivo->getMimeType(),
                 'vista' => $datos['vista'], 'fecha_fotografia' => $datos['fecha_fotografia'],
+                'consentimiento_confirmado' => true, 'consentimiento_confirmado_at' => now(),
+                'consentimiento_registrado_por' => $request->user()->id,
                 'created_at' => now(), 'updated_at' => now(),
             ]);
         } catch (\Throwable $error) {

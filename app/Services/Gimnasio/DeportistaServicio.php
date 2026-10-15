@@ -19,6 +19,19 @@ class DeportistaServicio
             $personaId = $this->resolverPersonaCliente($persona ?? []);
             $datos['persona_id'] = $personaId;
             $datos['usuario_id'] = $datos['usuario_id'] ?? null;
+            // Si la persona ya tiene cuenta DEPORTISTA, enlazarla sin crear otra.
+            if ($datos['usuario_id'] === null) {
+                $usuarios = DB::table('seguridad.users as u')
+                    ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
+                    ->where('u.persona_id', $personaId)->where('r.role', 'DEPORTISTA')
+                    ->limit(2)->pluck('u.id');
+                if ($usuarios->count() > 1) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'persona.identificacion' => 'Hay varias cuentas de deportista asociadas a esta persona. Revisa Seguridad antes de continuar.',
+                    ]);
+                }
+                $datos['usuario_id'] = $usuarios->first();
+            }
             $datos['created_at'] = now();
             $datos['updated_at'] = now();
 

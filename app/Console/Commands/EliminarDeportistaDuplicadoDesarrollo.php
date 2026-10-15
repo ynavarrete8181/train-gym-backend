@@ -123,7 +123,7 @@ class EliminarDeportistaDuplicadoDesarrollo extends Command
                     DB::table('ventas.ventas')->where('id', $venta->id)->delete();
                     DB::table('membresias.membresias')->where('id', $membresia->id)->delete();
                     if ($this->referencias('clientes', 'deportistas', $id)) {
-                        throw new \\RuntimeException('Se detectaron nuevas dependencias del cliente.');
+                        throw new \RuntimeException('Se detectaron nuevas dependencias del cliente.');
                     }
                 }
                 DB::table('clientes.deportistas')->where('id', $id)->where('estado', 'INACTIVO')->delete();

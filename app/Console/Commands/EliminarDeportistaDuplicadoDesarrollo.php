@@ -83,6 +83,11 @@ class EliminarDeportistaDuplicadoDesarrollo extends Command
                     ]) === [];
             }
 
+            if ($venta && $membresia) {
+                $this->line('Referencias a venta #'.$venta->id.': '.json_encode($this->referencias('ventas', 'ventas', (int) $venta->id)));
+                $this->line('Referencias a membresía #'.$membresia->id.': '.json_encode($this->referencias('membresias', 'membresias', (int) $membresia->id)));
+            }
+
             $referenciasCliente = $this->referencias('clientes', 'deportistas', $id);
             $referenciasPersona = $this->referencias('personas', 'personas', (int) $perfil->persona_id);
             $this->line('Inactivo: cliente #'.$id.' / persona #'.$perfil->persona_id);

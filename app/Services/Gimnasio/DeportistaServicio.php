@@ -173,13 +173,8 @@ class DeportistaServicio
                 ->first();
         }
 
-        if (! $persona && $email !== '') {
-            $persona = DB::table('personas.personas')
-                ->whereNotNull('email')
-                ->whereRaw('LOWER(TRIM(email)) = LOWER(TRIM(?))', [$email])
-                ->first();
-        }
-
+        // El correo puede ser compartido por familiares: nunca acredita identidad.
+        // Si el documento existe, resolvemos únicamente por identificación.
         if ($persona) {
             if (DB::table('clientes.deportistas')->where('persona_id', $persona->id)->exists()) {
                 throw \Illuminate\Validation\ValidationException::withMessages([
@@ -187,7 +182,8 @@ class DeportistaServicio
                 ]);
             }
 
-            $this->actualizarPersonaCliente((int) $persona->id, $datos);
+            // La creación de un cliente no debe sobrescribir una persona ya existente.
+            // Sus datos se editan explícitamente desde la ficha correspondiente.
             return (int) $persona->id;
         }
 
@@ -245,18 +241,8 @@ class DeportistaServicio
                 ->first();
         }
 
-        if (! $persona && $email !== '') {
-            $persona = DB::table('personas.personas')
-                ->whereNotNull('email')
-                ->whereRaw('LOWER(TRIM(email)) = LOWER(TRIM(?))', [$email])
-                ->first();
-        }
-
-        if (! $persona && $nombreCompleto !== '') {
-            $persona = DB::table('personas.personas')
-                ->whereRaw('LOWER(TRIM(nombre_completo)) = LOWER(TRIM(?))', [$nombreCompleto])
-                ->first();
-        }
+        // Nunca vincular o sobrescribir un representante por correo o nombre;
+        // ambos pueden coincidir entre personas distintas.
 
         $payload = [
             'tipo_identificacion' => $datos['tipo_identificacion'] ?? ($identificacion !== '' ? 'CEDULA' : null),
@@ -272,7 +258,7 @@ class DeportistaServicio
         ];
 
         if ($persona) {
-            DB::table('personas.personas')->where('id', $persona->id)->update($payload);
+            // La relación reutiliza la identidad confirmada sin editar su ficha.
             return (int) $persona->id;
         }
 

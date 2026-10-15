@@ -108,6 +108,45 @@ class ValoracionDeportistaControlador extends Controller
         return ApiResponse::exito('Registro guardado correctamente.',['id'=>$registro],codigo:201);
     }
 
+    public function progreso(Request $request, int $id)
+    {
+        $this->autorizar($request, $id);
+        $evaluaciones = DB::table('clientes.valoracion_registros')
+            ->where('deportista_id', $id)->where('seccion', 'evaluacion')
+            ->orderBy('fecha_registro')->orderBy('id')->get(['id', 'fecha_registro', 'titulo', 'datos', 'registrado_por']);
+
+        $mediciones = $evaluaciones->map(function ($fila) {
+            $datos = json_decode($fila->datos ?: '{}', true) ?: [];
+            $peso = isset($datos['peso_kg']) && is_numeric($datos['peso_kg']) ? (float) $datos['peso_kg'] : null;
+            $talla = isset($datos['talla_cm']) && is_numeric($datos['talla_cm']) ? (float) $datos['talla_cm'] : null;
+            $grasa = isset($datos['grasa_corporal_pct']) && is_numeric($datos['grasa_corporal_pct']) ? (float) $datos['grasa_corporal_pct'] : null;
+            return [
+                'id' => $fila->id, 'fecha' => $fila->fecha_registro, 'titulo' => $fila->titulo,
+                'peso_kg' => $peso, 'talla_cm' => $talla,
+                'cintura_cm' => isset($datos['cintura_cm']) && is_numeric($datos['cintura_cm']) ? (float) $datos['cintura_cm'] : null,
+                'grasa_corporal_pct' => $grasa,
+                'imc' => $peso > 0 && $talla > 0 ? round($peso / (($talla / 100) ** 2), 2) : null,
+                'masa_magra_kg' => $peso > 0 && $grasa !== null && $grasa >= 0 && $grasa <= 100
+                    ? round($peso * (1 - $grasa / 100), 2) : null,
+            ];
+        })->values();
+
+        $pesos = $mediciones->filter(fn ($m) => $m['peso_kg'] !== null)->values();
+        $inicial = $pesos->first();
+        $ultimo = $pesos->last();
+        return ApiResponse::exito('Informe de progreso consultado.', [
+            'mediciones' => $mediciones,
+            'resumen' => [
+                'evaluaciones' => $mediciones->count(),
+                'peso_inicial_kg' => $inicial['peso_kg'] ?? null,
+                'peso_actual_kg' => $ultimo['peso_kg'] ?? null,
+                'variacion_peso_kg' => $inicial && $ultimo ? round($ultimo['peso_kg'] - $inicial['peso_kg'], 2) : null,
+                'ultima_evaluacion' => $mediciones->last()['fecha'] ?? null,
+            ],
+            'fuente' => 'clientes.valoracion_registros',
+        ]);
+    }
+
     public function controles(Request $request)
     {
         $rol = DB::table('seguridad.cpu_userrole')->where('id_userrole',$request->user()->usr_tipo)->value('role');

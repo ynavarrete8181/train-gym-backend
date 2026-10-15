@@ -57,8 +57,8 @@ class ValoracionDeportistaControlador extends Controller
         ]);
         $permitidos = [
             'antecedentes'=>['descripcion','tipo','restricciones','observaciones'],
-            'evaluacion'=>['peso_kg','talla_cm','cintura_cm','grasa_corporal_pct','movilidad','observaciones'],
-            'objetivos'=>['objetivo','indicador','valor_inicial','valor_meta','observaciones'],
+            'evaluacion'=>['peso_kg','talla_cm','cintura_cm','grasa_corporal_pct','movilidad','observaciones','prueba_codigo','prueba_valor','prueba_unidad','prueba_protocolo'],
+            'objetivos'=>['objetivo','indicador','valor_inicial','valor_meta','observaciones','objetivo_codigo','plazo_semanas'],
             'valoracion'=>['conclusiones','recomendaciones','observaciones'],
         ];
         $datos = array_intersect_key($v['datos'],array_flip($permitidos[$v['seccion']]));
@@ -74,6 +74,38 @@ class ValoracionDeportistaControlador extends Controller
             if (isset($datos[$campo]) && $datos[$campo]!==''
                 && (!is_numeric($datos[$campo]) || (float)$datos[$campo]<=0 || (float)$datos[$campo]>$max)) {
                 throw ValidationException::withMessages([$campo=>'Valor fuera del rango permitido.']);
+            }
+        }
+        if ($v['seccion'] === 'evaluacion') {
+            $pruebas = [
+                'FLEXIONES' => ['unidad' => 'repeticiones', 'min' => 0, 'max' => 500],
+                'PLANCHA' => ['unidad' => 'segundos', 'min' => 0, 'max' => 3600],
+                'CARRERA_2KM' => ['unidad' => 'segundos', 'min' => 60, 'max' => 7200],
+            ];
+            $codigo = $datos['prueba_codigo'] ?? null;
+            if ($codigo !== null && $codigo !== '') {
+                if (!array_key_exists($codigo, $pruebas)) {
+                    throw ValidationException::withMessages(['prueba_codigo' => 'Prueba física no reconocida.']);
+                }
+                $prueba = $pruebas[$codigo];
+                if (($datos['prueba_unidad'] ?? null) !== $prueba['unidad']
+                    || !isset($datos['prueba_valor']) || !is_numeric($datos['prueba_valor'])
+                    || (float) $datos['prueba_valor'] < $prueba['min']
+                    || (float) $datos['prueba_valor'] > $prueba['max']) {
+                    throw ValidationException::withMessages(['prueba_valor' => 'Valor o unidad incompatible con la prueba seleccionada.']);
+                }
+            } elseif (!empty($datos['prueba_valor'])) {
+                throw ValidationException::withMessages(['prueba_codigo' => 'Selecciona el tipo de prueba física.']);
+            }
+        }
+        if ($v['seccion'] === 'objetivos') {
+            $objetivos = ['FUERZA', 'RESISTENCIA', 'MOVILIDAD', 'COMPOSICION', 'ADHERENCIA'];
+            if (!empty($datos['objetivo_codigo']) && !in_array($datos['objetivo_codigo'], $objetivos, true)) {
+                throw ValidationException::withMessages(['objetivo_codigo' => 'Selecciona un objetivo válido.']);
+            }
+            if (isset($datos['plazo_semanas']) && $datos['plazo_semanas'] !== ''
+                && (!ctype_digit((string) $datos['plazo_semanas']) || (int) $datos['plazo_semanas'] < 1 || (int) $datos['plazo_semanas'] > 104)) {
+                throw ValidationException::withMessages(['plazo_semanas' => 'El plazo debe estar entre 1 y 104 semanas.']);
             }
         }
         $registro = DB::transaction(function () use ($request,$id,$v,$datos) {

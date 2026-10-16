@@ -87,6 +87,8 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
     Route::get('clientes/{id}/progreso-informe', [ValoracionDeportistaControlador::class, 'progreso'])->whereNumber('id');
     Route::get('clientes/{id}/valoraciones', [ValoracionDeportistaControlador::class, 'listar'])->whereNumber('id');
     Route::post('clientes/{id}/valoraciones', [ValoracionDeportistaControlador::class, 'crear'])->whereNumber('id');
+    Route::put('clientes/{id}/valoraciones/{registro}', [ValoracionDeportistaControlador::class, 'actualizar'])->whereNumber('id')->whereNumber('registro');
+    Route::delete('clientes/{id}/valoraciones/{registro}', [ValoracionDeportistaControlador::class, 'eliminar'])->whereNumber('id')->whereNumber('registro');
     Route::get('valoraciones/controles-pendientes', [ValoracionDeportistaControlador::class, 'controles']);
 
     // Membresías

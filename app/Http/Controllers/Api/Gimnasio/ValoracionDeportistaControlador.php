@@ -134,6 +134,28 @@ class ValoracionDeportistaControlador extends Controller
                 'proximo_control'=>$v['proximo_control']??null,'datos'=>json_encode($datos),
                 'estado'=>'ACTIVO','created_at'=>now(),'updated_at'=>now(),
             ]);
+            if ($v['seccion'] === 'evaluacion') {
+                $columnas = ['peso_kg','talla_cm','cintura_cm','grasa_corporal_pct','imc','indice_cintura_altura','masa_magra_kg'];
+                $valores = [];
+                foreach ($columnas as $campo) {
+                    $valor = $datos[$campo] ?? null;
+                    $valores[$campo] = $valor !== '' && is_numeric($valor) ? (float) $valor : null;
+                }
+                DB::table('clientes.valoracion_mediciones')->insert([
+                    'registro_id' => $idRegistro, 'deportista_id' => $id,
+                    ...$valores, 'created_at' => now(), 'updated_at' => now(),
+                ]);
+            }
+            $categoricos = ['actividad_fisica','objetivo_codigo','unidad_medida','prioridad','estado_objetivo',
+                'condicion_fisica','movilidad_general','experiencia_entrenamiento','requiere_adaptacion','frecuencia_seguimiento'];
+            foreach ($categoricos as $campo) {
+                if (!isset($datos[$campo]) || $datos[$campo] === '') continue;
+                DB::table('clientes.valoracion_criterios')->insert([
+                    'registro_id' => $idRegistro, 'deportista_id' => $id,
+                    'seccion' => $v['seccion'], 'campo' => $campo,
+                    'valor' => $datos[$campo], 'created_at' => now(), 'updated_at' => now(),
+                ]);
+            }
             if ($control) {
                 DB::table('clientes.valoracion_controles')->where('id',$control->id)->update([
                     'estado'=>'REALIZADO','registro_resultado_id'=>$idRegistro,

@@ -30,12 +30,16 @@ Route::middleware(['base.auth'])->prefix('entrenamiento')->group(function (): vo
         Route::put('rutinas/{id}', [EntrenamientoControlador::class, 'guardarRutina'])->name('entrenamiento.rutinas.update');
     });
 
+    Route::get('evaluaciones-fisicas/deportistas', [PruebasRendimientoControlador::class, 'deportistas'])
+        ->middleware('base.permiso:ENTRENAMIENTO-EVALUACIONES');
     Route::get('deportistas/{id}/pruebas-rendimiento', [PruebasRendimientoControlador::class, 'listar'])
-        ->middleware('base.permiso:ENTRENAMIENTO-RM,GIMNASIO-DEPORTISTAS')->whereNumber('id');
+        ->middleware('base.permiso:ENTRENAMIENTO-EVALUACIONES')->whereNumber('id');
     Route::post('deportistas/{id}/pruebas-rendimiento', [PruebasRendimientoControlador::class, 'guardar'])
-        ->middleware('base.permiso:ENTRENAMIENTO-RM')->whereNumber('id');
+        ->middleware('base.permiso:ENTRENAMIENTO-EVALUACIONES-CREAR')->whereNumber('id');
+    Route::put('deportistas/{id}/pruebas-rendimiento/{registro}', [PruebasRendimientoControlador::class, 'actualizar'])
+        ->middleware('base.permiso:ENTRENAMIENTO-EVALUACIONES-EDITAR')->whereNumber('id')->whereNumber('registro');
     Route::delete('deportistas/{id}/pruebas-rendimiento/{registro}', [PruebasRendimientoControlador::class, 'anular'])
-        ->middleware('base.permiso:ENTRENAMIENTO-RM')->whereNumber('id')->whereNumber('registro');
+        ->middleware('base.permiso:ENTRENAMIENTO-EVALUACIONES-ANULAR')->whereNumber('id')->whereNumber('registro');
 
     Route::get('registros-rm', [EntrenamientoControlador::class, 'rm'])
         ->middleware('base.permiso:ENTRENAMIENTO-RM,GIMNASIO-DEPORTISTAS')

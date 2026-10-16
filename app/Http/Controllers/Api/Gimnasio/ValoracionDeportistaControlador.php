@@ -139,10 +139,16 @@ class ValoracionDeportistaControlador extends Controller
         }
         $registro = DB::transaction(function () use ($request,$id,$v,$datos,$registroId) {
             $control = null;
+            if ($registroId && !empty($v['control_id'])) {
+                throw ValidationException::withMessages(['control_id'=>'No se puede completar un control al editar una valoración.']);
+            }
             if (!empty($v['control_id'])) {
                 $control = DB::table('clientes.valoracion_controles')->where('id',$v['control_id'])
                     ->where('deportista_id',$id)->lockForUpdate()->first();
                 abort_unless($control && $control->estado==='PROGRAMADO',422,'El control no está pendiente.');
+                $origen = DB::table('clientes.valoracion_registros')->where('id',$control->registro_origen_id)
+                    ->where('deportista_id',$id)->where('estado','ACTIVO')->first();
+                abort_unless($origen && $origen->seccion === $v['seccion'],422,'El control no corresponde a esta sección.');
             }
             $camposRegistro = [
                 'titulo'=>$v['titulo'], 'fecha_registro'=>$v['fecha_registro'],
@@ -291,6 +297,19 @@ class ValoracionDeportistaControlador extends Controller
             ],
             'fuente' => 'clientes.valoracion_registros',
         ]);
+    }
+
+    public function controlesDeportista(Request $request, int $id)
+    {
+        $this->autorizar($request, $id);
+        $items = DB::table('clientes.valoracion_controles as c')
+            ->join('clientes.valoracion_registros as r', 'r.id', '=', 'c.registro_origen_id')
+            ->where('c.deportista_id', $id)->where('r.estado', 'ACTIVO')
+            ->select('c.id', 'c.registro_origen_id', 'c.registro_resultado_id',
+                'c.fecha_programada', 'c.estado', 'c.realizado_at', 'c.responsable_id',
+                'r.seccion', 'r.titulo')
+            ->orderByDesc('c.fecha_programada')->orderByDesc('c.id')->limit(150)->get();
+        return ApiResponse::exito('Seguimiento de controles consultado.', $items);
     }
 
     public function controles(Request $request)

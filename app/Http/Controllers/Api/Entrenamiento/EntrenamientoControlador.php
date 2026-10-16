@@ -33,7 +33,14 @@ class EntrenamientoControlador extends Controller
             'activo' => 'boolean',
         ]);
 
-        return ApiResponse::exito('Ejercicio guardado correctamente.', (array) $this->entrenamiento->guardarEjercicio($datos, $id), [], $id ? 200 : 201);
+        $anterior = $id ? DB::table('entrenamiento.ejercicios')->where('id',$id)->first() : null;
+        if ($id) abort_unless($anterior,404);
+        if (!empty($datos['url_recurso'])) $datos['video_path'] = null;
+        $ejercicio = $this->entrenamiento->guardarEjercicio($datos, $id);
+        if ($anterior?->video_path && !empty($datos['url_recurso'])) {
+            Storage::disk('public')->delete($anterior->video_path);
+        }
+        return ApiResponse::exito('Ejercicio guardado correctamente.', (array) $ejercicio, [], $id ? 200 : 201);
     }
 
     public function subirVideoEjercicio(Request $request, int $id)

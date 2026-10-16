@@ -299,6 +299,49 @@ class ValoracionDeportistaControlador extends Controller
         ]);
     }
 
+    public function reporteValoraciones(Request $request, int $id)
+    {
+        $this->autorizar($request, $id);
+        $v = $request->validate([
+            'desde' => ['nullable', 'date'],
+            'hasta' => ['nullable', 'date', 'after_or_equal:desde'],
+        ]);
+        $registros = DB::table('clientes.valoracion_registros')
+            ->where('deportista_id', $id)->where('estado', 'ACTIVO')
+            ->when($v['desde'] ?? null, fn ($q, $f) => $q->whereDate('fecha_registro', '>=', $f))
+            ->when($v['hasta'] ?? null, fn ($q, $f) => $q->whereDate('fecha_registro', '<=', $f));
+        $porSeccion = (clone $registros)->select('seccion')
+            ->selectRaw('count(*) as total')->groupBy('seccion')->pluck('total', 'seccion');
+        $mediciones = DB::table('clientes.valoracion_mediciones as m')
+            ->join('clientes.valoracion_registros as r', 'r.id', '=', 'm.registro_id')
+            ->where('r.deportista_id', $id)->where('r.estado', 'ACTIVO')
+            ->where('r.seccion', 'evaluacion')
+            ->when($v['desde'] ?? null, fn ($q, $f) => $q->whereDate('r.fecha_registro', '>=', $f))
+            ->when($v['hasta'] ?? null, fn ($q, $f) => $q->whereDate('r.fecha_registro', '<=', $f))
+            ->orderBy('r.fecha_registro')->orderBy('r.id')
+            ->get(['r.id', 'r.fecha_registro', 'm.peso_kg', 'm.talla_cm', 'm.cintura_cm',
+                'm.grasa_corporal_pct', 'm.imc', 'm.indice_cintura_altura', 'm.masa_magra_kg']);
+        $criterios = DB::table('clientes.valoracion_criterios as c')
+            ->join('clientes.valoracion_registros as r', 'r.id', '=', 'c.registro_id')
+            ->where('r.deportista_id', $id)->where('r.estado', 'ACTIVO')
+            ->when($v['desde'] ?? null, fn ($q, $f) => $q->whereDate('r.fecha_registro', '>=', $f))
+            ->when($v['hasta'] ?? null, fn ($q, $f) => $q->whereDate('r.fecha_registro', '<=', $f))
+            ->select('c.campo', 'c.valor')->selectRaw('count(*) as total')
+            ->groupBy('c.campo', 'c.valor')->orderBy('c.campo')->orderBy('c.valor')->get();
+        $controles = DB::table('clientes.valoracion_controles as c')
+            ->join('clientes.valoracion_registros as r', 'r.id', '=', 'c.registro_origen_id')
+            ->where('c.deportista_id', $id)->where('r.estado', 'ACTIVO')
+            ->select('c.estado')->selectRaw('count(*) as total')
+            ->groupBy('c.estado')->pluck('total', 'estado');
+        return ApiResponse::exito('Reporte de valoraciones consultado.', [
+            'por_seccion' => $porSeccion,
+            'mediciones' => $mediciones,
+            'criterios' => $criterios,
+            'controles' => $controles,
+            'filtros' => ['desde' => $v['desde'] ?? null, 'hasta' => $v['hasta'] ?? null],
+        ]);
+    }
+
     public function controlesDeportista(Request $request, int $id)
     {
         $this->autorizar($request, $id);

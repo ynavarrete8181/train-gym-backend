@@ -91,12 +91,26 @@ class EntrenamientoControlador extends Controller
             'cliente_id' => 'required|exists:pgsql.gimnasio.deportistas,id',
             'ejercicio_id' => 'required|exists:pgsql.entrenamiento.ejercicios,id',
             'tipo_registro' => 'required|string|in:DIRECTO,ESTIMADO',
-            'peso' => 'required|numeric|min:0',
-            'repeticiones' => 'nullable|integer|min:1|max:200',
-            'rm_estimado' => 'required|numeric|min:0',
+            'peso' => 'required|numeric|gt:0|lte:1000',
+            'repeticiones' => 'nullable|integer|min:1|max:10',
+            'rm_estimado' => 'nullable|numeric',
             'fecha_registro' => 'required|date',
             'observaciones' => 'nullable|string',
         ]);
+
+        if ($datos['tipo_registro'] === 'ESTIMADO') {
+            if (empty($datos['repeticiones'])) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['repeticiones' => 'Indica de 1 a 10 repeticiones para estimar la RM.']);
+            }
+            // Fórmula de Epley: aproximación para series submáximas (1 a 10 repeticiones).
+            $datos['rm_estimado'] = round((float) $datos['peso'] * (1 + $datos['repeticiones'] / 30), 2);
+        } else {
+            if (isset($datos['repeticiones']) && $datos['repeticiones'] !== 1) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['repeticiones' => 'La 1RM directa requiere una repetición.']);
+            }
+            $datos['repeticiones'] = 1;
+            $datos['rm_estimado'] = (float) $datos['peso'];
+        }
 
         return ApiResponse::exito('Registro RM guardado correctamente.', (array) $this->entrenamiento->guardarRm($datos, $id), [], $id ? 200 : 201);
     }

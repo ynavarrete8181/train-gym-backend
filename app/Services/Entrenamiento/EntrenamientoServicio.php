@@ -4,6 +4,7 @@ namespace App\Services\Entrenamiento;
 
 use App\Services\Concerns\RegistraAuditoria;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class EntrenamientoServicio
 {
@@ -18,7 +19,14 @@ class EntrenamientoServicio
         $this->filtrarTexto($query, 'equipamiento', $filtros['equipamiento'] ?? null);
         $this->filtrarBooleano($query, 'activo', $filtros['estado'] ?? null);
 
-        return $query->orderBy('nombre')->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
+        $pagina = $query->orderBy('nombre')->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
+        $pagina->getCollection()->transform(function ($ejercicio) {
+            $ejercicio->video_url = $ejercicio->video_path
+                ? Storage::disk('public')->url($ejercicio->video_path)
+                : null;
+            return $ejercicio;
+        });
+        return $pagina;
     }
 
     public function guardarEjercicio(array $datos, ?int $id = null): object

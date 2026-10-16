@@ -10,6 +10,7 @@ Route::middleware(['base.auth'])->prefix('entrenamiento')->group(function (): vo
         ->middleware('base.permiso:ENTRENAMIENTO-EJERCICIOS,GIMNASIO-DEPORTISTAS')
         ->name('entrenamiento.ejercicios.index');
     Route::middleware(['base.permiso:ENTRENAMIENTO-EJERCICIOS'])->group(function (): void {
+        Route::post('ejercicios/{id}/video', [EntrenamientoControlador::class, 'subirVideoEjercicio'])->whereNumber('id')->name('entrenamiento.ejercicios.video');
         Route::post('ejercicios', [EntrenamientoControlador::class, 'guardarEjercicio'])->name('entrenamiento.ejercicios.store');
         Route::put('ejercicios/{id}', [EntrenamientoControlador::class, 'guardarEjercicio'])->name('entrenamiento.ejercicios.update');
     });

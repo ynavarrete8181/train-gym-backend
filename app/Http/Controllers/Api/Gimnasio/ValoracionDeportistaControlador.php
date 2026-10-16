@@ -57,9 +57,9 @@ class ValoracionDeportistaControlador extends Controller
         ]);
         $permitidos = [
             'antecedentes'=>['descripcion','tipo','restricciones','observaciones'],
-            'evaluacion'=>['peso_kg','talla_cm','cintura_cm','grasa_corporal_pct','movilidad','observaciones','prueba_codigo','prueba_valor','prueba_unidad','prueba_protocolo'],
-            'objetivos'=>['objetivo','indicador','valor_inicial','valor_meta','observaciones','objetivo_codigo','plazo_semanas'],
-            'valoracion'=>['conclusiones','recomendaciones','observaciones'],
+            'evaluacion'=>['peso_kg','talla_cm','cintura_cm','grasa_corporal_pct','actividad_fisica','patologia','movilidad','observaciones'],
+            'objetivos'=>['objetivo','indicador','unidad_medida','valor_inicial','valor_meta','prioridad','estado_objetivo','observaciones','objetivo_codigo','plazo_semanas'],
+            'valoracion'=>['condicion_fisica','movilidad_general','experiencia_entrenamiento','requiere_adaptacion','frecuencia_seguimiento','conclusiones','recomendaciones','observaciones'],
         ];
         $datos = array_intersect_key($v['datos'],array_flip($permitidos[$v['seccion']]));
         foreach ($datos as $campo => $valor) {
@@ -76,30 +76,42 @@ class ValoracionDeportistaControlador extends Controller
                 throw ValidationException::withMessages([$campo=>'Valor fuera del rango permitido.']);
             }
         }
-        if ($v['seccion'] === 'evaluacion') {
-            $pruebas = [
-                'FLEXIONES' => ['unidad' => 'repeticiones', 'min' => 0, 'max' => 500],
-                'PLANCHA' => ['unidad' => 'segundos', 'min' => 0, 'max' => 3600],
-                'CARRERA_2KM' => ['unidad' => 'segundos', 'min' => 60, 'max' => 7200],
-            ];
-            $codigo = $datos['prueba_codigo'] ?? null;
-            if ($codigo !== null && $codigo !== '') {
-                if (!array_key_exists($codigo, $pruebas)) {
-                    throw ValidationException::withMessages(['prueba_codigo' => 'Prueba física no reconocida.']);
-                }
-                $prueba = $pruebas[$codigo];
-                if (($datos['prueba_unidad'] ?? null) !== $prueba['unidad']
-                    || !isset($datos['prueba_valor']) || !is_numeric($datos['prueba_valor'])
-                    || (float) $datos['prueba_valor'] < $prueba['min']
-                    || (float) $datos['prueba_valor'] > $prueba['max']) {
-                    throw ValidationException::withMessages(['prueba_valor' => 'Valor o unidad incompatible con la prueba seleccionada.']);
-                }
-            } elseif (!empty($datos['prueba_valor'])) {
-                throw ValidationException::withMessages(['prueba_codigo' => 'Selecciona el tipo de prueba física.']);
+        $opciones = [
+            'actividad_fisica' => ['SEDENTARIO','LIGERA','MODERADA','ALTA','MUY_ALTA'],
+            'objetivo_codigo' => ['FUERZA','RESISTENCIA','MOVILIDAD','COMPOSICION','ADHERENCIA'],
+            'prioridad' => ['ALTA','MEDIA','BAJA'],
+            'estado_objetivo' => ['PENDIENTE','EN_PROGRESO','CUMPLIDO','SUSPENDIDO'],
+            'unidad_medida' => ['KG','CM','PORCENTAJE','REPETICIONES','MINUTOS','OTRO'],
+            'condicion_fisica' => ['INICIAL','INTERMEDIA','AVANZADA','POR_EVALUAR'],
+            'movilidad_general' => ['ADECUADA','LIMITADA','REQUIERE_EVALUACION'],
+            'experiencia_entrenamiento' => ['PRINCIPIANTE','INTERMEDIO','AVANZADO'],
+            'requiere_adaptacion' => ['SI','NO','POR_DETERMINAR'],
+            'frecuencia_seguimiento' => ['SEMANAL','QUINCENAL','MENSUAL','SEGUN_NECESIDAD'],
+        ];
+        foreach ($opciones as $campo => $permitidas) {
+            if (isset($datos[$campo]) && $datos[$campo] !== '' && !in_array($datos[$campo], $permitidas, true)) {
+                throw ValidationException::withMessages(['datos.'.$campo => 'Selecciona una opción válida.']);
             }
         }
         if ($v['seccion'] === 'objetivos') {
-            $objetivos = ['FUERZA', 'RESISTENCIA', 'MOVILIDAD', 'COMPOSICION', 'ADHERENCIA'];
+            foreach (['valor_inicial','valor_meta'] as $campo) {
+                if (isset($datos[$campo]) && $datos[$campo] !== ''
+                    && (!is_numeric($datos[$campo]) || !is_finite((float) $datos[$campo]) || abs((float) $datos[$campo]) > 1000000)) {
+                    throw ValidationException::withMessages(['datos.'.$campo => 'Ingresa un número válido.']);
+                }
+            }
+        }
+        if ($v['seccion'] === 'evaluacion') {
+            $peso = isset($datos['peso_kg']) && is_numeric($datos['peso_kg']) ? (float) $datos['peso_kg'] : null;
+            $talla = isset($datos['talla_cm']) && is_numeric($datos['talla_cm']) ? (float) $datos['talla_cm'] : null;
+            $cintura = isset($datos['cintura_cm']) && is_numeric($datos['cintura_cm']) ? (float) $datos['cintura_cm'] : null;
+            $grasa = isset($datos['grasa_corporal_pct']) && is_numeric($datos['grasa_corporal_pct']) ? (float) $datos['grasa_corporal_pct'] : null;
+            if ($peso !== null && $talla !== null) $datos['imc'] = round($peso / (($talla / 100) ** 2), 2);
+            if ($cintura !== null && $talla !== null) $datos['indice_cintura_altura'] = round($cintura / $talla, 4);
+            if ($peso !== null && $grasa !== null) $datos['masa_magra_kg'] = round($peso * (1 - $grasa / 100), 2);
+        }
+        if ($v['seccion'] === 'objetivos') {
+            $objetivos = $opciones['objetivo_codigo'];
             if (!empty($datos['objetivo_codigo']) && !in_array($datos['objetivo_codigo'], $objetivos, true)) {
                 throw ValidationException::withMessages(['objetivo_codigo' => 'Selecciona un objetivo válido.']);
             }

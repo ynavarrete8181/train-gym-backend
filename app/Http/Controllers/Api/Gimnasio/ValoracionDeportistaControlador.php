@@ -47,14 +47,26 @@ class ValoracionDeportistaControlador extends Controller
         $v = $request->validate([
             'seccion'=>['required',Rule::in(self::SECCIONES)],
             'titulo'=>'required|string|max:180',
-            'fecha_registro'=>'required|date',
+            'fecha_registro'=>'nullable|date',
             'fecha_inicio'=>'nullable|date',
             'fecha_fin'=>'nullable|date|after_or_equal:fecha_inicio',
-            'proximo_control'=>'nullable|date|after:fecha_registro',
+            'proximo_control'=>'nullable|date',
             'datos'=>'required|array',
             'datos.*'=>'nullable',
             'control_id'=>'nullable|integer',
         ]);
+        if (in_array($v['seccion'], ['antecedentes', 'objetivos'], true)) {
+            $v['fecha_registro'] = now()->toDateString();
+        } elseif (empty($v['fecha_registro'])) {
+            throw ValidationException::withMessages(['fecha_registro' => 'La fecha del registro es obligatoria.']);
+        }
+        if (!empty($v['proximo_control']) && $v['proximo_control'] <= $v['fecha_registro']) {
+            throw ValidationException::withMessages(['proximo_control' => 'La próxima revisión debe ser posterior al registro.']);
+        }
+        if ($v['seccion'] === 'objetivos') {
+            $v['fecha_inicio'] = null;
+            $v['fecha_fin'] = null;
+        }
         $permitidos = [
             'antecedentes'=>['descripcion','tipo','restricciones','observaciones'],
             'evaluacion'=>['peso_kg','talla_cm','cintura_cm','grasa_corporal_pct','actividad_fisica','patologia','movilidad','observaciones'],

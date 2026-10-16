@@ -84,6 +84,7 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
     Route::get('clientes/{id}/fotos-valoracion', [FotografiaValoracionControlador::class, 'index'])->whereNumber('id');
     Route::post('clientes/{id}/fotos-valoracion', [FotografiaValoracionControlador::class, 'guardar'])->whereNumber('id');
     Route::get('clientes/{id}/fotos-valoracion/{foto}', [FotografiaValoracionControlador::class, 'mostrar'])->whereNumber('id')->whereNumber('foto');
+    Route::get('clientes/{id}/reporte-valoraciones', [ValoracionDeportistaControlador::class, 'reporteValoraciones'])->whereNumber('id');
     Route::get('clientes/{id}/progreso-informe', [ValoracionDeportistaControlador::class, 'progreso'])->whereNumber('id');
     Route::get('clientes/{id}/valoraciones/controles', [ValoracionDeportistaControlador::class, 'controlesDeportista'])->whereNumber('id');
     Route::get('clientes/{id}/valoraciones', [ValoracionDeportistaControlador::class, 'listar'])->whereNumber('id');

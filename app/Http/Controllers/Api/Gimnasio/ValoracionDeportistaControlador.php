@@ -32,7 +32,7 @@ class ValoracionDeportistaControlador extends Controller
         $this->autorizar($request,$id);
         $seccion = $request->validate(['seccion'=>['required',Rule::in(self::SECCIONES)]])['seccion'];
         $registros = DB::table('clientes.valoracion_registros')
-            ->where('deportista_id',$id)->where('seccion',$seccion)
+            ->where('deportista_id',$id)->where('seccion',$seccion)->where('estado','ACTIVO')
             ->orderByDesc('fecha_registro')->orderByDesc('id')->limit(150)->get()
             ->map(function ($registro) {
                 $registro->datos = json_decode($registro->datos ?: '{}',true);
@@ -41,7 +41,7 @@ class ValoracionDeportistaControlador extends Controller
         return ApiResponse::exito('Historial consultado.',$registros);
     }
 
-    public function crear(Request $request, int $id)
+    public function crear(Request $request, int $id, ?int $registroId = null)
     {
         $this->autorizar($request,$id);
         $v = $request->validate([
@@ -55,7 +55,12 @@ class ValoracionDeportistaControlador extends Controller
             'datos.*'=>'nullable',
             'control_id'=>'nullable|integer',
         ]);
-        if (in_array($v['seccion'], ['antecedentes', 'objetivos'], true)) {
+        $anterior = $registroId ? DB::table('clientes.valoracion_registros')->where('id',$registroId)->where('deportista_id',$id)->where('estado','ACTIVO')->first() : null;
+        if ($registroId && !$anterior) abort(404);
+        if ($anterior && $anterior->seccion !== $v['seccion']) abort(422, 'La sección no puede cambiarse.');
+        if ($anterior) {
+            $v['fecha_registro'] = $anterior->fecha_registro;
+        } elseif (in_array($v['seccion'], ['antecedentes', 'objetivos'], true)) {
             $v['fecha_registro'] = now()->toDateString();
         } elseif (empty($v['fecha_registro'])) {
             throw ValidationException::withMessages(['fecha_registro' => 'La fecha del registro es obligatoria.']);
@@ -132,20 +137,33 @@ class ValoracionDeportistaControlador extends Controller
                 throw ValidationException::withMessages(['plazo_semanas' => 'El plazo debe estar entre 1 y 104 semanas.']);
             }
         }
-        $registro = DB::transaction(function () use ($request,$id,$v,$datos) {
+        $registro = DB::transaction(function () use ($request,$id,$v,$datos,$registroId) {
             $control = null;
             if (!empty($v['control_id'])) {
                 $control = DB::table('clientes.valoracion_controles')->where('id',$v['control_id'])
                     ->where('deportista_id',$id)->lockForUpdate()->first();
                 abort_unless($control && $control->estado==='PROGRAMADO',422,'El control no está pendiente.');
             }
-            $idRegistro = DB::table('clientes.valoracion_registros')->insertGetId([
-                'deportista_id'=>$id,'registrado_por'=>$request->user()->id,
-                'seccion'=>$v['seccion'],'titulo'=>$v['titulo'],'fecha_registro'=>$v['fecha_registro'],
+            $camposRegistro = [
+                'titulo'=>$v['titulo'], 'fecha_registro'=>$v['fecha_registro'],
                 'fecha_inicio'=>$v['fecha_inicio']??null,'fecha_fin'=>$v['fecha_fin']??null,
                 'proximo_control'=>$v['proximo_control']??null,'datos'=>json_encode($datos),
-                'estado'=>'ACTIVO','created_at'=>now(),'updated_at'=>now(),
-            ]);
+                'updated_at'=>now(),
+            ];
+            if ($registroId) {
+                DB::table('clientes.valoracion_registros')->where('id',$registroId)
+                    ->where('deportista_id',$id)->where('estado','ACTIVO')->update($camposRegistro);
+                $idRegistro = $registroId;
+                DB::table('clientes.valoracion_mediciones')->where('registro_id',$idRegistro)->delete();
+                DB::table('clientes.valoracion_criterios')->where('registro_id',$idRegistro)->delete();
+                DB::table('clientes.valoracion_controles')->where('registro_origen_id',$idRegistro)
+                    ->where('estado','PROGRAMADO')->update(['estado'=>'CANCELADO','updated_at'=>now()]);
+            } else {
+                $idRegistro = DB::table('clientes.valoracion_registros')->insertGetId([
+                    'deportista_id'=>$id,'registrado_por'=>$request->user()->id,
+                    'seccion'=>$v['seccion'], 'estado'=>'ACTIVO','created_at'=>now(), ...$camposRegistro,
+                ]);
+            }
             if ($v['seccion'] === 'evaluacion') {
                 $columnas = ['peso_kg','talla_cm','cintura_cm','grasa_corporal_pct','imc','indice_cintura_altura','masa_magra_kg'];
                 $valores = [];
@@ -183,14 +201,34 @@ class ValoracionDeportistaControlador extends Controller
             }
             return $idRegistro;
         });
-        return ApiResponse::exito('Registro guardado correctamente.',['id'=>$registro],codigo:201);
+        return ApiResponse::exito($registroId ? 'Registro actualizado correctamente.' : 'Registro guardado correctamente.', ['id'=>$registro], codigo:$registroId ? 200 : 201);
+    }
+
+    public function actualizar(Request $request, int $id, int $registro)
+    {
+        return $this->crear($request, $id, $registro);
+    }
+
+    public function eliminar(Request $request, int $id, int $registro)
+    {
+        $this->autorizar($request, $id);
+        DB::transaction(function () use ($id, $registro): void {
+            $fila = DB::table('clientes.valoracion_registros')->where('id',$registro)
+                ->where('deportista_id',$id)->where('estado','ACTIVO')->lockForUpdate()->first();
+            abort_unless($fila, 404);
+            DB::table('clientes.valoracion_registros')->where('id',$registro)
+                ->update(['estado'=>'ANULADO','updated_at'=>now()]);
+            DB::table('clientes.valoracion_controles')->where('registro_origen_id',$registro)
+                ->where('estado','PROGRAMADO')->update(['estado'=>'CANCELADO','updated_at'=>now()]);
+        });
+        return ApiResponse::exito('Registro anulado correctamente.');
     }
 
     public function progreso(Request $request, int $id)
     {
         $this->autorizar($request, $id);
         $evaluaciones = DB::table('clientes.valoracion_registros')
-            ->where('deportista_id', $id)->where('seccion', 'evaluacion')
+            ->where('deportista_id', $id)->where('seccion', 'evaluacion')->where('estado','ACTIVO')
             ->orderBy('fecha_registro')->orderBy('id')->get(['id', 'fecha_registro', 'titulo', 'datos', 'registrado_por']);
 
         $mediciones = $evaluaciones->map(function ($fila) {

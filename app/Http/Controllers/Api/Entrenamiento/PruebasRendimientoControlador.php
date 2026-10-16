@@ -43,8 +43,22 @@ class PruebasRendimientoControlador extends Controller
                     ->where('a.estado','ACTIVO');
             });
         }
-        return ApiResponse::exito('Deportistas disponibles.', $q->orderBy('p.apellidos')->orderBy('p.nombres')
-            ->limit(500)->get(['d.id','d.codigo_deportista','p.nombres','p.apellidos']));
+        $funciones = DB::table('seguridad.cpu_userfunction')
+            ->where('id_users', $request->user()->id)->where('activo', true)
+            ->whereIn('id_menu', [
+                'ENTRENAMIENTO-EVALUACIONES-CREAR',
+                'ENTRENAMIENTO-EVALUACIONES-EDITAR',
+                'ENTRENAMIENTO-EVALUACIONES-ANULAR',
+            ])->pluck('id_menu')->all();
+        return ApiResponse::exito('Deportistas disponibles.', [
+            'deportistas'=>$q->orderBy('p.apellidos')->orderBy('p.nombres')
+                ->limit(500)->get(['d.id','d.codigo_deportista','p.nombres','p.apellidos']),
+            'permisos'=>[
+                'crear'=>in_array('ENTRENAMIENTO-EVALUACIONES-CREAR',$funciones,true),
+                'editar'=>in_array('ENTRENAMIENTO-EVALUACIONES-EDITAR',$funciones,true),
+                'anular'=>in_array('ENTRENAMIENTO-EVALUACIONES-ANULAR',$funciones,true),
+            ],
+        ]);
     }
 
     public function listar(Request $request, int $id)

@@ -253,21 +253,46 @@ class ValoracionDeportistaControlador extends Controller
             ];
         })->values();
 
-        $pruebas = $evaluaciones->map(function ($fila) {
-            $datos = json_decode($fila->datos ?: '{}', true) ?: [];
-            $catalogo = ['FLEXIONES' => ['unidad'=>'repeticiones','sentido'=>'MAYOR','nombre'=>'Flexiones'],
-                'PLANCHA' => ['unidad'=>'segundos','sentido'=>'MAYOR','nombre'=>'Plancha abdominal'],
-                'CARRERA_2KM' => ['unidad'=>'segundos','sentido'=>'MENOR','nombre'=>'Carrera 2 km']];
-            $codigo = $datos['prueba_codigo'] ?? '';
-            if (!isset($catalogo[$codigo]) || !isset($datos['prueba_valor']) || !is_numeric($datos['prueba_valor'])
-                || ($datos['prueba_unidad'] ?? '') !== $catalogo[$codigo]['unidad']) return null;
+        // Pruebas reales del entrenador, nunca valores de demostración ni entradas antiguas del formulario inicial.
+        $catalogo = [
+            'FLEXIONES' => ['nombre'=>'Flexiones', 'sentido'=>'MAYOR'],
+            'PLANCHA' => ['nombre'=>'Plancha abdominal', 'sentido'=>'MAYOR'],
+            'CARRERA_2KM' => ['nombre'=>'Carrera de 2 km', 'sentido'=>'MENOR'],
+            'SALTO_VERTICAL' => ['nombre'=>'Salto vertical', 'sentido'=>'MAYOR'],
+            'SPRINT_20M' => ['nombre'=>'Sprint de 20 m', 'sentido'=>'MENOR'],
+            'SIT_AND_REACH' => ['nombre'=>'Sit and reach', 'sentido'=>'MAYOR'],
+        ];
+        $pruebas = DB::table('entrenamiento.pruebas_rendimiento')
+            ->where('deportista_id', $id)->where('estado', 'ACTIVO')
+            ->orderBy('fecha_prueba')->orderBy('id')->get()
+            ->map(function ($fila) use ($catalogo) {
+                $info = $catalogo[$fila->codigo_prueba] ?? null;
+                if (!$info) return null;
+                return [
+                    'id'=>$fila->id, 'fecha'=>$fila->fecha_prueba, 'codigo'=>$fila->codigo_prueba,
+                    'nombre'=>$info['nombre'], 'unidad'=>strtolower($fila->unidad),
+                    'sentido'=>$info['sentido'], 'valor'=>(float)$fila->resultado,
+                    'protocolo'=>$fila->protocolo, 'origen'=>'ENTRENAMIENTO',
+                ];
+            })->filter()->values();
+        $rm = DB::table('entrenamiento.rm_registros as r')
+            ->join('entrenamiento.ejercicios as e', 'e.id', '=', 'r.ejercicio_id')
+            ->where('r.cliente_id', $id)
+            ->orderBy('r.fecha_registro')->orderBy('r.id')
+            ->get(['r.id', 'r.ejercicio_id', 'e.nombre as ejercicio_nombre', 'r.fecha_registro',
+                'r.rm_estimado', 'r.tipo_registro']);
+        $seriesRm = $rm->map(function ($fila) {
             return [
-                'id'=>$fila->id,'fecha'=>$fila->fecha_registro,'codigo'=>$codigo,
-                'nombre'=>$catalogo[$codigo]['nombre'],'unidad'=>$catalogo[$codigo]['unidad'],
-                'sentido'=>$catalogo[$codigo]['sentido'],'valor'=>(float)$datos['prueba_valor'],
-                'protocolo'=>$datos['prueba_protocolo'] ?? '',
+                'id'=>$fila->id, 'fecha'=>$fila->fecha_registro, 'codigo'=>'RM_'.$fila->ejercicio_id,
+                'nombre'=>'1RM · '.$fila->ejercicio_nombre, 'unidad'=>'kg', 'sentido'=>'MAYOR',
+                'valor'=>(float)$fila->rm_estimado,
+                'protocolo'=>'RM_'.($fila->tipo_registro ?: 'ESTIMADO'),
+                'origen'=>'RM', 'tipo_registro'=>$fila->tipo_registro,
             ];
-        })->filter()->values();
+        });
+        $pruebas = $pruebas->concat($seriesRm)->sortBy([
+            ['fecha', 'asc'], ['id', 'asc'],
+        ])->values();
         $comparativas = $pruebas->groupBy('codigo')->map(function ($serie) {
             $primero = $serie->first(); $ultimo = $serie->last();
             $variacion = count($serie) > 1 ? round($ultimo['valor'] - $primero['valor'], 2) : null;

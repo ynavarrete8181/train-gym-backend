@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Entrenamiento\EntrenamientoControlador;
+use App\Http\Controllers\Api\Entrenamiento\PruebasRendimientoControlador;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['base.auth'])->prefix('entrenamiento')->group(function (): void {
@@ -28,6 +29,13 @@ Route::middleware(['base.auth'])->prefix('entrenamiento')->group(function (): vo
         Route::post('rutinas', [EntrenamientoControlador::class, 'guardarRutina'])->name('entrenamiento.rutinas.store');
         Route::put('rutinas/{id}', [EntrenamientoControlador::class, 'guardarRutina'])->name('entrenamiento.rutinas.update');
     });
+
+    Route::get('deportistas/{id}/pruebas-rendimiento', [PruebasRendimientoControlador::class, 'listar'])
+        ->middleware('base.permiso:ENTRENAMIENTO-RM,GIMNASIO-DEPORTISTAS')->whereNumber('id');
+    Route::post('deportistas/{id}/pruebas-rendimiento', [PruebasRendimientoControlador::class, 'guardar'])
+        ->middleware('base.permiso:ENTRENAMIENTO-RM')->whereNumber('id');
+    Route::delete('deportistas/{id}/pruebas-rendimiento/{registro}', [PruebasRendimientoControlador::class, 'anular'])
+        ->middleware('base.permiso:ENTRENAMIENTO-RM')->whereNumber('id')->whereNumber('registro');
 
     Route::get('registros-rm', [EntrenamientoControlador::class, 'rm'])
         ->middleware('base.permiso:ENTRENAMIENTO-RM,GIMNASIO-DEPORTISTAS')

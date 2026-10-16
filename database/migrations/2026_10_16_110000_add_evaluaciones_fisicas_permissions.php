@@ -12,6 +12,10 @@ return new class extends Migration {
     public function up(): void {
         $menu = DB::table('seguridad.cpu_usermenu')->where('menu', 'Entrenamiento')->value('id_usermenu');
         $roles = DB::table('seguridad.cpu_userrole')->whereIn('role',['ADMINISTRADOR','ENTRENADOR'])->pluck('id_userrole');
+        foreach (['ENTRENAMIENTO-SESIONES'=>6, 'ENTRENAMIENTO-EJECUCION'=>7] as $idMenu=>$orden) {
+            DB::table('seguridad.cpu_userrolefunction')->where('id_menu',$idMenu)->update(['orden'=>$orden]);
+            DB::table('seguridad.cpu_userfunction')->where('id_menu',$idMenu)->update(['orden'=>$orden]);
+        }
         foreach($this->funciones as $codigo => [$nombre,$accion,$pagina,$icono,$orden]) {
             DB::table('seguridad.cpu_pagina_sistema')->updateOrInsert(['id_menu'=>$codigo],
                 ['clave_pagina'=>$pagina,'created_at'=>now(),'updated_at'=>now()]);

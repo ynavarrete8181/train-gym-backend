@@ -10,6 +10,7 @@ class CobroProgramadoMembresiaServicio
     public function __construct(
         private readonly MembresiaServicio $membresias,
         private readonly CarteraServicio $cartera,
+        private readonly DescuentoDeportistaServicio $descuentos,
     ) {
     }
 
@@ -86,6 +87,13 @@ class CobroProgramadoMembresiaServicio
                             . ' - Cobro programado '
                             . $fechaCobro->format('Y-m-d');
 
+                        $beneficio = $this->descuentos->resolver(
+                            (int) $membresia->deportista_id,
+                            (int) $membresia->plan_id,
+                            $membresia->modalidad_id ? (int) $membresia->modalidad_id : null,
+                            $fechaCobro->toDateString(),
+                            (float) $periodo->precio
+                        );
                         $ventaId = DB::table('ventas.ventas')->insertGetId([
                             'cliente_id' => $membresia->deportista_id,
                             'membresia_id' => $id,
@@ -99,9 +107,9 @@ class CobroProgramadoMembresiaServicio
                             'tipo_venta' => ($plan->tipo_producto ?? 'MEMBRESIA') === 'PASE_DIARIO' ? 'SERVICIO' : 'MEMBRESIA',
                             'concepto' => $concepto,
                             'subtotal' => $periodo->precio,
-                            'descuento' => 0,
+                            'descuento' => $beneficio['importe_descuento'],
                             'impuesto' => 0,
-                            'total' => $periodo->precio,
+                            'total' => $beneficio['total'],
                             'estado' => 'PENDIENTE',
                             'estado_id' => $estadoId,
                             'fecha_venta' => $fechaCobro->copy()->setTime(8, 0),
@@ -131,7 +139,7 @@ class CobroProgramadoMembresiaServicio
                             'estado' => 'BORRADOR',
                             'subtotal' => $periodo->precio,
                             'impuesto' => 0,
-                            'total' => $periodo->precio,
+                            'total' => $beneficio['total'],
                             'emitido_at' => null,
                             'created_at' => now(),
                             'updated_at' => now(),

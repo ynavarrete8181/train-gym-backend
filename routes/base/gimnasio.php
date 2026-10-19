@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Gimnasio\FichaInicialControlador;
 use App\Http\Controllers\Api\Gimnasio\ValoracionDeportistaControlador;
 use App\Http\Controllers\Api\Gimnasio\FotografiaValoracionControlador;
 use App\Http\Controllers\Api\Gimnasio\MembresiaControlador;
+use App\Http\Controllers\Api\Gimnasio\DescuentoDeportistaControlador;
 use App\Http\Controllers\Api\Gimnasio\PlanControlador;
 use App\Http\Controllers\Api\Gimnasio\EntrenadorControlador;
 use App\Http\Controllers\Api\Gimnasio\HorarioEntrenadorControlador;
@@ -101,6 +102,13 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::put('membresias/{id}', [MembresiaControlador::class, 'update'])->name('gimnasio.membresias.update');
         Route::post('membresias/{id}/renovar', [MembresiaControlador::class, 'renovar'])->name('gimnasio.membresias.renovar');
         Route::delete('membresias/{id}', [MembresiaControlador::class, 'destroy'])->name('gimnasio.membresias.destroy');
+    });
+
+    // Beneficios personalizados: solo administradores de planes.
+    Route::middleware(['base.permiso:GIMNASIO-PLANES'])->group(function (): void {
+        Route::get('descuentos-deportistas', [DescuentoDeportistaControlador::class, 'index'])->name('gimnasio.descuentos-deportistas.index');
+        Route::post('descuentos-deportistas', [DescuentoDeportistaControlador::class, 'store'])->name('gimnasio.descuentos-deportistas.store');
+        Route::put('descuentos-deportistas/{id}', [DescuentoDeportistaControlador::class, 'update'])->whereNumber('id')->name('gimnasio.descuentos-deportistas.update');
     });
 
     // Entrenadores: Clientes puede consultar asignación/horario sin adquirir permisos de administración.

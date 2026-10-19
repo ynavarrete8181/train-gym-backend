@@ -475,7 +475,8 @@ class MembresiaControlador extends Controller
             return false;
         }
 
-        return (bool) ($plan->generar_venta ?? true);
+        // La venta inicial se decide al asignar la membresía, no en la tarifa del plan.
+        return true;
     }
 
     public function destroy($id)

@@ -172,6 +172,11 @@ class MembresiaControlador extends Controller
                     ->value('id');
 
                 if ($periodoId) {
+                    DB::table('membresias.membresia_periodos')->where('id', $periodoId)->update([
+                        'descuento_id' => $beneficio['descuento_id'],
+                        'descuento_importe' => $beneficio['importe_descuento'],
+                        'updated_at' => now(),
+                    ]);
                     $this->membresiaServicio->vincularVentaPeriodo((int) $periodoId, (int) $venta->id);
                 }
             }
@@ -267,6 +272,11 @@ class MembresiaControlador extends Controller
                     ],
                 ], null, $request->user()?->id);
 
+                DB::table('membresias.membresia_periodos')->where('id', $periodo->id)->update([
+                    'descuento_id' => $beneficio['descuento_id'],
+                    'descuento_importe' => $beneficio['importe_descuento'],
+                    'updated_at' => now(),
+                ]);
                 $this->membresiaServicio->vincularVentaPeriodo((int) $periodo->id, (int) $venta->id);
             }
 

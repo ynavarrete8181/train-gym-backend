@@ -1,0 +1,91 @@
+<?php
+
+namespace App\Services\Gimnasio;
+
+use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+
+class DescuentoDeportistaServicio
+{
+    public function resolver(int $deportistaId, int $planId, ?int $modalidadId, string $fecha, float $precioBase): array
+    {
+        $beneficios = DB::table('membresias.descuentos_deportistas')
+            ->where('deportista_id', $deportistaId)
+            ->where('activo', true)
+            ->whereDate('fecha_inicio', '<=', $fecha)
+            ->where(function ($q) use ($fecha) {
+                $q->whereNull('fecha_fin')->orWhereDate('fecha_fin', '>=', $fecha);
+            })
+            ->where(function ($q) use ($planId) {
+                $q->whereNull('plan_id')->orWhere('plan_id', $planId);
+            })
+            ->where(function ($q) use ($modalidadId) {
+                $q->whereNull('modalidad_id');
+                if ($modalidadId !== null) $q->orWhere('modalidad_id', $modalidadId);
+            })
+            ->orderByRaw('CASE WHEN modalidad_id IS NOT NULL THEN 0 WHEN plan_id IS NOT NULL THEN 1 ELSE 2 END')
+            ->orderByDesc('fecha_inicio')
+            ->limit(2)
+            ->get();
+
+        $beneficio = $beneficios->first();
+        $importe = $beneficio
+            ? ($beneficio->tipo === 'PORCENTAJE'
+                ? round($precioBase * (float) $beneficio->valor / 100, 2)
+                : (float) $beneficio->valor)
+            : 0.0;
+        $importe = round(min($precioBase, max(0, $importe)), 2);
+
+        return [
+            'precio_base' => round($precioBase, 2),
+            'descuento_id' => $beneficio?->id,
+            'tipo' => $beneficio?->tipo,
+            'valor' => $beneficio?->valor,
+            'importe_descuento' => $importe,
+            'total' => round($precioBase - $importe, 2),
+            'fecha_evaluacion' => $fecha,
+        ];
+    }
+
+    public function crear(array $datos, int $usuarioId): object
+    {
+        $this->validarAlcance($datos);
+        $datos['autorizado_por'] = $usuarioId;
+        $datos['activo'] = true;
+        $datos['created_at'] = now();
+        $datos['updated_at'] = now();
+        $id = DB::table('membresias.descuentos_deportistas')->insertGetId($datos);
+
+        return DB::table('membresias.descuentos_deportistas')->where('id', $id)->first();
+    }
+
+    public function actualizar(int $id, array $datos, int $usuarioId): object
+    {
+        $anterior = DB::table('membresias.descuentos_deportistas')->where('id', $id)->first();
+        if (! $anterior) abort(404, 'Beneficio no encontrado.');
+        $this->validarAlcance(array_merge((array) $anterior, $datos));
+        $datos['autorizado_por'] = $usuarioId;
+        $datos['updated_at'] = now();
+        DB::table('membresias.descuentos_deportistas')->where('id', $id)->update($datos);
+        return DB::table('membresias.descuentos_deportistas')->where('id', $id)->first();
+    }
+
+    private function validarAlcance(array $datos): void
+    {
+        $planId = $datos['plan_id'] ?? null;
+        $modalidadId = $datos['modalidad_id'] ?? null;
+        if ($modalidadId && ! $planId) {
+            throw ValidationException::withMessages(['plan_id' => 'Selecciona el plan de la modalidad.']);
+        }
+        if ($modalidadId && ! DB::table('membresias.plan_modalidades')->where('id', $modalidadId)->where('plan_id', $planId)->exists()) {
+            throw ValidationException::withMessages(['modalidad_id' => 'La modalidad no pertenece al plan seleccionado.']);
+        }
+        if (isset($datos['fecha_fin']) && $datos['fecha_fin'] !== null && Carbon::parse($datos['fecha_fin'])->lt(Carbon::parse($datos['fecha_inicio']))) {
+            throw ValidationException::withMessages(['fecha_fin' => 'La fecha final no puede ser anterior al inicio.']);
+        }
+        if (($datos['tipo'] ?? '') === 'PORCENTAJE' && (float) ($datos['valor'] ?? 0) > 100) {
+            throw ValidationException::withMessages(['valor' => 'Un porcentaje no puede superar el 100 %.']);
+        }
+    }
+}

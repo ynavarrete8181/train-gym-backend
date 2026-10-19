@@ -3,11 +3,14 @@
 namespace App\Services\Gimnasio;
 
 use Carbon\Carbon;
+use App\Services\Concerns\RegistraAuditoria;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class DescuentoDeportistaServicio
 {
+    use RegistraAuditoria;
+
     public function resolver(int $deportistaId, int $planId, ?int $modalidadId, string $fecha, float $precioBase): array
     {
         $beneficios = DB::table('membresias.descuentos_deportistas')
@@ -67,7 +70,9 @@ class DescuentoDeportistaServicio
         $datos['updated_at'] = now();
         $id = DB::table('membresias.descuentos_deportistas')->insertGetId($datos);
 
-        return DB::table('membresias.descuentos_deportistas')->where('id', $id)->first();
+        $registrado = DB::table('membresias.descuentos_deportistas')->where('id', $id)->first();
+        $this->auditar('gimnasio', 'CREAR_DESCUENTO', 'membresias.descuentos_deportistas', $id, null, $registrado);
+        return $registrado;
     }
 
     public function actualizar(int $id, array $datos, int $usuarioId): object
@@ -78,7 +83,9 @@ class DescuentoDeportistaServicio
         $datos['autorizado_por'] = $usuarioId;
         $datos['updated_at'] = now();
         DB::table('membresias.descuentos_deportistas')->where('id', $id)->update($datos);
-        return DB::table('membresias.descuentos_deportistas')->where('id', $id)->first();
+        $actualizado = DB::table('membresias.descuentos_deportistas')->where('id', $id)->first();
+        $this->auditar('gimnasio', 'ACTUALIZAR_DESCUENTO', 'membresias.descuentos_deportistas', $id, $anterior, $actualizado);
+        return $actualizado;
     }
 
     private function validarAlcance(array $datos): void

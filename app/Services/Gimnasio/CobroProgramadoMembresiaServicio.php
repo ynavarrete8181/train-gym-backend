@@ -145,6 +145,11 @@ class CobroProgramadoMembresiaServicio
                             'updated_at' => now(),
                         ]);
 
+                        DB::table('membresias.membresia_periodos')->where('id', $periodo->id)->update([
+                            'descuento_id' => $beneficio['descuento_id'],
+                            'descuento_importe' => $beneficio['importe_descuento'],
+                            'updated_at' => now(),
+                        ]);
                         $creadas++;
                     }
 

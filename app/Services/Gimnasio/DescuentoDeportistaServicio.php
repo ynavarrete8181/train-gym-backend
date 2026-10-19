@@ -31,11 +31,8 @@ class DescuentoDeportistaServicio
 
         $beneficio = $beneficios->first();
         $importe = $beneficio
-            ? ($beneficio->tipo === 'PORCENTAJE'
-                ? round($precioBase * (float) $beneficio->valor / 100, 2)
-                : (float) $beneficio->valor)
+            ? self::calcularImporte($precioBase, $beneficio->tipo, (float) $beneficio->valor)
             : 0.0;
-        $importe = round(min($precioBase, max(0, $importe)), 2);
 
         return [
             'precio_base' => round($precioBase, 2),
@@ -46,6 +43,19 @@ class DescuentoDeportistaServicio
             'total' => round($precioBase - $importe, 2),
             'fecha_evaluacion' => $fecha,
         ];
+    }
+
+    public static function calcularImporte(float $precioBase, string $tipo, float $valor): float
+    {
+        $base = max(0, $precioBase);
+        if ($tipo === 'PORCENTAJE') {
+            $descuento = round($base * min(100, max(0, $valor)) / 100, 2);
+        } elseif ($tipo === 'FIJO') {
+            $descuento = $valor;
+        } else {
+            throw new \InvalidArgumentException('Tipo de descuento no permitido.');
+        }
+        return round(min($base, max(0, $descuento)), 2);
     }
 
     public function crear(array $datos, int $usuarioId): object

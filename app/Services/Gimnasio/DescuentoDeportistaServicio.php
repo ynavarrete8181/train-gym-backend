@@ -104,5 +104,24 @@ class DescuentoDeportistaServicio
         if (($datos['tipo'] ?? '') === 'PORCENTAJE' && (float) ($datos['valor'] ?? 0) > 100) {
             throw ValidationException::withMessages(['valor' => 'Un porcentaje no puede superar el 100 %.']);
         }
+
+        // Los beneficios del mismo alcance no pueden tener períodos superpuestos.
+        // Entre alcances diferentes prevalece modalidad > plan > general.
+        if (($datos['activo'] ?? true) === false) return;
+        $consulta = DB::table('membresias.descuentos_deportistas')
+            ->where('deportista_id', (int) $datos['deportista_id'])
+            ->where('activo', true)
+            ->whereDate('fecha_inicio', '<=', $datos['fecha_fin'] ?? '9999-12-31')
+            ->where(function ($q) use ($datos) {
+                $q->whereNull('fecha_fin')->orWhereDate('fecha_fin', '>=', $datos['fecha_inicio']);
+            });
+        if (empty($planId)) $consulta->whereNull('plan_id');
+        else $consulta->where('plan_id', (int) $planId);
+        if (empty($modalidadId)) $consulta->whereNull('modalidad_id');
+        else $consulta->where('modalidad_id', (int) $modalidadId);
+        if (! empty($datos['id'])) $consulta->where('id', '<>', (int) $datos['id']);
+        if ($consulta->exists()) {
+            throw ValidationException::withMessages(['fecha_inicio' => 'Ya existe un descuento vigente o programado con fechas superpuestas para el mismo alcance.']);
+        }
     }
 }

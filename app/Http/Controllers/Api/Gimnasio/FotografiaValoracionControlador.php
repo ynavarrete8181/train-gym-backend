@@ -16,7 +16,7 @@ class FotografiaValoracionControlador extends Controller
         abort_unless(DB::table('clientes.deportistas')->where('id', $deportistaId)->exists(), 404);
         $usuario = $request->user();
         $rol = DB::table('seguridad.cpu_userrole')->where('id_userrole', $usuario->usr_tipo)->value('role');
-        abort_unless(in_array($rol, ['ADMINISTRADOR', 'ENTRENADOR'], true), 403);
+        abort_unless(in_array($rol, ['SUPERADMINISTRADOR', 'ADMINISTRADOR', 'ENTRENADOR'], true), 403);
         if ($rol === 'ENTRENADOR') {
             abort_unless(DB::table('entrenamiento.asignaciones_entrenador_cliente as a')
                 ->join('entrenamiento.entrenadores as e', 'e.id', '=', 'a.entrenador_id')

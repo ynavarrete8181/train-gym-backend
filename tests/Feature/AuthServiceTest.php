@@ -15,8 +15,10 @@ class AuthServiceTest extends TestCase
         parent::setUp();
 
         DB::statement("ATTACH DATABASE ':memory:' AS seguridad");
-        DB::statement('CREATE TABLE seguridad.users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, password TEXT, usr_tipo INTEGER, usr_estado INTEGER, created_at TEXT, updated_at TEXT)');
+        DB::statement('CREATE TABLE seguridad.users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, password TEXT, usr_tipo INTEGER, usr_estado INTEGER, email_verified_at TEXT, created_at TEXT, updated_at TEXT)');
         DB::statement('CREATE TABLE seguridad.cpu_userrole (id_userrole INTEGER PRIMARY KEY, role TEXT, activo INTEGER)');
+        DB::statement("ATTACH DATABASE ':memory:' AS notificaciones");
+        DB::statement('CREATE TABLE notificaciones.notificaciones (id INTEGER PRIMARY KEY, usuario_id INTEGER, tipo TEXT)');
         DB::statement('CREATE TABLE seguridad.tokens_acceso (id INTEGER PRIMARY KEY AUTOINCREMENT, id_usuario INTEGER, nombre TEXT, token_hash TEXT, ultimo_uso_en TEXT, expira_en TEXT, created_at TEXT, updated_at TEXT)');
     }
 
@@ -45,4 +47,33 @@ class AuthServiceTest extends TestCase
         $this->assertNull($resultado);
         $this->assertSame(0, DB::table('seguridad.tokens_acceso')->count());
     }
+
+    public function test_rechaza_cuenta_con_invitacion_pendiente(): void
+    {
+        DB::table('seguridad.cpu_userrole')->insert(['id_userrole' => 1, 'role' => 'ADMIN', 'activo' => true]);
+        DB::table('seguridad.users')->insert([
+            'id' => 1, 'name' => 'Admin', 'email' => 'admin@example.test',
+            'password' => Hash::make('ClaveDePruebaSegura'),
+            'usr_tipo' => 1, 'usr_estado' => 1,
+        ]);
+        DB::table('notificaciones.notificaciones')->insert(['usuario_id' => 1, 'tipo' => 'INVITACION_USUARIO']);
+        $this->mock(AuditoriaServicio::class)->shouldReceive('registrarAcceso')->once();
+
+        $this->assertNull(app(AuthService::class)->intentarLogin('admin@example.test', 'ClaveDePruebaSegura'));
+        $this->assertSame(0, DB::table('seguridad.tokens_acceso')->count());
+    }
+
+    public function test_rechaza_contrasena_incorrecta(): void
+    {
+        DB::table('seguridad.cpu_userrole')->insert(['id_userrole' => 1, 'role' => 'ADMIN', 'activo' => true]);
+        DB::table('seguridad.users')->insert([
+            'id' => 1, 'name' => 'Admin', 'email' => 'admin@example.test',
+            'password' => Hash::make('ClaveDePruebaSegura'),
+            'usr_tipo' => 1, 'usr_estado' => 1,
+        ]);
+        $this->mock(AuditoriaServicio::class)->shouldReceive('registrarAcceso')->once();
+
+        $this->assertNull(app(AuthService::class)->intentarLogin('admin@example.test', 'ClaveEquivocada'));
+    }
+
 }

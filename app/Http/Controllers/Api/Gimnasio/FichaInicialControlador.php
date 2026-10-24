@@ -15,7 +15,7 @@ class FichaInicialControlador extends Controller
         abort_unless(DB::table('clientes.deportistas')->where('id', $deportistaId)->exists(), 404);
         $user = $request->user();
         $rol = DB::table('seguridad.cpu_userrole')->where('id_userrole', $user->usr_tipo)->value('role');
-        abort_unless(in_array($rol, ['ADMINISTRADOR', 'ENTRENADOR'], true), 403);
+        abort_unless(in_array($rol, ['SUPERADMINISTRADOR', 'ADMINISTRADOR', 'ENTRENADOR'], true), 403);
         if ($rol === 'ENTRENADOR') {
             $asignado = DB::table('entrenamiento.asignaciones_entrenador_cliente')
                 ->join('entrenamiento.entrenadores as e', 'e.id', '=', 'entrenamiento.asignaciones_entrenador_cliente.entrenador_id')

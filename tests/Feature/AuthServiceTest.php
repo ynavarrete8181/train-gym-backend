@@ -76,4 +76,23 @@ class AuthServiceTest extends TestCase
         $this->assertNull(app(AuthService::class)->intentarLogin('admin@example.test', 'ClaveEquivocada'));
     }
 
+
+    public function test_permite_login_con_invitacion_activada(): void
+    {
+        DB::table('seguridad.cpu_userrole')->insert(['id_userrole' => 1, 'role' => 'ADMIN', 'activo' => true]);
+        DB::table('seguridad.users')->insert([
+            'id' => 1, 'name' => 'Admin', 'email' => 'admin@example.test',
+            'password' => Hash::make('ClaveDePruebaSegura'),
+            'usr_tipo' => 1, 'usr_estado' => 1,
+            'email_verified_at' => now(),
+        ]);
+        DB::table('notificaciones.notificaciones')->insert(['usuario_id' => 1, 'tipo' => 'INVITACION_USUARIO']);
+        $this->mock(AuditoriaServicio::class)->shouldReceive('registrarAcceso')->once();
+
+        $resultado = app(AuthService::class)->intentarLogin('admin@example.test', 'ClaveDePruebaSegura');
+        $this->assertIsArray($resultado);
+        $this->assertNotEmpty($resultado['token']);
+        $this->assertSame(1, DB::table('seguridad.tokens_acceso')->count());
+    }
+
 }

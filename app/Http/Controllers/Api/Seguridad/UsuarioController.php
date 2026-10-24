@@ -198,7 +198,14 @@ class UsuarioController extends Controller
         $usuarioActualizado = DB::transaction(function () use ($usuario, $datos) {
             $actualizado = $this->usuarioService->actualizar($usuario, $datos);
             $this->estructuraService->asignarUsuario($usuario->id, $datos['contextos']);
-            $this->usuarioService->guardarFuncionesUsuario($usuario->id, (int) $datos['usr_tipo'], $datos['funciones']);
+            // SUPERADMINISTRADOR tiene permisos globales por rol: no validar ni
+            // reemplazar una lista personal que no determina sus accesos.
+            $rolDestino = DB::table('seguridad.cpu_userrole')
+                ->where('id_userrole', (int) $datos['usr_tipo'])
+                ->value('role');
+            if ($rolDestino !== 'SUPERADMINISTRADOR') {
+                $this->usuarioService->guardarFuncionesUsuario($usuario->id, (int) $datos['usr_tipo'], $datos['funciones']);
+            }
 
             return $actualizado;
         });

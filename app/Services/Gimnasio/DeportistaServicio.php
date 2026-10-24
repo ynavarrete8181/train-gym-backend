@@ -19,6 +19,19 @@ class DeportistaServicio
             $personaId = $this->resolverPersonaCliente($persona ?? []);
             $datos['persona_id'] = $personaId;
             $datos['usuario_id'] = $datos['usuario_id'] ?? null;
+            // Si la persona ya tiene cuenta DEPORTISTA, enlazarla sin crear otra.
+            if ($datos['usuario_id'] === null) {
+                $usuarios = DB::table('seguridad.users as u')
+                    ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
+                    ->where('u.persona_id', $personaId)->where('r.role', 'DEPORTISTA')
+                    ->limit(2)->pluck('u.id');
+                if ($usuarios->count() > 1) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'persona.identificacion' => 'Hay varias cuentas de deportista asociadas a esta persona. Revisa Seguridad antes de continuar.',
+                    ]);
+                }
+                $datos['usuario_id'] = $usuarios->first();
+            }
             $datos['created_at'] = now();
             $datos['updated_at'] = now();
 
@@ -157,6 +170,41 @@ class DeportistaServicio
         );
     }
 
+    /**
+     * Un documento identifica una única persona, incluso si se registró con espacios
+     * o diferencias de mayúsculas. Rechazamos ambigüedades históricas.
+     */
+    private function buscarPersonaPorDocumento(string $identificacion): ?object
+    {
+        if ($identificacion === '') {
+            return null;
+        }
+
+        $coincidencias = DB::table('personas.personas')
+            ->whereRaw('LOWER(TRIM(identificacion)) = LOWER(TRIM(?))', [$identificacion])
+            ->limit(2)->get(['id', 'identificacion']);
+
+        if ($coincidencias->count() > 1) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'persona.identificacion' => 'Existen personas duplicadas con esta identificación. Solicita una revisión antes de continuar.',
+            ]);
+        }
+
+        return $coincidencias->first();
+    }
+
+    private function validarDocumentoUnico(string $identificacion, int $personaId): void
+    {
+        if ($identificacion !== '' && DB::table('personas.personas')
+            ->where('id', '<>', $personaId)
+            ->whereRaw('LOWER(TRIM(identificacion)) = LOWER(TRIM(?))', [$identificacion])
+            ->exists()) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'persona.identificacion' => 'La identificación pertenece a otra persona.',
+            ]);
+        }
+    }
+
     private function resolverPersonaCliente(array $datos): int
     {
         $identificacion = trim((string) ($datos['identificacion'] ?? ''));
@@ -167,19 +215,10 @@ class DeportistaServicio
 
         $persona = null;
 
-        if ($identificacion !== '') {
-            $persona = DB::table('personas.personas')
-                ->whereRaw('LOWER(TRIM(identificacion)) = LOWER(TRIM(?))', [$identificacion])
-                ->first();
-        }
+        $persona = $this->buscarPersonaPorDocumento($identificacion);
 
-        if (! $persona && $email !== '') {
-            $persona = DB::table('personas.personas')
-                ->whereNotNull('email')
-                ->whereRaw('LOWER(TRIM(email)) = LOWER(TRIM(?))', [$email])
-                ->first();
-        }
-
+        // El correo puede ser compartido por familiares: nunca acredita identidad.
+        // Si el documento existe, resolvemos únicamente por identificación.
         if ($persona) {
             if (DB::table('clientes.deportistas')->where('persona_id', $persona->id)->exists()) {
                 throw \Illuminate\Validation\ValidationException::withMessages([
@@ -187,7 +226,8 @@ class DeportistaServicio
                 ]);
             }
 
-            $this->actualizarPersonaCliente((int) $persona->id, $datos);
+            // La creación de un cliente no debe sobrescribir una persona ya existente.
+            // Sus datos se editan explícitamente desde la ficha correspondiente.
             return (int) $persona->id;
         }
 
@@ -213,6 +253,7 @@ class DeportistaServicio
         $nombres = trim((string) ($datos['nombres'] ?? ''));
         $apellidos = trim((string) ($datos['apellidos'] ?? ''));
         $nombreCompleto = trim($nombres . ' ' . $apellidos);
+        $this->validarDocumentoUnico(trim((string) ($datos['identificacion'] ?? '')), $personaId);
 
         DB::table('personas.personas')->where('id', $personaId)->update([
             'tipo_identificacion' => $datos['tipo_identificacion'] ?? null,
@@ -239,24 +280,10 @@ class DeportistaServicio
 
         $persona = null;
 
-        if ($identificacion !== '') {
-            $persona = DB::table('personas.personas')
-                ->whereRaw('LOWER(TRIM(identificacion)) = LOWER(TRIM(?))', [$identificacion])
-                ->first();
-        }
+        $persona = $this->buscarPersonaPorDocumento($identificacion);
 
-        if (! $persona && $email !== '') {
-            $persona = DB::table('personas.personas')
-                ->whereNotNull('email')
-                ->whereRaw('LOWER(TRIM(email)) = LOWER(TRIM(?))', [$email])
-                ->first();
-        }
-
-        if (! $persona && $nombreCompleto !== '') {
-            $persona = DB::table('personas.personas')
-                ->whereRaw('LOWER(TRIM(nombre_completo)) = LOWER(TRIM(?))', [$nombreCompleto])
-                ->first();
-        }
+        // Nunca vincular o sobrescribir un representante por correo o nombre;
+        // ambos pueden coincidir entre personas distintas.
 
         $payload = [
             'tipo_identificacion' => $datos['tipo_identificacion'] ?? ($identificacion !== '' ? 'CEDULA' : null),
@@ -272,7 +299,7 @@ class DeportistaServicio
         ];
 
         if ($persona) {
-            DB::table('personas.personas')->where('id', $persona->id)->update($payload);
+            // La relación reutiliza la identidad confirmada sin editar su ficha.
             return (int) $persona->id;
         }
 

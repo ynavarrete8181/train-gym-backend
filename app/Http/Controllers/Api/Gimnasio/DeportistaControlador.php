@@ -91,6 +91,69 @@ class DeportistaControlador extends Controller
         ]);
     }
 
+    public function diagnosticoIdentidad(Request $request, $id)
+    {
+        if (! ctype_digit((string) $id)) {
+            return response()->json(['mensaje' => 'Identificador inválido.'], 404);
+        }
+
+        $cliente = DB::table('clientes.deportistas as d')
+            ->leftJoin('personas.personas as p', 'p.id', '=', 'd.persona_id')
+            ->leftJoin('seguridad.users as u', 'u.id', '=', 'd.usuario_id')
+            ->where('d.id', (int) $id)
+            ->first(['d.id', 'd.persona_id', 'd.usuario_id', 'p.identificacion', 'u.persona_id as usuario_persona_id']);
+
+        if (! $cliente) {
+            return response()->json(['mensaje' => 'Cliente no encontrado.'], 404);
+        }
+
+        $identificacion = trim((string) ($cliente->identificacion ?? ''));
+        $coincidencias = $identificacion === '' ? collect() :
+            DB::table('personas.personas')
+                ->whereRaw('LOWER(TRIM(identificacion)) = LOWER(TRIM(?))', [$identificacion])
+                ->orderBy('id')->get(['id']);
+
+        // Diagnóstico de solo lectura: comparar todos los perfiles con el mismo documento.
+        // No exponer correo, documento ni notas clínicas en la respuesta.
+        $perfiles = $coincidencias->isEmpty() ? collect() :
+            DB::table('clientes.deportistas as d')
+                ->whereIn('d.persona_id', $coincidencias->pluck('id')->all())
+                ->orderBy('d.id')
+                ->get(['d.id', 'd.persona_id', 'd.usuario_id', 'd.estado', 'd.sede_principal_id', 'd.codigo_deportista']);
+
+        $relaciones = [];
+        foreach ($perfiles as $perfil) {
+            $idCliente = (int) $perfil->id;
+            $relaciones[] = [
+                'cliente_id' => $idCliente,
+                'persona_id' => (int) $perfil->persona_id,
+                'usuario_id' => $perfil->usuario_id,
+                'estado' => $perfil->estado,
+                'sede_principal_id' => $perfil->sede_principal_id,
+                'codigo_deportista' => $perfil->codigo_deportista,
+                'membresias' => DB::table('membresias.membresias')->where('deportista_id', $idCliente)->count(),
+                'valoraciones' => DB::table('clientes.valoracion_registros')->where('deportista_id', $idCliente)->count(),
+            ];
+        }
+
+        $resultado = [
+            'perfiles_coincidentes' => $relaciones,
+            'requiere_revision_manual' => $coincidencias->count() > 1 || $perfiles->count() > 1,
+            'cliente_id' => (int) $cliente->id,
+            'persona_id' => $cliente->persona_id,
+            'usuario_id' => $cliente->usuario_id,
+            'persona_existente' => $cliente->persona_id !== null && $cliente->identificacion !== null,
+            'documento_registrado' => $identificacion !== '',
+            'coincidencias_documento' => $coincidencias->count(),
+            'persona_ids_coincidentes' => $coincidencias->pluck('id')->all(),
+            'usuario_consistente' => $cliente->usuario_id === null
+                ? null
+                : ((int) $cliente->usuario_persona_id === (int) $cliente->persona_id),
+        ];
+
+        return ApiResponse::exito('Diagnóstico de identidad consultado.', $resultado);
+    }
+
     public function store(Request $request)
     {
         $validados = $this->validarDatosCliente($request);
@@ -100,6 +163,18 @@ class DeportistaControlador extends Controller
         }
 
         $validados['usuario_id'] = $validados['usuario_id'] ?? null;
+        if ($validados['usuario_id']) {
+            $usuario = DB::table('seguridad.users')->where('id', $validados['usuario_id'])->first(['persona_id']);
+            $documento = trim((string) ($validados['persona']['identificacion'] ?? ''));
+            $persona = $documento !== ''
+                ? DB::table('personas.personas')->whereRaw('LOWER(TRIM(identificacion)) = LOWER(TRIM(?))', [$documento])->first(['id'])
+                : null;
+            if (! $usuario?->persona_id || ! $persona || (int) $usuario->persona_id !== (int) $persona->id) {
+                throw ValidationException::withMessages([
+                    'usuario_id' => 'El usuario seleccionado debe pertenecer a la misma persona identificada. Registra el cliente y crea su acceso desde Usuarios si todavía no tiene cuenta.',
+                ]);
+            }
+        }
         $deportista = $this->deportistaServicio->crear($validados);
 
         return ApiResponse::exito('Cliente creado correctamente.', (array) $deportista, [], 201);

@@ -125,6 +125,26 @@ class UsuarioController extends Controller
 
         $usuario = DB::transaction(function () use ($datos, $request) {
             $usuario = $this->usuarioService->crear($datos);
+
+            // Vincular la cuenta al cliente de la misma persona únicamente
+            // cuando el rol es DEPORTISTA. No crear ni modificar identidades.
+            $rol = DB::table('seguridad.cpu_userrole')
+                ->where('id_userrole', $usuario->usr_tipo)->value('role');
+            if ($rol === 'DEPORTISTA') {
+                $cliente = DB::table('clientes.deportistas')
+                    ->where('persona_id', $usuario->persona_id)
+                    ->lockForUpdate()->first(['id', 'usuario_id']);
+                if ($cliente) {
+                    if ($cliente->usuario_id !== null && (int) $cliente->usuario_id !== (int) $usuario->id) {
+                        throw ValidationException::withMessages([
+                            'persona_id' => 'El deportista ya está asociado a otra cuenta. Revisa la vinculación antes de continuar.',
+                        ]);
+                    }
+                    DB::table('clientes.deportistas')->where('id', $cliente->id)
+                        ->update(['usuario_id' => $usuario->id, 'updated_at' => now()]);
+                }
+            }
+
             $this->estructuraService->asignarUsuario($usuario->id, $datos['contextos']);
             $this->notificacionService->solicitar($usuario, $request->user()?->id);
 

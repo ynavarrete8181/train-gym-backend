@@ -1,7 +1,11 @@
 <?php
 
 use App\Http\Controllers\Api\Gimnasio\DeportistaControlador;
+use App\Http\Controllers\Api\Gimnasio\FichaInicialControlador;
+use App\Http\Controllers\Api\Gimnasio\ValoracionDeportistaControlador;
+use App\Http\Controllers\Api\Gimnasio\FotografiaValoracionControlador;
 use App\Http\Controllers\Api\Gimnasio\MembresiaControlador;
+use App\Http\Controllers\Api\Gimnasio\DescuentoDeportistaControlador;
 use App\Http\Controllers\Api\Gimnasio\PlanControlador;
 use App\Http\Controllers\Api\Gimnasio\EntrenadorControlador;
 use App\Http\Controllers\Api\Gimnasio\HorarioEntrenadorControlador;
@@ -48,6 +52,9 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
     Route::middleware(['base.permiso:GIMNASIO-DEPORTISTAS'])->group(function (): void {
         Route::get('clientes/capacidades', [ClienteCatalogoControlador::class, 'capacidades'])
             ->name('gimnasio.clientes.capacidades');
+        Route::get('clientes/{id}/diagnostico-identidad', [DeportistaControlador::class, 'diagnosticoIdentidad'])
+            ->whereNumber('id')
+            ->name('gimnasio.clientes.diagnostico-identidad');
         Route::get('clientes/usuarios-disponibles', [ClienteCatalogoControlador::class, 'usuariosDeportistasDisponibles'])
             ->name('gimnasio.clientes.usuarios-disponibles');
         Route::post('clientes', [DeportistaControlador::class, 'store'])->name('gimnasio.clientes.store');
@@ -71,6 +78,22 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         ->middleware('base.permiso:GIMNASIO-DEPORTISTAS,GIMNASIO-MEMBRESIAS')
         ->name('gimnasio.deportistas.show');
 
+    // Ficha inicial: el controlador valida ADMINISTRADOR o ENTRENADOR asignado; acceso autenticado.
+    Route::get('clientes/{id}/ficha-inicial', [FichaInicialControlador::class, 'mostrar'])->whereNumber('id');
+    Route::put('clientes/{id}/ficha-inicial', [FichaInicialControlador::class, 'guardar'])->whereNumber('id');
+
+    Route::get('clientes/{id}/fotos-valoracion', [FotografiaValoracionControlador::class, 'index'])->whereNumber('id');
+    Route::post('clientes/{id}/fotos-valoracion', [FotografiaValoracionControlador::class, 'guardar'])->whereNumber('id');
+    Route::get('clientes/{id}/fotos-valoracion/{foto}', [FotografiaValoracionControlador::class, 'mostrar'])->whereNumber('id')->whereNumber('foto');
+    Route::get('clientes/{id}/reporte-valoraciones', [ValoracionDeportistaControlador::class, 'reporteValoraciones'])->whereNumber('id');
+    Route::get('clientes/{id}/progreso-informe', [ValoracionDeportistaControlador::class, 'progreso'])->whereNumber('id');
+    Route::get('clientes/{id}/valoraciones/controles', [ValoracionDeportistaControlador::class, 'controlesDeportista'])->whereNumber('id');
+    Route::get('clientes/{id}/valoraciones', [ValoracionDeportistaControlador::class, 'listar'])->whereNumber('id');
+    Route::post('clientes/{id}/valoraciones', [ValoracionDeportistaControlador::class, 'crear'])->whereNumber('id');
+    Route::put('clientes/{id}/valoraciones/{registro}', [ValoracionDeportistaControlador::class, 'actualizar'])->whereNumber('id')->whereNumber('registro');
+    Route::delete('clientes/{id}/valoraciones/{registro}', [ValoracionDeportistaControlador::class, 'eliminar'])->whereNumber('id')->whereNumber('registro');
+    Route::get('valoraciones/controles-pendientes', [ValoracionDeportistaControlador::class, 'controles']);
+
     // Membresías
     Route::middleware(['base.permiso:GIMNASIO-MEMBRESIAS'])->group(function (): void {
         Route::get('membresias', [MembresiaControlador::class, 'index'])->name('gimnasio.membresias.index');
@@ -79,6 +102,13 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::put('membresias/{id}', [MembresiaControlador::class, 'update'])->name('gimnasio.membresias.update');
         Route::post('membresias/{id}/renovar', [MembresiaControlador::class, 'renovar'])->name('gimnasio.membresias.renovar');
         Route::delete('membresias/{id}', [MembresiaControlador::class, 'destroy'])->name('gimnasio.membresias.destroy');
+    });
+
+    // Beneficios personalizados: solo administradores de planes.
+    Route::middleware(['base.permiso:GIMNASIO-PLANES'])->group(function (): void {
+        Route::get('descuentos-deportistas', [DescuentoDeportistaControlador::class, 'index'])->name('gimnasio.descuentos-deportistas.index');
+        Route::post('descuentos-deportistas', [DescuentoDeportistaControlador::class, 'store'])->name('gimnasio.descuentos-deportistas.store');
+        Route::put('descuentos-deportistas/{id}', [DescuentoDeportistaControlador::class, 'update'])->whereNumber('id')->name('gimnasio.descuentos-deportistas.update');
     });
 
     // Entrenadores: Clientes puede consultar asignación/horario sin adquirir permisos de administración.

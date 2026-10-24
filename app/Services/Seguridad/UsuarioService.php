@@ -230,16 +230,16 @@ class UsuarioService
     public function guardarFuncionesUsuario(int $idUsuario, int $idRol, array $codigosFunciones): void
     {
         $funciones = DB::table('seguridad.cpu_userrolefunction')
+            ->where('id_userrole', $idRol)
             ->whereIn('id_menu', $codigosFunciones)
             ->where('activo', true)
-            ->orderByRaw('CASE WHEN id_userrole = ? THEN 0 ELSE 1 END', [$idRol])
             ->get();
 
         $funcionesUnicas = $funciones->unique('id_menu')->values();
 
         if ($funcionesUnicas->count() !== count(array_unique($codigosFunciones))) {
             throw ValidationException::withMessages([
-                'funciones' => 'Una o varias funciones seleccionadas no existen o están inactivas.',
+                'funciones' => 'Una o varias funciones seleccionadas no pertenecen al rol o están inactivas.',
             ]);
         }
 

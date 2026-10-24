@@ -7,6 +7,8 @@ use App\Services\Entrenamiento\EntrenamientoServicio;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class EntrenamientoControlador extends Controller
 {
@@ -27,11 +29,40 @@ class EntrenamientoControlador extends Controller
             'equipamiento' => 'required|string|max:80',
             'tipo_entrenamiento' => 'nullable|string|max:80',
             'instrucciones' => 'nullable|string',
-            'url_recurso' => 'nullable|string',
+            'url_recurso' => ['nullable','url','max:2000', 'regex:/^https:\/\//i'],
             'activo' => 'boolean',
         ]);
 
-        return ApiResponse::exito('Ejercicio guardado correctamente.', (array) $this->entrenamiento->guardarEjercicio($datos, $id), [], $id ? 200 : 201);
+        $anterior = $id ? DB::table('entrenamiento.ejercicios')->where('id',$id)->first() : null;
+        if ($id) abort_unless($anterior,404);
+        if (!empty($datos['url_recurso'])) $datos['video_path'] = null;
+        $ejercicio = $this->entrenamiento->guardarEjercicio($datos, $id);
+        if ($anterior?->video_path && !empty($datos['url_recurso'])) {
+            Storage::disk('public')->delete($anterior->video_path);
+        }
+        return ApiResponse::exito('Ejercicio guardado correctamente.', (array) $ejercicio, [], $id ? 200 : 201);
+    }
+
+    public function subirVideoEjercicio(Request $request, int $id)
+    {
+        $datos = $request->validate([
+            'video' => 'required|file|mimes:mp4,webm,mov|max:51200',
+        ]);
+        $ejercicio = DB::table('entrenamiento.ejercicios')->where('id',$id)->first();
+        abort_unless($ejercicio,404);
+        $ruta = $datos['video']->store('entrenamiento/ejercicios', 'public');
+        try {
+            DB::table('entrenamiento.ejercicios')->where('id',$id)->update([
+                'video_path'=>$ruta, 'url_recurso'=>null, 'updated_at'=>now(),
+            ]);
+        } catch (\Throwable $e) {
+            Storage::disk('public')->delete($ruta);
+            throw $e;
+        }
+        if ($ejercicio->video_path) Storage::disk('public')->delete($ejercicio->video_path);
+        return ApiResponse::exito('Video del ejercicio subido correctamente.', [
+            'video_url'=>Storage::disk('public')->url($ruta),
+        ]);
     }
 
     public function planes(Request $request)
@@ -91,12 +122,26 @@ class EntrenamientoControlador extends Controller
             'cliente_id' => 'required|exists:pgsql.gimnasio.deportistas,id',
             'ejercicio_id' => 'required|exists:pgsql.entrenamiento.ejercicios,id',
             'tipo_registro' => 'required|string|in:DIRECTO,ESTIMADO',
-            'peso' => 'required|numeric|min:0',
-            'repeticiones' => 'nullable|integer|min:1|max:200',
-            'rm_estimado' => 'required|numeric|min:0',
+            'peso' => 'required|numeric|gt:0|lte:1000',
+            'repeticiones' => 'nullable|integer|min:1|max:10',
+            'rm_estimado' => 'nullable|numeric',
             'fecha_registro' => 'required|date',
             'observaciones' => 'nullable|string',
         ]);
+
+        if ($datos['tipo_registro'] === 'ESTIMADO') {
+            if (empty($datos['repeticiones'])) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['repeticiones' => 'Indica de 1 a 10 repeticiones para estimar la RM.']);
+            }
+            // Fórmula de Epley: aproximación para series submáximas (1 a 10 repeticiones).
+            $datos['rm_estimado'] = round((float) $datos['peso'] * (1 + $datos['repeticiones'] / 30), 2);
+        } else {
+            if (isset($datos['repeticiones']) && $datos['repeticiones'] !== 1) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['repeticiones' => 'La 1RM directa requiere una repetición.']);
+            }
+            $datos['repeticiones'] = 1;
+            $datos['rm_estimado'] = (float) $datos['peso'];
+        }
 
         return ApiResponse::exito('Registro RM guardado correctamente.', (array) $this->entrenamiento->guardarRm($datos, $id), [], $id ? 200 : 201);
     }

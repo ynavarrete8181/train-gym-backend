@@ -16,6 +16,7 @@ class MembresiaControlador extends Controller
     public function __construct(
         protected MembresiaServicio $membresiaServicio,
         protected VentaServicio $ventaServicio,
+        protected \App\Services\Gimnasio\DescuentoDeportistaServicio $descuentos,
     ) {
     }
 
@@ -135,6 +136,11 @@ class MembresiaControlador extends Controller
             $plan = DB::table('membresias.planes')->where('id', $membresia->plan_id)->first();
 
             if ($generarVenta) {
+                $beneficio = $this->descuentos->resolver(
+                    (int) $membresia->deportista_id, (int) $membresia->plan_id,
+                    $membresia->modalidad_id ? (int) $membresia->modalidad_id : null,
+                    now()->toDateString(), (float) $membresia->precio_aplicado
+                );
                 $venta = $this->ventaServicio->guardarVenta([
                     'cliente_id' => $membresia->deportista_id,
                     'membresia_id' => $membresia->id,
@@ -145,9 +151,9 @@ class MembresiaControlador extends Controller
                     'tipo_venta' => ($plan->tipo_producto ?? 'MEMBRESIA') === 'PASE_DIARIO' ? 'SERVICIO' : 'MEMBRESIA',
                     'concepto' => $plan->nombre . ' - ' . $membresia->codigo_contrato,
                     'subtotal' => $membresia->precio_aplicado,
-                    'descuento' => 0,
+                    'descuento' => $beneficio['importe_descuento'],
                     'impuesto' => 0,
-                    'total' => $membresia->precio_aplicado,
+                    'total' => $beneficio['total'],
                     'estado' => 'PENDIENTE',
                     'observaciones' => 'Venta generada automáticamente desde Membresías.',
                     'detalle' => [
@@ -166,6 +172,11 @@ class MembresiaControlador extends Controller
                     ->value('id');
 
                 if ($periodoId) {
+                    DB::table('membresias.membresia_periodos')->where('id', $periodoId)->update([
+                        'descuento_id' => $beneficio['descuento_id'],
+                        'descuento_importe' => $beneficio['importe_descuento'],
+                        'updated_at' => now(),
+                    ]);
                     $this->membresiaServicio->vincularVentaPeriodo((int) $periodoId, (int) $venta->id);
                 }
             }
@@ -228,6 +239,11 @@ class MembresiaControlador extends Controller
             $venta = null;
 
             if ($plan->generar_venta ?? true) {
+                $beneficio = $this->descuentos->resolver(
+                    (int) $membresiaActualizada->deportista_id, (int) $membresiaActualizada->plan_id,
+                    $membresiaActualizada->modalidad_id ? (int) $membresiaActualizada->modalidad_id : null,
+                    now()->toDateString(), (float) $periodo->precio
+                );
                 $venta = $this->ventaServicio->guardarVenta([
                     'cliente_id' => $membresiaActualizada->deportista_id,
                     'membresia_id' => $id,
@@ -241,9 +257,9 @@ class MembresiaControlador extends Controller
                         . ' - Período ' . $periodo->numero_periodo
                         . ' (' . $periodo->fecha_inicio . ' al ' . $periodo->fecha_fin . ')',
                     'subtotal' => $periodo->precio,
-                    'descuento' => 0,
+                    'descuento' => $beneficio['importe_descuento'],
                     'impuesto' => 0,
-                    'total' => $periodo->precio,
+                    'total' => $beneficio['total'],
                     'estado' => 'PENDIENTE',
                     'observaciones' => 'Cobro generado por renovación de membresía.',
                     'detalle' => [
@@ -256,6 +272,11 @@ class MembresiaControlador extends Controller
                     ],
                 ], null, $request->user()?->id);
 
+                DB::table('membresias.membresia_periodos')->where('id', $periodo->id)->update([
+                    'descuento_id' => $beneficio['descuento_id'],
+                    'descuento_importe' => $beneficio['importe_descuento'],
+                    'updated_at' => now(),
+                ]);
                 $this->membresiaServicio->vincularVentaPeriodo((int) $periodo->id, (int) $venta->id);
             }
 
@@ -454,7 +475,8 @@ class MembresiaControlador extends Controller
             return false;
         }
 
-        return (bool) ($plan->generar_venta ?? true);
+        // La venta inicial se decide al asignar la membresía, no en la tarifa del plan.
+        return true;
     }
 
     public function destroy($id)

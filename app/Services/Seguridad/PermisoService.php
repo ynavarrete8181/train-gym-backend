@@ -9,7 +9,7 @@ class PermisoService
 {
     public function usuarioTieneAlgunaFuncion(User $usuario, array $codigos): bool
     {
-        $codigosNormalizados = collect($codigos)
+        // El superadministrador activo tiene alcance global; no depende de permisos individuales.\n        if (DB::table('seguridad.cpu_userrole')\n            ->where('id_userrole', $usuario->usr_tipo)\n            ->where('role', 'SUPERADMINISTRADOR')\n            ->where('activo', true)\n            ->exists()) {\n            return true;\n        }\n\n        $codigosNormalizados = collect($codigos)
             ->map(fn (string $codigo): string => mb_strtoupper(trim($codigo)))
             ->filter()
             ->unique()

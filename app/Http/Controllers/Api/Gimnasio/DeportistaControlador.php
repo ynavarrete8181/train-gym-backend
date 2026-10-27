@@ -33,7 +33,6 @@ class DeportistaControlador extends Controller
             ->leftJoin('personas.personas as p', 'clientes.deportistas.persona_id', '=', 'p.id')
             ->leftJoin('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
             ->leftJoin('institucional.sedes', 'clientes.deportistas.sede_principal_id', '=', 'institucional.sedes.id_sede')
-
             ->select(
                 'clientes.deportistas.*',
                 'p.identificacion as cedula',
@@ -349,8 +348,7 @@ class DeportistaControlador extends Controller
         $base = DB::table('clientes.deportistas')
             ->leftJoin('personas.personas as p', 'clientes.deportistas.persona_id', '=', 'p.id')
             ->leftJoin('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
-            ->leftJoin('institucional.sedes', 'clientes.deportistas.sede_principal_id', '=', 'institucional.sedes.id_sede')
-;
+            ->leftJoin('institucional.sedes', 'clientes.deportistas.sede_principal_id', '=', 'institucional.sedes.id_sede');
 
         return [
             'cedula' => (clone $base)

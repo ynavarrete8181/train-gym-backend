@@ -32,7 +32,7 @@ class AgendaConfiguracionServicio
                 DB::raw('MAX(jd.hora_fin) as hora_fin'),
                 DB::raw("STRING_AGG(DISTINCT jd.dia_semana, ',') as dias_text")
             )
-            ->groupBy('j.id');
+            ->groupBy('j.id', 'j.nombre', 'j.descripcion', 'j.activo', 'j.created_at', 'j.updated_at');
 
         if (! empty($filtros['busqueda'])) {
             $texto = '%' . mb_strtolower(trim($filtros['busqueda'])) . '%';

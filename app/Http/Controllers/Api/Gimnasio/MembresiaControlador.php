@@ -112,13 +112,13 @@ class MembresiaControlador extends Controller
             'renovacion_automatica' => 'boolean',
             'fecha_congelacion_inicio' => 'nullable|required_with:fecha_congelacion_fin|date',
             'fecha_congelacion_fin' => 'nullable|required_with:fecha_congelacion_inicio|date|after_or_equal:fecha_congelacion_inicio',
-            'generar_venta' => 'boolean',
         ]);
 
         $validados['sede_id'] = (int) collect($validados['sedes_habilitadas'])->first();
         $this->validarDeportistaActual((int) $validados['deportista_id']);
         $this->validarConfiguracionMembresia(
             (int) $validados['plan_id'],
+            (int) $validados['deportista_id'],
             (int) $validados['sede_id'],
             $validados['sedes_habilitadas'],
             $validados['asignaciones_entrenador'] ?? [],
@@ -126,9 +126,17 @@ class MembresiaControlador extends Controller
             true
         );
         $planConfigurado = DB::table('membresias.planes')->where('id', $validados['plan_id'])->first();
-        $generarVentaSolicitada = (bool) ($validados['generar_venta'] ?? false);
-        $generarVenta = $generarVentaSolicitada && $this->debeGenerarVentaAlAsignar($planConfigurado);
-        unset($validados['generar_venta']);
+        $duplicada = DB::table('membresias.membresias')
+            ->where('deportista_id', $validados['deportista_id'])
+            ->where('plan_id', $validados['plan_id'])
+            ->whereNotIn('estado', ['CANCELADA', 'VENCIDA'])
+            ->exists();
+        if ($duplicada) {
+            throw ValidationException::withMessages([
+                'plan_id' => 'El cliente ya tiene una membresía vigente o pendiente para este plan.',
+            ]);
+        }
+        $generarVenta = $this->debeGenerarVentaAlAsignar($planConfigurado);
 
         [$membresia, $venta] = DB::transaction(function () use ($validados, $generarVenta, $request): array {
             $membresia = $this->membresiaServicio->crear($validados);
@@ -334,16 +342,23 @@ class MembresiaControlador extends Controller
             'dia_pago' => 'nullable|integer|min:1|max:31|required_if:generar_venta_automatica,true',
             'generar_venta_automatica' => 'boolean',
             'renovacion_automatica' => 'boolean',
-            'generar_venta' => 'boolean',
             'fecha_congelacion_inicio' => 'nullable|required_with:fecha_congelacion_fin|date',
             'fecha_congelacion_fin' => 'nullable|required_with:fecha_congelacion_inicio|date|after_or_equal:fecha_congelacion_inicio',
         ]);
 
         $planActual = DB::table('membresias.planes')->where('id', $membresia->plan_id)->first();
-        $generarVenta = array_key_exists('generar_venta', $validados)
-            ? ((bool) $validados['generar_venta'] && $this->debeGenerarVentaAlAsignar($planActual))
-            : null;
-        unset($validados['generar_venta']);
+        if (strtoupper((string) ($validados['estado'] ?? $membresia->estado)) === 'ACTIVA' && ($planActual->requiere_pago ?? true)) {
+            $ventaPagada = DB::table('ventas.ventas')
+                ->where('membresia_id', $membresia->id)
+                ->where('estado', 'PAGADA')
+                ->exists();
+            if (! $ventaPagada) {
+                throw ValidationException::withMessages([
+                    'estado' => 'La membresía solo puede activarse después de confirmar su pago.',
+                ]);
+            }
+        }
+        $generarVenta = $this->debeGenerarVentaAlAsignar($planActual);
 
         $sedesHabilitadas = collect($validados['sedes_habilitadas'])->map(fn ($id) => (int) $id)->values();
         $sedeActual = (int) ($membresia->sede_id ?? 0);
@@ -357,6 +372,7 @@ class MembresiaControlador extends Controller
 
         $this->validarConfiguracionMembresia(
             (int) $membresia->plan_id,
+            (int) $membresia->deportista_id,
             $sedeValidacion,
             $validados['sedes_habilitadas'],
             $validados['asignaciones_entrenador'] ?? [],
@@ -367,10 +383,8 @@ class MembresiaControlador extends Controller
         $membresiaActualizada = DB::transaction(function () use ($id, $validados, $generarVenta, $request) {
             $actualizada = $this->membresiaServicio->actualizar($id, $validados);
 
-            if ($generarVenta !== null) {
-                $this->sincronizarFacturacion((int) $id, $generarVenta, $request);
-                $actualizada = $this->membresiaServicio->obtenerMembresiaConRelaciones((int) $id);
-            }
+            $this->sincronizarFacturacion((int) $id, $generarVenta, $request);
+            $actualizada = $this->membresiaServicio->obtenerMembresiaConRelaciones((int) $id);
 
             return $actualizada;
         });
@@ -475,8 +489,7 @@ class MembresiaControlador extends Controller
             return false;
         }
 
-        // La venta inicial se decide al asignar la membresía, no en la tarifa del plan.
-        return true;
+        return (bool) ($plan->generar_venta ?? false) && (bool) ($plan->requiere_pago ?? true);
     }
 
     public function destroy($id)
@@ -489,6 +502,7 @@ class MembresiaControlador extends Controller
 
     private function validarConfiguracionMembresia(
         int $planId,
+        int $deportistaId,
         int $sedePrincipalId,
         array $sedesHabilitadas,
         array $asignaciones,
@@ -507,6 +521,12 @@ class MembresiaControlador extends Controller
         $plan = DB::table('membresias.planes')->where('id', $planId)->first();
         if (! $plan) {
             throw ValidationException::withMessages(['plan_id' => 'El plan seleccionado no existe.']);
+        }
+
+        if (($plan->requiere_ficha_inicial ?? false) && ! DB::table('clientes.fichas_iniciales')->where('deportista_id', $deportistaId)->exists()) {
+            throw ValidationException::withMessages([
+                'deportista_id' => 'Completa la ficha inicial del cliente antes de asignar este plan.',
+            ]);
         }
 
         if ($plan->requiere_modalidades ?? false) {

@@ -37,6 +37,9 @@ class AsignacionEntrenadorClienteServicio
     public function asignar(array $datos): object
     {
         return DB::transaction(function () use ($datos) {
+            $datos = $this->resolverMembresiaYSede($datos);
+            $this->validarCompatibilidadMembresia($datos);
+
             if (! empty($datos['entrenador_horario_id'])) {
                 $this->validarHorarioVigentePerteneceAEntrenador(
                     (int) $datos['entrenador_id'],
@@ -49,6 +52,10 @@ class AsignacionEntrenadorClienteServicio
                 );
                 $this->validarCapacidadHorarioVigente(
                     (int) $datos['entrenador_id'],
+                    (int) $datos['entrenador_horario_id']
+                );
+                $this->validarCruceDeHorario(
+                    (int) $datos['deportista_id'],
                     (int) $datos['entrenador_horario_id']
                 );
             } elseif (! empty($datos['horario_bloque_id'])) {
@@ -69,6 +76,108 @@ class AsignacionEntrenadorClienteServicio
             $this->auditar('entrenamiento', 'CREAR', 'entrenamiento.asignaciones_entrenador_cliente', $id, null, $asignacion);
             return $asignacion;
         });
+    }
+
+    private function resolverMembresiaYSede(array $datos): array
+    {
+        $membresia = ! empty($datos['membresia_id'])
+            ? DB::table('membresias.membresias as m')
+                ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
+                ->where('m.id', (int) $datos['membresia_id'])
+                ->where('m.deportista_id', (int) $datos['deportista_id'])
+                ->where('m.estado', 'ACTIVA')
+                ->where('p.requiere_entrenador', true)
+                ->select('m.*', 'p.requiere_entrenador')
+                ->first()
+            : DB::table('membresias.membresias as m')
+                ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
+                ->where('m.deportista_id', (int) $datos['deportista_id'])
+                ->where('p.requiere_entrenador', true)
+                ->where('m.estado', 'ACTIVA')
+                ->orderByDesc('m.fecha_inicio')
+                ->select('m.*', 'p.requiere_entrenador')
+                ->first();
+
+        if (! $membresia) {
+            throw ValidationException::withMessages([
+                'membresia_id' => 'El cliente necesita una membresía activa y pagada que incluya entrenador.',
+            ]);
+        }
+
+        $datos['membresia_id'] = (int) $membresia->id;
+        $datos['sede_id'] = (int) ($datos['sede_id'] ?? $membresia->sede_id);
+
+        return $datos;
+    }
+
+    private function validarCompatibilidadMembresia(array $datos): void
+    {
+        $membresia = DB::table('membresias.membresias')->where('id', $datos['membresia_id'])->first();
+
+        $sedeHabilitada = DB::table('membresias.membresia_sedes')
+            ->where('membresia_id', $membresia->id)
+            ->where('sede_id', $datos['sede_id'])
+            ->where('activo', true)
+            ->exists();
+
+        if (! $sedeHabilitada) {
+            throw ValidationException::withMessages([
+                'sede_id' => 'La sede del horario no está habilitada en la membresía.',
+            ]);
+        }
+
+        $servicioCompatible = DB::table('membresias.plan_servicios as ps')
+            ->join('entrenamiento.entrenador_servicios as es', function ($join) use ($datos): void {
+                $join->on('es.servicio_id', '=', 'ps.servicio_id')
+                    ->where('es.entrenador_id', '=', (int) $datos['entrenador_id'])
+                    ->where('es.activo', true);
+            })
+            ->where('ps.plan_id', $membresia->plan_id)
+            ->where('ps.activo', true)
+            ->exists();
+
+        if (! $servicioCompatible) {
+            throw ValidationException::withMessages([
+                'entrenador_id' => 'El entrenador no imparte ninguno de los servicios incluidos en la membresía.',
+            ]);
+        }
+
+        if (! empty($datos['entrenador_horario_id'])) {
+            $horarioEnSede = DB::table('agenda.entrenador_horario_franjas')
+                ->where('entrenador_horario_id', (int) $datos['entrenador_horario_id'])
+                ->where('sede_id', (int) $datos['sede_id'])
+                ->where('activo', true)
+                ->exists();
+
+            if (! $horarioEnSede) {
+                throw ValidationException::withMessages([
+                    'entrenador_horario_id' => 'El horario no tiene franjas activas en la sede de la membresía.',
+                ]);
+            }
+        }
+    }
+
+    private function validarCruceDeHorario(int $deportistaId, int $horarioId): void
+    {
+        $cruce = DB::table('agenda.entrenador_horario_franjas as nueva')
+            ->join('agenda.entrenador_horario_franjas as existente', function ($join): void {
+                $join->on('existente.dia_semana', '=', 'nueva.dia_semana')
+                    ->whereColumn('existente.hora_inicio', '<', 'nueva.hora_fin')
+                    ->whereColumn('existente.hora_fin', '>', 'nueva.hora_inicio')
+                    ->where('existente.activo', true);
+            })
+            ->join('entrenamiento.asignaciones_entrenador_cliente as a', 'a.entrenador_horario_id', '=', 'existente.entrenador_horario_id')
+            ->where('nueva.entrenador_horario_id', $horarioId)
+            ->where('nueva.activo', true)
+            ->where('a.deportista_id', $deportistaId)
+            ->where('a.estado', 'ACTIVO')
+            ->exists();
+
+        if ($cruce) {
+            throw ValidationException::withMessages([
+                'entrenador_horario_id' => 'El cliente ya tiene una asignación activa que se cruza con este horario.',
+            ]);
+        }
     }
 
     public function actualizarObservaciones(int $id, ?string $observaciones): object

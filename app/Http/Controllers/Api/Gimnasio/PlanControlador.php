@@ -47,6 +47,9 @@ class PlanControlador extends Controller
             $plan->servicios = $servicios->get($plan->id, collect())->values();
             $plan->servicio_ids = $plan->servicios->pluck('id')->map(fn ($id) => (int) $id)->values();
             $plan->modalidades = $this->planServicio->modalidadesDelPlan((int) $plan->id);
+            $plan->configuracion_completa = $plan->servicios->isNotEmpty()
+                && (! $plan->requiere_modalidades || $plan->modalidades->where('activo', true)->isNotEmpty())
+                && (! $plan->requiere_pago || (float) $plan->precio_base > 0 || $plan->precios_sede->isNotEmpty() || $plan->modalidades->contains(fn ($modalidad) => (float) $modalidad->precio_base > 0));
             return $plan;
         });
 
@@ -191,6 +194,7 @@ class PlanControlador extends Controller
             'generar_venta' => 'boolean',
             'requiere_pago' => 'boolean',
             'requiere_entrenador' => 'boolean',
+            'requiere_ficha_inicial' => 'boolean',
             'renovable' => 'boolean',
             'requiere_modalidades' => 'boolean',
             'activo' => 'boolean',
@@ -284,9 +288,9 @@ class PlanControlador extends Controller
             ->values()
             ->all();
 
-        if ($requiereEntrenador && empty($servicioIds)) {
+        if (($datos['activo'] ?? true) && empty($servicioIds)) {
             throw \Illuminate\Validation\ValidationException::withMessages([
-                'servicio_ids' => 'Selecciona al menos un servicio incluido para un plan que requiere entrenador.',
+                'servicio_ids' => 'Selecciona al menos un servicio incluido antes de activar el plan.',
             ]);
         }
 
@@ -303,7 +307,7 @@ class PlanControlador extends Controller
             }
         }
 
-        $datos['servicio_ids'] = $requiereEntrenador ? $servicioIds : [];
+        $datos['servicio_ids'] = $servicioIds;
 
         if ($id) {
             unset($datos['codigo']);

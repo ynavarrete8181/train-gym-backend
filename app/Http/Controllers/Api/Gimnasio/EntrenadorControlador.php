@@ -100,6 +100,19 @@ class EntrenadorControlador extends Controller
                 ->values()
                 ->all();
 
+            $entrenador->horarios_vigentes = DB::table('agenda.entrenador_horarios')
+                ->where('entrenador_id', $entrenador->id)
+                ->where('activo', true)
+                ->where(function ($query): void {
+                    $query->whereNull('fecha_inicio')->orWhereDate('fecha_inicio', '<=', now()->toDateString());
+                })
+                ->where(function ($query): void {
+                    $query->whereNull('fecha_fin')->orWhereDate('fecha_fin', '>=', now()->toDateString());
+                })
+                ->count();
+            $entrenador->configuracion_completa = count($entrenador->servicio_ids) > 0
+                && $entrenador->horarios_vigentes > 0;
+
             return $entrenador;
         })->all();
 

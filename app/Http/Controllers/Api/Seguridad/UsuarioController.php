@@ -199,7 +199,7 @@ class UsuarioController extends Controller
             $rolDestino = DB::table('seguridad.cpu_userrole')
                 ->where('id_userrole', (int) $datos['usr_tipo'])
                 ->value('role');
-            if ($rolDestino !== 'SUPERADMINISTRADOR') {
+            if (! in_array(mb_strtoupper(trim((string) $rolDestino)), ['ROOT', 'SUPERADMINISTRADOR'], true)) {
                 $this->usuarioService->guardarFuncionesUsuario($usuario->id, (int) $datos['usr_tipo'], $datos['funciones']);
             }
 

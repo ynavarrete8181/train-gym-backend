@@ -42,6 +42,17 @@ return new class extends Migration
 
     public function up(): void
     {
+        // Bloqueo explícito: nunca ejecutar una eliminación por despliegue automático.
+        if (getenv('REVIVE_ALLOW_DROP_GIMNASIO_VIEWS') !== 'true') {
+            throw new RuntimeException(
+                'Limpieza bloqueada. Requiere REVIVE_ALLOW_DROP_GIMNASIO_VIEWS=true tras validar respaldo y dependencias.'
+            );
+        }
+
+        if (DB::getDriverName() !== 'pgsql') {
+            throw new RuntimeException('La limpieza requiere PostgreSQL.');
+        }
+
         $actuales = DB::select("
             SELECT c.relname, c.relkind
             FROM pg_class c

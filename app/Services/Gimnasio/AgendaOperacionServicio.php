@@ -31,7 +31,7 @@ class AgendaOperacionServicio
                 ->where('permite_reservas', true)
                 ->orderBy('nombre')
                 ->get(['id_sede as id', 'nombre']),
-            'servicios' => DB::table('gimnasio.servicios')
+            'servicios' => DB::table('servicios.servicios')
                 ->where('activo', true)
                 ->where('requiere_reserva', true)
                 ->orderBy('nombre')
@@ -41,7 +41,7 @@ class AgendaOperacionServicio
 
     public function serviciosDisponibles(int $entrenadorId, int $sedeId): array
     {
-        $tieneAsignacion = DB::table('gimnasio.asignaciones_horario_entrenador')
+        $tieneAsignacion = DB::table('agenda.asignaciones_horario_entrenador')
             ->where('entrenador_id', $entrenadorId)
             ->where('sede_id', $sedeId)
             ->where('activo', true)
@@ -51,8 +51,8 @@ class AgendaOperacionServicio
             return [];
         }
 
-        return DB::table('gimnasio.entrenador_servicios as es')
-            ->join('gimnasio.servicios as s', 's.id', '=', 'es.servicio_id')
+        return DB::table('entrenamiento.entrenador_servicios as es')
+            ->join('servicios.servicios as s', 's.id', '=', 'es.servicio_id')
             ->where('es.entrenador_id', $entrenadorId)
             ->where('es.activo', true)
             ->where('s.activo', true)
@@ -75,8 +75,8 @@ class AgendaOperacionServicio
         $sedeId = (int) $filtros['sede_id'];
         $servicioId = (int) $filtros['servicio_id'];
 
-        $servicio = DB::table('gimnasio.servicios as s')
-            ->join('gimnasio.entrenador_servicios as es', function ($join) use ($entrenadorId): void {
+        $servicio = DB::table('servicios.servicios as s')
+            ->join('entrenamiento.entrenador_servicios as es', function ($join) use ($entrenadorId): void {
                 $join->on('es.servicio_id', '=', 's.id')
                     ->where('es.entrenador_id', $entrenadorId)
                     ->where('es.activo', true);
@@ -92,9 +92,9 @@ class AgendaOperacionServicio
             ]);
         }
 
-        $asignaciones = DB::table('gimnasio.asignaciones_horario_entrenador as a')
-            ->join('gimnasio.jornadas as j', 'j.id', '=', 'a.jornada_id')
-            ->leftJoin('gimnasio.recesos as r', 'r.id', '=', 'a.receso_id')
+        $asignaciones = DB::table('agenda.asignaciones_horario_entrenador as a')
+            ->join('agenda.jornadas as j', 'j.id', '=', 'a.jornada_id')
+            ->leftJoin('agenda.recesos as r', 'r.id', '=', 'a.receso_id')
             ->where('a.entrenador_id', $entrenadorId)
             ->where('a.sede_id', $sedeId)
             ->where('a.activo', true)
@@ -118,7 +118,7 @@ class AgendaOperacionServicio
         $bloques = collect();
 
         foreach ($asignaciones as $asignacion) {
-            $detalle = DB::table('gimnasio.jornada_detalles')
+            $detalle = DB::table('agenda.jornada_detalles')
                 ->where('jornada_id', $asignacion->jornada_id)
                 ->where('dia_semana', $dia)
                 ->where('activo', true)
@@ -165,7 +165,7 @@ class AgendaOperacionServicio
                     $motivo = $excepcion->motivo;
                 }
 
-                $reservas = DB::table('gimnasio.reservas_dia')
+                $reservas = DB::table('agenda.reservas_dia')
                     ->where('entrenador_id', $entrenadorId)
                     ->where('sede_id', $sedeId)
                     ->whereDate('fecha', $fecha->toDateString())
@@ -210,11 +210,11 @@ class AgendaOperacionServicio
 
     public function listarReservas(array $filtros)
     {
-        $query = DB::table('gimnasio.reservas_dia as r')
-            ->join('gimnasio.deportistas as d', 'd.id', '=', 'r.cliente_id')
+        $query = DB::table('agenda.reservas_dia as r')
+            ->join('clientes.deportistas as d', 'd.id', '=', 'r.cliente_id')
             ->join('seguridad.users as u', 'u.id', '=', 'd.usuario_id')
-            ->join('gimnasio.servicios as s', 's.id', '=', 'r.servicio_id')
-            ->leftJoin('gimnasio.entrenadores as e', 'e.id', '=', 'r.entrenador_id')
+            ->join('servicios.servicios as s', 's.id', '=', 'r.servicio_id')
+            ->leftJoin('entrenamiento.entrenadores as e', 'e.id', '=', 'r.entrenador_id')
             ->leftJoin('seguridad.users as ue', 'ue.id', '=', 'e.usuario_id')
             ->leftJoin('institucional.sedes as sd', 'sd.id_sede', '=', 'r.sede_id')
             ->select(
@@ -261,8 +261,8 @@ class AgendaOperacionServicio
 
     public function listarExcepciones(array $filtros)
     {
-        $query = DB::table('gimnasio.excepciones_horario as x')
-            ->join('gimnasio.entrenadores as e', 'e.id', '=', 'x.entrenador_id')
+        $query = DB::table('agenda.excepciones_horario as x')
+            ->join('entrenamiento.entrenadores as e', 'e.id', '=', 'x.entrenador_id')
             ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
             ->join('institucional.sedes as s', 's.id_sede', '=', 'x.sede_id')
             ->select(
@@ -307,7 +307,7 @@ class AgendaOperacionServicio
         $horaInicio = $datos['hora_inicio'] ?? null;
         $horaFin = $datos['hora_fin'] ?? null;
 
-        $reservasAfectadas = DB::table('gimnasio.reservas_dia')
+        $reservasAfectadas = DB::table('agenda.reservas_dia')
             ->where('entrenador_id', (int) $datos['entrenador_id'])
             ->where('sede_id', (int) $datos['sede_id'])
             ->whereBetween('fecha', [$fechaInicio->toDateString(), $fechaFin->toDateString()])
@@ -324,7 +324,7 @@ class AgendaOperacionServicio
             ]);
         }
 
-        $antes = $id ? DB::table('gimnasio.excepciones_horario')->where('id', $id)->first() : null;
+        $antes = $id ? DB::table('agenda.excepciones_horario')->where('id', $id)->first() : null;
 
         $payload = [
             'entrenador_id' => (int) $datos['entrenador_id'],
@@ -341,15 +341,15 @@ class AgendaOperacionServicio
         ];
 
         if ($id) {
-            DB::table('gimnasio.excepciones_horario')->where('id', $id)->update($payload);
+            DB::table('agenda.excepciones_horario')->where('id', $id)->update($payload);
             $excepcionId = $id;
         } else {
             $payload['created_at'] = now();
-            $excepcionId = DB::table('gimnasio.excepciones_horario')->insertGetId($payload);
+            $excepcionId = DB::table('agenda.excepciones_horario')->insertGetId($payload);
         }
 
-        $despues = DB::table('gimnasio.excepciones_horario')->where('id', $excepcionId)->first();
-        $this->auditar('gimnasio', $id ? 'ACTUALIZAR' : 'CREAR', 'gimnasio.excepciones_horario', $excepcionId, $antes, $despues);
+        $despues = DB::table('agenda.excepciones_horario')->where('id', $excepcionId)->first();
+        $this->auditar('gimnasio', $id ? 'ACTUALIZAR' : 'CREAR', 'agenda.excepciones_horario', $excepcionId, $antes, $despues);
 
         return $despues;
     }
@@ -361,7 +361,7 @@ class AgendaOperacionServicio
         string $horaInicio,
         string $horaFin
     ): ?object {
-        return DB::table('gimnasio.excepciones_horario')
+        return DB::table('agenda.excepciones_horario')
             ->where('entrenador_id', $entrenadorId)
             ->where('sede_id', $sedeId)
             ->where('activo', true)

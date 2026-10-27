@@ -26,7 +26,7 @@ class ValoracionDeportistaControlador extends Controller
         );
         if ($rol === 'ENTRENADOR') {
             abort_unless(DB::table('entrenamiento.asignaciones_entrenador_cliente as a')
-                ->join('gimnasio.entrenadores as e','e.id','=','a.entrenador_id')
+                ->join('entrenamiento.entrenadores as e','e.id','=','a.entrenador_id')
                 ->where('a.deportista_id',$id)->where('e.usuario_id',$usuario->id)
                 ->where('a.estado','ACTIVO')->exists(),403);
         }

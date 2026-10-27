@@ -73,7 +73,7 @@ class EntrenamientoControlador extends Controller
     public function guardarPlan(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'cliente_id' => 'required|exists:pgsql.gimnasio.deportistas,id',
+            'cliente_id' => 'required|exists:pgsql.clientes.deportistas,id',
             'entrenador_id' => 'nullable|exists:pgsql.seguridad.users,id',
             'nombre' => 'required|string|max:150',
             'objetivo' => 'nullable|string',
@@ -119,7 +119,7 @@ class EntrenamientoControlador extends Controller
     public function guardarRm(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'cliente_id' => 'required|exists:pgsql.gimnasio.deportistas,id',
+            'cliente_id' => 'required|exists:pgsql.clientes.deportistas,id',
             'ejercicio_id' => 'required|exists:pgsql.entrenamiento.ejercicios,id',
             'tipo_registro' => 'required|string|in:DIRECTO,ESTIMADO',
             'peso' => 'required|numeric|gt:0|lte:1000',
@@ -164,7 +164,7 @@ class EntrenamientoControlador extends Controller
     public function guardarProgreso(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'cliente_id' => 'required|exists:pgsql.gimnasio.deportistas,id',
+            'cliente_id' => 'required|exists:pgsql.clientes.deportistas,id',
             'fecha_registro' => 'required|date',
             'peso_kg' => 'nullable|numeric|min:0',
             'talla_cm' => 'nullable|numeric|min:0',

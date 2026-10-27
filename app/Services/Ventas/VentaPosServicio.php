@@ -42,13 +42,13 @@ class VentaPosServicio
                 DB::raw('COALESCE(p.identificacion, u.cedula) as identificacion'),
             ]);
 
-        $serviciosQuery = DB::table('gimnasio.servicios as s')
-            ->join('gimnasio.horarios_servicio as h', function ($join) use ($sedeId): void {
+        $serviciosQuery = DB::table('servicios.servicios as s')
+            ->join('agenda.horarios_servicio as h', function ($join) use ($sedeId): void {
                 $join->on('h.servicio_id', '=', 's.id')
                     ->where('h.sede_id', '=', $sedeId)
                     ->where('h.activo', '=', true);
             })
-            ->leftJoin('gimnasio.categorias_servicio as c', 'c.id', '=', 's.categoria_id')
+            ->leftJoin('servicios.categorias_servicio as c', 'c.id', '=', 's.categoria_id')
             ->where('s.activo', true);
 
         $columnasServicios = [
@@ -60,8 +60,8 @@ class VentaPosServicio
             'c.nombre as categoria',
         ];
 
-        if (Schema::connection('pgsql')->hasTable('gimnasio.servicio_precios_sede')) {
-            $serviciosQuery->leftJoin('gimnasio.servicio_precios_sede as ps', function ($join) use ($sedeId): void {
+        if (Schema::connection('pgsql')->hasTable('servicios.servicio_precios_sede')) {
+            $serviciosQuery->leftJoin('servicios.servicio_precios_sede as ps', function ($join) use ($sedeId): void {
                 $join->on('ps.servicio_id', '=', 's.id')
                     ->where('ps.sede_id', '=', $sedeId)
                     ->where('ps.activo', '=', true);
@@ -175,12 +175,12 @@ class VentaPosServicio
         $puedeGestionarCartera = $this->alcance->puedeGestionarCartera($usuarioId);
 
         $query = DB::table('ventas.ventas as v')
-            ->leftJoin('gimnasio.deportistas as d', 'd.id', '=', 'v.cliente_id')
+            ->leftJoin('clientes.deportistas as d', 'd.id', '=', 'v.cliente_id')
             ->leftJoin('personas.personas as persona', 'persona.id', '=', 'd.persona_id')
             ->leftJoin('seguridad.users as u', 'u.id', '=', 'd.usuario_id')
             ->leftJoin('seguridad.users as generado_por', 'generado_por.id', '=', 'v.usuario_id')
-            ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
-            ->leftJoin('gimnasio.planes as p', 'p.id', '=', 'm.plan_id')
+            ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
+            ->leftJoin('membresias.planes as p', 'p.id', '=', 'm.plan_id')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
             ->leftJoin('institucional.sedes as s', 's.id_sede', '=', DB::raw('COALESCE(c.sede_id, m.sede_id)'))
             ->whereIn('v.estado', ['PENDIENTE', 'PARCIAL']);
@@ -527,11 +527,11 @@ class VentaPosServicio
 
             if ($tipo === 'SERVICIO') {
                 $servicioId = (int) ($item['referencia_id'] ?? 0);
-                $servicio = DB::table('gimnasio.servicios as s')
-                    ->join('gimnasio.horarios_servicio as h', function ($join) use ($sedeId): void {
+                $servicio = DB::table('servicios.servicios as s')
+                    ->join('agenda.horarios_servicio as h', function ($join) use ($sedeId): void {
                         $join->on('h.servicio_id', '=', 's.id')->where('h.sede_id', '=', $sedeId)->where('h.activo', '=', true);
                     })
-                    ->join('gimnasio.servicio_precios_sede as ps', function ($join) use ($sedeId): void {
+                    ->join('servicios.servicio_precios_sede as ps', function ($join) use ($sedeId): void {
                         $join->on('ps.servicio_id', '=', 's.id')->where('ps.sede_id', '=', $sedeId)->where('ps.activo', '=', true);
                     })
                     ->where('s.id', $servicioId)
@@ -638,15 +638,15 @@ class VentaPosServicio
 
     private function planesPorSede(int $sedeId)
     {
-        if (! Schema::connection('pgsql')->hasTable('gimnasio.planes')) {
+        if (! Schema::connection('pgsql')->hasTable('membresias.planes')) {
             return collect();
         }
 
-        $query = DB::table('gimnasio.planes as p')->where('p.activo', true);
+        $query = DB::table('membresias.planes as p')->where('p.activo', true);
         $precio = 'p.precio_base as precio';
 
-        if (Schema::connection('pgsql')->hasTable('gimnasio.plan_precios_sede')) {
-            $query->leftJoin('gimnasio.plan_precios_sede as pp', function ($join) use ($sedeId): void {
+        if (Schema::connection('pgsql')->hasTable('membresias.plan_precios_sede')) {
+            $query->leftJoin('membresias.plan_precios_sede as pp', function ($join) use ($sedeId): void {
                 $join->on('pp.plan_id', '=', 'p.id')
                     ->where('pp.sede_id', '=', $sedeId)
                     ->where('pp.activo', '=', true);
@@ -665,11 +665,11 @@ class VentaPosServicio
             'p.tarifa_inscripcion',
         ];
 
-        $columnas[] = Schema::connection('pgsql')->hasColumn('gimnasio.planes', 'tipo_producto')
+        $columnas[] = Schema::connection('pgsql')->hasColumn('membresias.planes', 'tipo_producto')
             ? 'p.tipo_producto'
             : DB::raw("'MEMBRESIA'::varchar as tipo_producto");
 
-        $columnas[] = Schema::connection('pgsql')->hasColumn('gimnasio.planes', 'tipo_cobro')
+        $columnas[] = Schema::connection('pgsql')->hasColumn('membresias.planes', 'tipo_cobro')
             ? 'p.tipo_cobro'
             : DB::raw("'PAGO_UNICO'::varchar as tipo_cobro");
 

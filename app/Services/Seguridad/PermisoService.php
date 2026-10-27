@@ -12,9 +12,9 @@ class PermisoService
         // El superadministrador activo tiene alcance global; no depende de permisos individuales.
         if (DB::table('seguridad.cpu_userrole')
             ->where('id_userrole', $usuario->usr_tipo)
-            ->where('role', 'SUPERADMINISTRADOR')
+            ->whereIn('role', ['ROOT', 'SUPERADMINISTRADOR'])
             ->where('activo', true)
-            ->exists()) {
+            ->exists() && (int) $usuario->usr_estado === 1) {
             return true;
         }
 

@@ -27,6 +27,7 @@ class AlcanceOperativoService
     public function puedeGestionarCartera(?int $usuarioId): bool
     {
         return in_array($this->rolUsuario($usuarioId), [
+            'ROOT',
             'SUPERADMINISTRADOR',
             'ADMINISTRADOR',
             'SUPERVISOR DE VENTAS',
@@ -49,7 +50,7 @@ class AlcanceOperativoService
             ->where('u.id', $usuarioId)
             ->where('u.usr_estado', 1)
             ->where('r.activo', true)
-            ->where('r.role', 'SUPERADMINISTRADOR')
+            ->whereIn('r.role', ['ROOT', 'SUPERADMINISTRADOR'])
             ->exists();
     }
 
@@ -127,7 +128,7 @@ class AlcanceOperativoService
             return null;
         }
 
-        $sede = DB::table('gimnasio.membresias')->where('id', $membresiaId)->value('sede_id');
+        $sede = DB::table('membresias.membresias')->where('id', $membresiaId)->value('sede_id');
         return $sede ? (int) $sede : null;
     }
 
@@ -135,7 +136,7 @@ class AlcanceOperativoService
     {
         $venta = DB::table('ventas.ventas as v')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
-            ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
+            ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
             ->where('v.id', $ventaId)
             ->selectRaw('COALESCE(c.sede_id, m.sede_id) as sede_id')
             ->first();

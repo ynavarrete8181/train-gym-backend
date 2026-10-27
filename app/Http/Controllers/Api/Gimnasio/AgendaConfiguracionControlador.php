@@ -25,7 +25,7 @@ class AgendaConfiguracionControlador extends Controller
     public function guardarJornada(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'nombre' => ['required', 'string', 'max:120', Rule::unique('gimnasio.jornadas', 'nombre')->ignore($id)],
+            'nombre' => ['required', 'string', 'max:120', Rule::unique('agenda.jornadas', 'nombre')->ignore($id)],
             'descripcion' => 'nullable|string|max:1000',
             'dias_semana' => 'required|array|min:1',
             'dias_semana.*' => 'required|distinct|string|in:LUNES,MARTES,MIERCOLES,JUEVES,VIERNES,SABADO,DOMINGO',
@@ -52,7 +52,7 @@ class AgendaConfiguracionControlador extends Controller
     public function guardarReceso(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'nombre' => ['required', 'string', 'max:120', Rule::unique('gimnasio.recesos', 'nombre')->ignore($id)],
+            'nombre' => ['required', 'string', 'max:120', Rule::unique('agenda.recesos', 'nombre')->ignore($id)],
             'tipo' => 'required|string|in:DESAYUNO,ALMUERZO,MERIENDA,PAUSA,OTRO',
             'hora_inicio' => 'required|date_format:H:i',
             'hora_fin' => 'required|date_format:H:i|after:hora_inicio',
@@ -99,10 +99,10 @@ class AgendaConfiguracionControlador extends Controller
     public function guardarAsignacion(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'entrenador_id' => 'required|exists:pgsql.gimnasio.entrenadores,id',
+            'entrenador_id' => 'required|exists:pgsql.entrenamiento.entrenadores,id',
             'sede_id' => 'required|exists:pgsql.institucional.sedes,id_sede',
-            'jornada_id' => 'required|exists:pgsql.gimnasio.jornadas,id',
-            'receso_id' => 'nullable|exists:pgsql.gimnasio.recesos,id',
+            'jornada_id' => 'required|exists:pgsql.agenda.jornadas,id',
+            'receso_id' => 'nullable|exists:pgsql.agenda.recesos,id',
             'fecha_inicio' => 'required|date',
             'fecha_fin' => 'nullable|date|after_or_equal:fecha_inicio',
             'activo' => 'boolean',

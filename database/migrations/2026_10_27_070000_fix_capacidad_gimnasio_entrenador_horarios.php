@@ -8,9 +8,9 @@ return new class extends Migration
 {
     public function up(): void
     {
-        if (Schema::hasTable('gimnasio.entrenador_horarios')
-            && ! Schema::hasColumn('gimnasio.entrenador_horarios', 'capacidad')) {
-            Schema::table('gimnasio.entrenador_horarios', function (Blueprint $table): void {
+        if (Schema::hasTable('agenda.entrenador_horarios')
+            && ! Schema::hasColumn('agenda.entrenador_horarios', 'capacidad')) {
+            Schema::table('agenda.entrenador_horarios', function (Blueprint $table): void {
                 $table->unsignedSmallInteger('capacidad')->default(15);
             });
         }

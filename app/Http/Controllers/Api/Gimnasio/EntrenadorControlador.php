@@ -24,7 +24,7 @@ class EntrenadorControlador extends Controller
         $usuario = $request->input('usuario');
         $sedeId = $request->input('sede_id');
         
-        $query = DB::table('gimnasio.entrenadores as e')
+        $query = DB::table('entrenamiento.entrenadores as e')
             ->join('seguridad.users as u', 'e.usuario_id', '=', 'u.id')
             ->leftJoin('seguridad.cpu_userrole as r', 'u.usr_tipo', '=', 'r.id_userrole')
             ->leftJoin('personas.personas as p', 'p.id', '=', 'u.persona_id')
@@ -82,8 +82,8 @@ class EntrenadorControlador extends Controller
         if (!empty($sedeId)) {
             $query->whereExists(function ($sub) use ($sedeId): void {
                 $sub->selectRaw('1')
-                    ->from('gimnasio.horario_entrenadores as he')
-                    ->join('gimnasio.horarios_servicio as hs', 'hs.horario_bloque_id', '=', 'he.horario_bloque_id')
+                    ->from('agenda.horario_entrenadores as he')
+                    ->join('agenda.horarios_servicio as hs', 'hs.horario_bloque_id', '=', 'he.horario_bloque_id')
                     ->whereColumn('he.entrenador_id', 'e.id')
                     ->where('he.activo', true)
                     ->where('hs.activo', true)
@@ -94,7 +94,7 @@ class EntrenadorControlador extends Controller
         $paginador = $query->orderBy('u.nombres')->paginate($porPagina);
 
         $items = collect($paginador->items())->map(function ($entrenador) {
-            $entrenador->servicio_ids = DB::table('gimnasio.entrenador_servicios')
+            $entrenador->servicio_ids = DB::table('entrenamiento.entrenador_servicios')
                 ->where('entrenador_id', $entrenador->id)
                 ->where('activo', true)
                 ->pluck('servicio_id')
@@ -134,7 +134,7 @@ class EntrenadorControlador extends Controller
             'tipo' => 'nullable|string|max:50',
             'estado' => 'nullable|string|max:30',
             'servicio_ids' => 'nullable|array',
-            'servicio_ids.*' => 'integer|distinct|exists:pgsql.gimnasio.servicios,id',
+            'servicio_ids.*' => 'integer|distinct|exists:pgsql.servicios.servicios,id',
         ]);
 
         $servicioIds = $datos['servicio_ids'] ?? [];
@@ -155,7 +155,7 @@ class EntrenadorControlador extends Controller
             'tipo' => 'nullable|string|max:50',
             'estado' => 'nullable|string|max:30',
             'servicio_ids' => 'nullable|array',
-            'servicio_ids.*' => 'integer|distinct|exists:pgsql.gimnasio.servicios,id',
+            'servicio_ids.*' => 'integer|distinct|exists:pgsql.servicios.servicios,id',
         ]);
 
         $servicioIds = array_key_exists('servicio_ids', $datos) ? $datos['servicio_ids'] : null;
@@ -193,7 +193,7 @@ class EntrenadorControlador extends Controller
     public function asignarHorario(Request $request, int $id): JsonResponse
     {
         $datos = $request->validate([
-            'horario_bloque_id' => 'required|integer|exists:pgsql.gimnasio.horario_bloques,id',
+            'horario_bloque_id' => 'required|integer|exists:pgsql.agenda.horario_bloques,id',
         ]);
 
         $turno = $this->servicio->asignarHorario($id, (int) $datos['horario_bloque_id']);

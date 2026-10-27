@@ -75,9 +75,9 @@ class ReporteServicio
     {
         return match ($codigo) {
             'MEMBRESIAS-VIGENCIA' => [
-                'activas' => DB::table('gimnasio.membresias')->where('estado', 'ACTIVA')->count(),
-                'vencidas' => DB::table('gimnasio.membresias')->where('estado', 'VENCIDA')->count(),
-                'por_vencer' => DB::table('gimnasio.membresias')->where('estado', 'ACTIVA')->whereDate('fecha_fin', '<=', now()->addDays(7))->count(),
+                'activas' => DB::table('membresias.membresias')->where('estado', 'ACTIVA')->count(),
+                'vencidas' => DB::table('membresias.membresias')->where('estado', 'VENCIDA')->count(),
+                'por_vencer' => DB::table('membresias.membresias')->where('estado', 'ACTIVA')->whereDate('fecha_fin', '<=', now()->addDays(7))->count(),
             ],
             'VENTAS-PERIODO' => [
                 'transacciones' => DB::table('ventas.ventas')->where('estado', '<>', 'ANULADA')->count(),
@@ -92,8 +92,8 @@ class ReporteServicio
                 'clientes' => DB::table('entrenamiento.rm_registros')->distinct('cliente_id')->count('cliente_id'),
             ],
             default => [
-                'clientes_activos' => DB::table('gimnasio.deportistas')->where('estado', 'ACTIVO')->count(),
-                'membresias_activas' => DB::table('gimnasio.membresias')->where('estado', 'ACTIVA')->count(),
+                'clientes_activos' => DB::table('clientes.deportistas')->where('estado', 'ACTIVO')->count(),
+                'membresias_activas' => DB::table('membresias.membresias')->where('estado', 'ACTIVA')->count(),
                 'ventas_mes' => (float) DB::table('ventas.ventas')->whereMonth('fecha_venta', now()->month)->whereYear('fecha_venta', now()->year)->where('estado', '<>', 'ANULADA')->sum('total'),
                 'asistencias_hoy' => DB::table('acceso.asistencias')->whereDate('fecha_hora', now()->toDateString())->count(),
             ],

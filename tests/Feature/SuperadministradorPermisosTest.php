@@ -27,9 +27,42 @@ class SuperadministradorPermisosTest extends TestCase
         $usuario = new User;
         $usuario->id = 1;
         $usuario->usr_tipo = 1;
+        $usuario->usr_estado = 1;
 
         $this->assertTrue(app(PermisoService::class)->usuarioTieneAlgunaFuncion(
             $usuario, ['GIMNASIO-DEPORTISTAS'],
+        ));
+    }
+
+    public function test_root_activo_accede_a_todas_las_funciones_sin_permisos_personales(): void
+    {
+        DB::table('seguridad.cpu_userrole')->insert([
+            'id_userrole' => 10, 'role' => 'ROOT', 'activo' => true,
+        ]);
+
+        $usuario = new User;
+        $usuario->id = 10;
+        $usuario->usr_tipo = 10;
+        $usuario->usr_estado = 1;
+
+        $servicio = app(PermisoService::class);
+        $this->assertTrue($servicio->usuarioTieneAlgunaFuncion($usuario, ['SEGURIDAD-ROLES']));
+        $this->assertTrue($servicio->usuarioTieneAlgunaFuncion($usuario, ['REPORTES-CARTERA']));
+    }
+
+    public function test_root_inactivo_no_omite_permisos(): void
+    {
+        DB::table('seguridad.cpu_userrole')->insert([
+            'id_userrole' => 10, 'role' => 'ROOT', 'activo' => true,
+        ]);
+
+        $usuario = new User;
+        $usuario->id = 10;
+        $usuario->usr_tipo = 10;
+        $usuario->usr_estado = 0;
+
+        $this->assertFalse(app(PermisoService::class)->usuarioTieneAlgunaFuncion(
+            $usuario, ['SEGURIDAD-ROLES'],
         ));
     }
 
@@ -42,6 +75,7 @@ class SuperadministradorPermisosTest extends TestCase
         $usuario = new User;
         $usuario->id = 1;
         $usuario->usr_tipo = 1;
+        $usuario->usr_estado = 1;
 
         $this->assertFalse(app(PermisoService::class)->usuarioTieneAlgunaFuncion(
             $usuario, ['GIMNASIO-DEPORTISTAS'],

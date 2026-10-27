@@ -19,7 +19,7 @@ class AgendaOperacionControlador extends Controller
     public function serviciosDisponibles(Request $request)
     {
         $datos = $request->validate([
-            'entrenador_id' => 'required|integer|exists:pgsql.gimnasio.entrenadores,id',
+            'entrenador_id' => 'required|integer|exists:pgsql.entrenamiento.entrenadores,id',
             'sede_id' => 'required|integer|exists:pgsql.institucional.sedes,id_sede',
         ]);
 
@@ -36,8 +36,8 @@ class AgendaOperacionControlador extends Controller
     {
         $datos = $request->validate([
             'sede_id' => 'required|integer|exists:pgsql.institucional.sedes,id_sede',
-            'entrenador_id' => 'required|integer|exists:pgsql.gimnasio.entrenadores,id',
-            'servicio_id' => 'required|integer|exists:pgsql.gimnasio.servicios,id',
+            'entrenador_id' => 'required|integer|exists:pgsql.entrenamiento.entrenadores,id',
+            'servicio_id' => 'required|integer|exists:pgsql.servicios.servicios,id',
             'fecha' => 'required|date',
         ]);
 
@@ -71,7 +71,7 @@ class AgendaOperacionControlador extends Controller
     public function guardarExcepcion(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'entrenador_id' => 'required|integer|exists:pgsql.gimnasio.entrenadores,id',
+            'entrenador_id' => 'required|integer|exists:pgsql.entrenamiento.entrenadores,id',
             'sede_id' => 'required|integer|exists:pgsql.institucional.sedes,id_sede',
             'fecha_inicio' => 'required|date',
             'fecha_fin' => 'required|date|after_or_equal:fecha_inicio',

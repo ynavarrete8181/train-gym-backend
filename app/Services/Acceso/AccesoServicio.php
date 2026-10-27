@@ -20,11 +20,11 @@ class AccesoServicio
     public function listarCredenciales(array $filtros)
     {
         $query = DB::table('acceso.credenciales')
-            ->join('gimnasio.deportistas', 'acceso.credenciales.cliente_id', '=', 'gimnasio.deportistas.id')
-            ->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
-            ->select('acceso.credenciales.*', 'seguridad.users.name as cliente_nombre', 'seguridad.users.email as cliente_email', 'gimnasio.deportistas.codigo_deportista');
+            ->join('clientes.deportistas', 'acceso.credenciales.cliente_id', '=', 'clientes.deportistas.id')
+            ->join('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
+            ->select('acceso.credenciales.*', 'seguridad.users.name as cliente_nombre', 'seguridad.users.email as cliente_email', 'clientes.deportistas.codigo_deportista');
 
-        $this->buscar($query, $filtros['busqueda'] ?? null, ['acceso.credenciales.codigo', 'acceso.credenciales.tipo', 'seguridad.users.name', 'gimnasio.deportistas.codigo_deportista']);
+        $this->buscar($query, $filtros['busqueda'] ?? null, ['acceso.credenciales.codigo', 'acceso.credenciales.tipo', 'seguridad.users.name', 'clientes.deportistas.codigo_deportista']);
         $this->filtrarTexto($query, 'seguridad.users.name', $filtros['cliente'] ?? null);
         $this->filtrarTexto($query, 'acceso.credenciales.tipo', $filtros['tipo'] ?? null);
         $this->filtrarTexto($query, 'acceso.credenciales.estado', $filtros['estado'] ?? null);
@@ -41,9 +41,9 @@ class AccesoServicio
     {
         $query = DB::table('acceso.eventos')
             ->leftJoin('acceso.dispositivos', 'acceso.eventos.dispositivo_id', '=', 'acceso.dispositivos.id')
-            ->leftJoin('gimnasio.deportistas', 'acceso.eventos.cliente_id', '=', 'gimnasio.deportistas.id')
-            ->leftJoin('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
-            ->select('acceso.eventos.*', 'acceso.dispositivos.nombre as dispositivo_nombre', 'seguridad.users.name as cliente_nombre', 'gimnasio.deportistas.codigo_deportista');
+            ->leftJoin('clientes.deportistas', 'acceso.eventos.cliente_id', '=', 'clientes.deportistas.id')
+            ->leftJoin('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
+            ->select('acceso.eventos.*', 'acceso.dispositivos.nombre as dispositivo_nombre', 'seguridad.users.name as cliente_nombre', 'clientes.deportistas.codigo_deportista');
 
         $this->buscar($query, $filtros['busqueda'] ?? null, ['acceso.eventos.codigo_credencial', 'acceso.eventos.tipo_evento', 'acceso.eventos.resultado', 'seguridad.users.name']);
         $this->filtrarTexto($query, 'seguridad.users.name', $filtros['cliente'] ?? null);
@@ -104,12 +104,12 @@ class AccesoServicio
     public function listarAsistencias(array $filtros)
     {
         $query = DB::table('acceso.asistencias')
-            ->join('gimnasio.deportistas', 'acceso.asistencias.cliente_id', '=', 'gimnasio.deportistas.id')
-            ->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
+            ->join('clientes.deportistas', 'acceso.asistencias.cliente_id', '=', 'clientes.deportistas.id')
+            ->join('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
             ->leftJoin('institucional.sedes', 'acceso.asistencias.sede_id', '=', 'institucional.sedes.id_sede')
-            ->select('acceso.asistencias.*', 'seguridad.users.name as cliente_nombre', 'gimnasio.deportistas.codigo_deportista', 'institucional.sedes.nombre as sede_nombre');
+            ->select('acceso.asistencias.*', 'seguridad.users.name as cliente_nombre', 'clientes.deportistas.codigo_deportista', 'institucional.sedes.nombre as sede_nombre');
 
-        $this->buscar($query, $filtros['busqueda'] ?? null, ['seguridad.users.name', 'gimnasio.deportistas.codigo_deportista', 'acceso.asistencias.tipo', 'acceso.asistencias.estado']);
+        $this->buscar($query, $filtros['busqueda'] ?? null, ['seguridad.users.name', 'clientes.deportistas.codigo_deportista', 'acceso.asistencias.tipo', 'acceso.asistencias.estado']);
         $this->filtrarTexto($query, 'seguridad.users.name', $filtros['cliente'] ?? null);
         $this->filtrarTexto($query, 'acceso.asistencias.tipo', $filtros['tipo'] ?? null);
         $this->filtrarTexto($query, 'acceso.asistencias.estado', $filtros['estado'] ?? null);
@@ -126,10 +126,10 @@ class AccesoServicio
     public function catalogos(): array
     {
         return [
-            'clientes' => DB::table('gimnasio.deportistas')
-                ->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
+            'clientes' => DB::table('clientes.deportistas')
+                ->join('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
                 ->orderBy('seguridad.users.name')
-                ->get(['gimnasio.deportistas.id', 'gimnasio.deportistas.codigo_deportista', 'seguridad.users.name as nombre']),
+                ->get(['clientes.deportistas.id', 'clientes.deportistas.codigo_deportista', 'seguridad.users.name as nombre']),
             'dispositivos' => DB::table('acceso.dispositivos')->where('activo', true)->orderBy('nombre')->get(['id', 'nombre', 'tipo']),
             'sedes' => DB::table('institucional.sedes')->where('activo', true)->orderBy('nombre')->get(['id_sede as id', 'nombre']),
         ];
@@ -155,9 +155,9 @@ class AccesoServicio
 
     private function membresiaVigente(int $clienteId, ?int $sedeId = null): ?object
     {
-        return DB::table('gimnasio.membresias as m')
+        return DB::table('membresias.membresias as m')
             ->when($sedeId, function ($query) use ($sedeId): void {
-                $query->join('gimnasio.membresia_sedes as ms', function ($join) use ($sedeId): void {
+                $query->join('membresias.membresia_sedes as ms', function ($join) use ($sedeId): void {
                     $join->on('ms.membresia_id', '=', 'm.id')
                         ->where('ms.sede_id', '=', $sedeId)
                         ->where('ms.activo', '=', true);
@@ -197,8 +197,8 @@ class AccesoServicio
      */
     private function dentroDeHorarioAsignado(int $clienteId, int $membresiaId, ?int $sedeId = null): bool
     {
-        $asignaciones = DB::table('gimnasio.asignaciones_entrenador_cliente as a')
-            ->join('gimnasio.horarios_servicio as hs', function ($join): void {
+        $asignaciones = DB::table('entrenamiento.asignaciones_entrenador_cliente as a')
+            ->join('agenda.horarios_servicio as hs', function ($join): void {
                 $join->on('hs.horario_bloque_id', '=', 'a.horario_bloque_id')
                     ->where('hs.activo', true);
             })

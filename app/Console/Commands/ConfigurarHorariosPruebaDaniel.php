@@ -26,7 +26,7 @@ class ConfigurarHorariosPruebaDaniel extends Command
             return self::FAILURE;
         }
 
-        $entrenador = DB::table('gimnasio.entrenadores')
+        $entrenador = DB::table('entrenamiento.entrenadores')
             ->where('usuario_id', $usuario->id)
             ->where('estado', 'ACTIVO')
             ->first();
@@ -44,8 +44,8 @@ class ConfigurarHorariosPruebaDaniel extends Command
             'Evaluación inicial mañana',
         ];
 
-        $bloques = DB::table('gimnasio.horario_bloques as hb')
-            ->join('gimnasio.servicios as sv', 'hb.servicio_id', '=', 'sv.id')
+        $bloques = DB::table('agenda.horario_bloques as hb')
+            ->join('servicios.servicios as sv', 'hb.servicio_id', '=', 'sv.id')
             ->whereIn('hb.nombre', $nombres)
             ->where('hb.activo', true)
             ->orderBy('hb.nombre')
@@ -63,7 +63,7 @@ class ConfigurarHorariosPruebaDaniel extends Command
         }
 
         foreach ($bloques as $bloque) {
-            DB::table('gimnasio.horario_entrenadores')->updateOrInsert(
+            DB::table('agenda.horario_entrenadores')->updateOrInsert(
                 [
                     'entrenador_id' => (int) $entrenador->id,
                     'horario_bloque_id' => (int) $bloque->id,

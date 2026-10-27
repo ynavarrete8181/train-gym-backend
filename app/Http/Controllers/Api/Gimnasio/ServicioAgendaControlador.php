@@ -28,7 +28,7 @@ class ServicioAgendaControlador extends Controller
     public function guardarCategoria(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'nombre' => ['required', 'string', 'max:150', Rule::unique('gimnasio.categorias_servicio', 'nombre')->ignore($id)],
+            'nombre' => ['required', 'string', 'max:150', Rule::unique('servicios.categorias_servicio', 'nombre')->ignore($id)],
             'descripcion' => 'nullable|string',
             'activo' => 'boolean',
         ]);
@@ -45,7 +45,7 @@ class ServicioAgendaControlador extends Controller
     public function guardarServicio(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'categoria_id' => 'required|exists:pgsql.gimnasio.categorias_servicio,id',
+            'categoria_id' => 'required|exists:pgsql.servicios.categorias_servicio,id',
             'nombre' => 'required|string|max:150',
             'descripcion' => 'nullable|string',
             'duracion_minutos' => 'required|integer|min:1|max:1440',
@@ -67,7 +67,7 @@ class ServicioAgendaControlador extends Controller
     {
         $datos = $request->validate([
             'nombre' => 'required|string|max:150',
-            'servicio_id' => 'required|exists:pgsql.gimnasio.servicios,id',
+            'servicio_id' => 'required|exists:pgsql.servicios.servicios,id',
             'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
             'sede_ids' => 'nullable|array|min:1|max:1',
             'sede_ids.*' => 'required|distinct|exists:pgsql.institucional.sedes,id_sede',
@@ -80,7 +80,7 @@ class ServicioAgendaControlador extends Controller
             'activo' => 'boolean',
         ]);
 
-        $servicio = DB::table('gimnasio.servicios')->where('id', $datos['servicio_id'])->first();
+        $servicio = DB::table('servicios.servicios')->where('id', $datos['servicio_id'])->first();
         if ($servicio && (int) $datos['capacidad'] > (int) $servicio->capacidad_base) {
             throw ValidationException::withMessages([
                 'capacidad' => "La capacidad del horario no puede superar el cupo base del servicio ({$servicio->capacidad_base}).",
@@ -102,7 +102,7 @@ class ServicioAgendaControlador extends Controller
 
         $sedeId = (int) $sedeIds[0];
         foreach ($diasSemana as $dia) {
-            $duplicado = DB::table('gimnasio.horarios_servicio')
+            $duplicado = DB::table('agenda.horarios_servicio')
                 ->where('servicio_id', (int) $datos['servicio_id'])
                 ->where('sede_id', $sedeId)
                 ->where('dia_semana', $dia)
@@ -165,9 +165,9 @@ class ServicioAgendaControlador extends Controller
     public function guardarReservaDia(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'cliente_id' => 'required|exists:pgsql.gimnasio.deportistas,id',
-            'servicio_id' => 'required|exists:pgsql.gimnasio.servicios,id',
-            'horario_id' => 'nullable|exists:pgsql.gimnasio.horarios_servicio,id',
+            'cliente_id' => 'required|exists:pgsql.clientes.deportistas,id',
+            'servicio_id' => 'required|exists:pgsql.servicios.servicios,id',
+            'horario_id' => 'nullable|exists:pgsql.agenda.horarios_servicio,id',
             'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
             'fecha' => 'required|date',
             'hora_inicio' => 'required|date_format:H:i',
@@ -200,11 +200,11 @@ class ServicioAgendaControlador extends Controller
     {
         return [
             'opciones_filtro' => [
-                'nombre' => DB::table('gimnasio.categorias_servicio')->distinct()->orderBy('nombre')->pluck('nombre')->values(),
-                'categoria' => DB::table('gimnasio.categorias_servicio')->distinct()->orderBy('nombre')->pluck('nombre')->values(),
-                'servicio' => DB::table('gimnasio.servicios')->distinct()->orderBy('nombre')->pluck('nombre')->values(),
+                'nombre' => DB::table('servicios.categorias_servicio')->distinct()->orderBy('nombre')->pluck('nombre')->values(),
+                'categoria' => DB::table('servicios.categorias_servicio')->distinct()->orderBy('nombre')->pluck('nombre')->values(),
+                'servicio' => DB::table('servicios.servicios')->distinct()->orderBy('nombre')->pluck('nombre')->values(),
                 'sede' => DB::table('institucional.sedes')->distinct()->orderBy('nombre')->pluck('nombre')->values(),
-                'cliente' => DB::table('gimnasio.deportistas')->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')->distinct()->orderBy('seguridad.users.name')->pluck('seguridad.users.name')->values(),
+                'cliente' => DB::table('clientes.deportistas')->join('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')->distinct()->orderBy('seguridad.users.name')->pluck('seguridad.users.name')->values(),
                 'estado_reserva' => DB::table('configuracion.estados_catalogo')->where('entidad', 'RESERVA')->where('activo', true)->orderBy('orden')->pluck('valor_interno')->values(),
             ],
             'catalogos' => array_merge($this->servicioAgenda->opcionesFiltro(), [

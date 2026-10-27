@@ -36,7 +36,7 @@ class AccesoControlador extends Controller
     public function guardarCredencial(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'cliente_id' => 'required|exists:pgsql.gimnasio.deportistas,id',
+            'cliente_id' => 'required|exists:pgsql.clientes.deportistas,id',
             'tipo' => 'required|string|in:QR,TARJETA,CODIGO,APP',
             'codigo' => ['required', 'string', 'max:120', Rule::unique('acceso.credenciales', 'codigo')->ignore($id)],
             'estado' => 'required|string|in:ACTIVA,INACTIVA,BLOQUEADA,VENCIDA',
@@ -51,7 +51,7 @@ class AccesoControlador extends Controller
     {
         $datos = $request->validate([
             'dispositivo_id' => 'nullable|exists:pgsql.acceso.dispositivos,id',
-            'cliente_id' => 'nullable|exists:pgsql.gimnasio.deportistas,id',
+            'cliente_id' => 'nullable|exists:pgsql.clientes.deportistas,id',
             'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
             'codigo_credencial' => 'nullable|string|max:120',
             'tipo_evento' => 'required|string|in:INGRESO,SALIDA,VALIDACION',
@@ -64,8 +64,8 @@ class AccesoControlador extends Controller
     public function registrarAsistencia(Request $request)
     {
         $datos = $request->validate([
-            'cliente_id' => 'required|exists:pgsql.gimnasio.deportistas,id',
-            'membresia_id' => 'nullable|exists:pgsql.gimnasio.membresias,id',
+            'cliente_id' => 'required|exists:pgsql.clientes.deportistas,id',
+            'membresia_id' => 'nullable|exists:pgsql.membresias.membresias,id',
             'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
             'tipo' => 'required|string|in:INGRESO,SALIDA,CLASE,ENTRENAMIENTO',
             'metodo' => 'required|string|in:MANUAL,CREDENCIAL,APP',

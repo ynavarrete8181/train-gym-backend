@@ -27,9 +27,9 @@ class MigrarDatosGimnasioV2 extends Command
         $planesV2 = DB::connection('pgsql_v2')->table('socios.membresias')->get();
 
         foreach ($planesV2 as $plan) {
-            $existe = DB::table('gimnasio.planes')->where('id', $plan->id)->exists();
+            $existe = DB::table('membresias.planes')->where('id', $plan->id)->exists();
             if (!$existe) {
-                DB::table('gimnasio.planes')->insert([
+                DB::table('membresias.planes')->insert([
                     'id' => $plan->id,
                     'codigo' => 'PLAN-' . str_pad($plan->id, 4, '0', STR_PAD_LEFT),
                     'nombre' => $plan->nombre,
@@ -77,9 +77,9 @@ class MigrarDatosGimnasioV2 extends Command
                 $usuarioId = $usuario->id;
             }
 
-            $existe = DB::table('gimnasio.deportistas')->where('id', $socio->id)->exists();
+            $existe = DB::table('clientes.deportistas')->where('id', $socio->id)->exists();
             if (!$existe) {
-                DB::table('gimnasio.deportistas')->insert([
+                DB::table('clientes.deportistas')->insert([
                     'id' => $socio->id,
                     'usuario_id' => $usuarioId,
                     'codigo_deportista' => $socio->codigo_socio ?: ('DEP-' . str_pad($socio->id, 4, '0', STR_PAD_LEFT)),
@@ -101,13 +101,13 @@ class MigrarDatosGimnasioV2 extends Command
         $contratosV2 = DB::connection('pgsql_v2')->table('socios.socio_membresias')->get();
 
         foreach ($contratosV2 as $contrato) {
-            $existe = DB::table('gimnasio.membresias')->where('id', $contrato->id)->exists();
+            $existe = DB::table('membresias.membresias')->where('id', $contrato->id)->exists();
             if (!$existe) {
-                $deportistaExists = DB::table('gimnasio.deportistas')->where('id', $contrato->socio_id)->exists();
-                $planExists = DB::table('gimnasio.planes')->where('id', $contrato->membresia_id)->exists();
+                $deportistaExists = DB::table('clientes.deportistas')->where('id', $contrato->socio_id)->exists();
+                $planExists = DB::table('membresias.planes')->where('id', $contrato->membresia_id)->exists();
                 
                 if ($deportistaExists && $planExists) {
-                    DB::table('gimnasio.membresias')->insert([
+                    DB::table('membresias.membresias')->insert([
                         'id' => $contrato->id,
                         'deportista_id' => $contrato->socio_id,
                         'plan_id' => $contrato->membresia_id,
@@ -124,9 +124,9 @@ class MigrarDatosGimnasioV2 extends Command
             }
         }
         
-        DB::statement("SELECT setval('gimnasio.planes_id_seq', (SELECT MAX(id) FROM gimnasio.planes))");
-        DB::statement("SELECT setval('gimnasio.deportistas_id_seq', (SELECT MAX(id) FROM gimnasio.deportistas))");
-        DB::statement("SELECT setval('gimnasio.membresias_id_seq', (SELECT MAX(id) FROM gimnasio.membresias))");
+        DB::statement("SELECT setval('membresias.planes_id_seq', (SELECT MAX(id) FROM membresias.planes))");
+        DB::statement("SELECT setval('clientes.deportistas_id_seq', (SELECT MAX(id) FROM clientes.deportistas))");
+        DB::statement("SELECT setval('membresias.membresias_id_seq', (SELECT MAX(id) FROM membresias.membresias))");
 
         $this->info("Contratos migrados.");
     }

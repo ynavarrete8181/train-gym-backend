@@ -10,9 +10,9 @@ class MenuService
 {
     public function obtenerMenuUsuario(User $usuario): Collection
     {
-        $esSuperadministrador = DB::table('seguridad.cpu_userrole')
+        $esSuperadministrador = (int) $usuario->usr_estado === 1 && DB::table('seguridad.cpu_userrole')
             ->where('id_userrole', $usuario->usr_tipo)
-            ->where('role', 'SUPERADMINISTRADOR')
+            ->whereIn('role', ['ROOT', 'SUPERADMINISTRADOR'])
             ->where('activo', true)
             ->exists();
 

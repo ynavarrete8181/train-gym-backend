@@ -218,3 +218,59 @@ Artisan::command('revive:procesar-alertas-operativas', function (AlertaOperativa
 Schedule::command('revive:procesar-alertas-operativas')
     ->hourly()
     ->withoutOverlapping();
+
+
+/**
+ * Auditoría no destructiva de la identidad unificada.
+ * No altera registros, perfiles, cuentas ni permisos.
+ */
+Artisan::command('revive:auditar-identidades', function (): int {
+    $resumen = [
+        'Personas' => DB::table('personas.personas')->count(),
+        'Clientes' => DB::table('clientes.deportistas')->count(),
+        'Usuarios' => DB::table('seguridad.users')->count(),
+        'Entrenadores' => DB::table('gimnasio.entrenadores')->count(),
+    ];
+
+    $hallazgos = [
+        'Documentos repetidos (normalizados)' => DB::table('personas.personas')
+            ->selectRaw('UPPER(TRIM(identificacion)) AS documento')
+            ->whereNotNull('identificacion')
+            ->whereRaw("TRIM(identificacion) <> ''")
+            ->groupByRaw('UPPER(TRIM(identificacion))')
+            ->havingRaw('COUNT(*) > 1')
+            ->get()->count(),
+        'Clientes con persona inexistente' => DB::table('clientes.deportistas as d')
+            ->leftJoin('personas.personas as p', 'p.id', '=', 'd.persona_id')
+            ->whereNull('p.id')->count(),
+        'Usuarios con persona inexistente' => DB::table('seguridad.users as u')
+            ->leftJoin('personas.personas as p', 'p.id', '=', 'u.persona_id')
+            ->whereNull('p.id')->count(),
+        'Clientes con usuario de otra persona' => DB::table('clientes.deportistas as d')
+            ->join('seguridad.users as u', 'u.id', '=', 'd.usuario_id')
+            ->whereColumn('u.persona_id', '<>', 'd.persona_id')->count(),
+        'Personas con más de un perfil de cliente' => DB::table('clientes.deportistas')
+            ->whereNotNull('persona_id')
+            ->select('persona_id')->groupBy('persona_id')
+            ->havingRaw('COUNT(*) > 1')->get()->count(),
+        'Personas con más de una cuenta' => DB::table('seguridad.users')
+            ->whereNotNull('persona_id')
+            ->select('persona_id')->groupBy('persona_id')
+            ->havingRaw('COUNT(*) > 1')->get()->count(),
+        'Entrenadores con usuario inexistente' => DB::table('gimnasio.entrenadores as e')
+            ->leftJoin('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
+            ->whereNull('u.id')->count(),
+    ];
+
+    $this->info('REVIVE: inventario de identidades');
+    $this->table(['Entidad', 'Registros'], collect($resumen)->map(fn ($v, $k) => [$k, $v])->values()->all());
+    $this->info('Inconsistencias detectadas (solo lectura)');
+    $this->table(['Regla', 'Cantidad'], collect($hallazgos)->map(fn ($v, $k) => [$k, $v])->values()->all());
+
+    $total = array_sum($hallazgos);
+    $this->{$total ? 'warn' : 'info'}($total
+        ? 'Existen inconsistencias por revisar; no se modificó ningún dato.'
+        : 'No se detectaron inconsistencias con las reglas comprobadas.');
+
+    return $total ? 1 : 0;
+})->purpose('Audita Personas, Clientes, Usuarios y Entrenadores sin modificar datos.');

@@ -392,7 +392,8 @@ class MembresiaControlador extends Controller
             $validados['sedes_habilitadas'],
             $validados['asignaciones_entrenador'] ?? [],
             $modalidadValidacion,
-            false
+            false,
+            false // La ficha inicial se exige al contratar, no al editar el contrato existente.
         );
 
         $membresiaActualizada = DB::transaction(function () use ($id, $validados, $generarVenta, $request) {
@@ -544,7 +545,8 @@ class MembresiaControlador extends Controller
         array $sedesHabilitadas,
         array $asignaciones,
         ?int $modalidadId = null,
-        bool $exigirModalidad = true
+        bool $exigirModalidad = true,
+        bool $exigirFichaInicial = true
     ): void
     {
         $sedes = collect($sedesHabilitadas)->map(fn ($id) => (int) $id)->unique()->values();
@@ -560,7 +562,7 @@ class MembresiaControlador extends Controller
             throw ValidationException::withMessages(['plan_id' => 'El plan seleccionado no existe.']);
         }
 
-        if (($plan->requiere_ficha_inicial ?? false) && ! DB::table('clientes.fichas_iniciales')->where('deportista_id', $deportistaId)->exists()) {
+        if ($exigirFichaInicial && ($plan->requiere_ficha_inicial ?? false) && ! DB::table('clientes.fichas_iniciales')->where('deportista_id', $deportistaId)->exists()) {
             throw ValidationException::withMessages([
                 'deportista_id' => 'Completa la ficha inicial del cliente antes de asignar este plan.',
             ]);

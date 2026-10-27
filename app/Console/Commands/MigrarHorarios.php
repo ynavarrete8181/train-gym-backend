@@ -32,7 +32,7 @@ class MigrarHorarios extends Command
 
         foreach ($horariosV2 as $hV2) {
             // Find the new service ID based on name
-            $nuevoServicio = DB::table('gimnasio.servicios')->where('nombre', $hV2->servicio_nombre)->first();
+            $nuevoServicio = DB::table('servicios.servicios')->where('nombre', $hV2->servicio_nombre)->first();
 
             if (!$nuevoServicio) {
                 $this->warn("No se encontro el servicio: " . $hV2->servicio_nombre);
@@ -40,7 +40,7 @@ class MigrarHorarios extends Command
             }
 
             // Create a Horario Bloque
-            $bloqueId = DB::table('gimnasio.horario_bloques')->insertGetId([
+            $bloqueId = DB::table('agenda.horario_bloques')->insertGetId([
                 'nombre' => 'Horario Base - ' . $hV2->servicio_nombre,
                 'servicio_id' => $nuevoServicio->id,
                 'activo' => $hV2->activo,
@@ -57,7 +57,7 @@ class MigrarHorarios extends Command
                 $diaSemanaStr = $diasMapa[$dV2->dia_semana] ?? null;
                 
                 if ($diaSemanaStr) {
-                    DB::table('gimnasio.horarios_servicio')->insert([
+                    DB::table('agenda.horarios_servicio')->insert([
                         'horario_bloque_id' => $bloqueId,
                         'servicio_id' => $nuevoServicio->id,
                         'sede_id' => $hV2->sede_id,

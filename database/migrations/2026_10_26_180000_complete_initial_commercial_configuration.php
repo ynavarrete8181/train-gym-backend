@@ -78,17 +78,26 @@ return new class extends Migration
                 continue;
             }
 
-            DB::table('membresias.planes')->where('id', $plan->id)->update([
-                'requiere_entrenador' => $reglas['requiere_entrenador'],
-                'requiere_ficha_inicial' => $reglas['requiere_ficha_inicial'],
-                'generar_venta' => true,
-                'updated_at' => now(),
-            ]);
+            // Respetar configuraciones que ya fueron editadas por el administrador.
+            // La migración únicamente completa catálogos de planes aún sin servicios.
+            $tieneServicios = DB::table('membresias.plan_servicios')
+                ->where('plan_id', $plan->id)->exists();
+            if (! $tieneServicios) {
+                DB::table('membresias.planes')->where('id', $plan->id)->update([
+                    'requiere_entrenador' => $reglas['requiere_entrenador'],
+                    'requiere_ficha_inicial' => $reglas['requiere_ficha_inicial'],
+                    'updated_at' => now(),
+                ]);
+            }
 
             $servicios = DB::table('servicios.servicios')
                 ->whereIn('nombre', $reglas['servicios'])
                 ->where('activo', true)
                 ->pluck('id');
+
+            if ($tieneServicios) {
+                continue;
+            }
 
             foreach ($servicios as $servicioId) {
                 DB::table('membresias.plan_servicios')->updateOrInsert(
@@ -97,7 +106,9 @@ return new class extends Migration
                 );
             }
 
-            if (! $plan->requiere_modalidades) {
+            // Los pases diarios tienen tarifas específicas; se incorporan
+            // únicamente si faltan, en la migración de precios conocida.
+            if (! $plan->requiere_modalidades && ! in_array($nombre, ['Pase Diario', 'Pase Diario Familia'], true)) {
                 foreach ($sedes as $sedeId) {
                     DB::table('membresias.plan_precios_sede')->insertOrIgnore([
                         'plan_id' => $plan->id,

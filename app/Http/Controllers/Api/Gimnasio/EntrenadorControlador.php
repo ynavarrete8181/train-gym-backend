@@ -26,8 +26,8 @@ class EntrenadorControlador extends Controller
         
         $query = DB::table('gimnasio.entrenadores as e')
             ->join('seguridad.users as u', 'e.usuario_id', '=', 'u.id')
-            ->join('seguridad.cpu_userrole as r', 'u.usr_tipo', '=', 'r.id_userrole')
-            ->where('r.role', 'ENTRENADOR')
+            ->leftJoin('seguridad.cpu_userrole as r', 'u.usr_tipo', '=', 'r.id_userrole')
+            ->leftJoin('personas.personas as p', 'p.id', '=', 'u.persona_id')
             ->select([
                 'e.*',
                 'u.name',
@@ -35,6 +35,8 @@ class EntrenadorControlador extends Controller
                 'u.apellidos',
                 'u.email',
                 'u.cedula',
+                'p.nombre_completo as persona_nombre',
+                'p.identificacion as persona_documento',
                 'r.role',
             ]);
 
@@ -138,7 +140,8 @@ class EntrenadorControlador extends Controller
         $servicioIds = $datos['servicio_ids'] ?? [];
         unset($datos['servicio_ids']);
 
-        abort_if(! $this->usuarioTieneRolEntrenador((int) $datos['usuario_id']), 422, 'El usuario debe tener rol ENTRENADOR antes de crear el perfil de entrenador.');
+        // El perfil ENTRENADOR es operativo e independiente del rol principal
+        // de acceso. Solo la ruta autorizada permite crear este perfil.
 
         $entrenador = $this->servicio->crear($datos, $servicioIds);
         
@@ -203,14 +206,5 @@ class EntrenadorControlador extends Controller
         $this->servicio->quitarHorario($id, $horarioBloqueId);
 
         return ApiResponse::exito('Horario retirado del entrenador correctamente.', []);
-    }
-
-    private function usuarioTieneRolEntrenador(int $usuarioId): bool
-    {
-        return DB::table('seguridad.users as u')
-            ->join('seguridad.cpu_userrole as r', 'u.usr_tipo', '=', 'r.id_userrole')
-            ->where('u.id', $usuarioId)
-            ->where('r.role', 'ENTRENADOR')
-            ->exists();
     }
 }

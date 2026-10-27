@@ -28,7 +28,7 @@ class PerfilesPersonaService
             'existe' => true,
             'cliente' => DB::table('clientes.deportistas')->where('persona_id', $personaId)->exists(),
             'usuario_id' => $usuario?->id,
-            'entrenador' => $usuario !== null && DB::table('gimnasio.entrenadores')
+            'entrenador' => $usuario !== null && DB::table('entrenamiento.entrenadores')
                 ->where('usuario_id', $usuario->id)->exists(),
             'rol_principal' => $usuario?->role,
         ];

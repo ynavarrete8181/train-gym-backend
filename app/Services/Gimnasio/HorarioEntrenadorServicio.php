@@ -15,12 +15,12 @@ class HorarioEntrenadorServicio
 
     public function catalogos(): array
     {
-        $jornadas = DB::table('gimnasio.jornadas')
+        $jornadas = DB::table('agenda.jornadas')
             ->where('activo', true)
             ->orderBy('nombre')
             ->get(['id', 'nombre', 'descripcion'])
             ->map(function ($jornada) {
-                $jornada->detalles = DB::table('gimnasio.jornada_detalles')
+                $jornada->detalles = DB::table('agenda.jornada_detalles')
                     ->where('jornada_id', $jornada->id)
                     ->where('activo', true)
                     ->get(['dia_semana', 'hora_inicio', 'hora_fin'])
@@ -294,7 +294,7 @@ class HorarioEntrenadorServicio
             ->get(['id','dia_semana','tipo','descripcion','hora_inicio','hora_fin']);
 
         $jornadaNombre = ! empty($horario->jornada_id)
-            ? DB::table('gimnasio.jornadas')->where('id', $horario->jornada_id)->value('nombre')
+            ? DB::table('agenda.jornadas')->where('id', $horario->jornada_id)->value('nombre')
             : null;
 
         return [
@@ -320,7 +320,7 @@ class HorarioEntrenadorServicio
 
     private function validarEntrenador(int $id): void
     {
-        if (! DB::table('gimnasio.entrenadores')->where('id', $id)->where('estado', 'ACTIVO')->exists()) {
+        if (! DB::table('entrenamiento.entrenadores')->where('id', $id)->where('estado', 'ACTIVO')->exists()) {
             throw ValidationException::withMessages(['entrenador_id' => 'El entrenador no existe o está inactivo.']);
         }
     }
@@ -334,7 +334,7 @@ class HorarioEntrenadorServicio
         }
 
         if ($tipo === 'INSTITUCIONAL') {
-            $jornada = DB::table('gimnasio.jornadas')
+            $jornada = DB::table('agenda.jornadas')
                 ->where('id', (int) ($datos['jornada_id'] ?? 0))
                 ->where('activo', true)
                 ->first();

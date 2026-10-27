@@ -18,11 +18,11 @@ class EntrenadorServicio
             $datos['created_at'] = now();
             $datos['updated_at'] = now();
 
-            $id = DB::table('gimnasio.entrenadores')->insertGetId($datos);
+            $id = DB::table('entrenamiento.entrenadores')->insertGetId($datos);
             $this->sincronizarServicios($id, $servicioIds);
 
             $entrenador = $this->obtenerConServicios($id);
-            $this->auditar('gimnasio', 'CREAR', 'gimnasio.entrenadores', $id, null, $entrenador);
+            $this->auditar('gimnasio', 'CREAR', 'entrenamiento.entrenadores', $id, null, $entrenador);
 
             return $entrenador;
         });
@@ -34,14 +34,14 @@ class EntrenadorServicio
             $antes = $this->obtenerConServicios($id);
             $datos['updated_at'] = now();
 
-            DB::table('gimnasio.entrenadores')->where('id', $id)->update($datos);
+            DB::table('entrenamiento.entrenadores')->where('id', $id)->update($datos);
 
             if ($servicioIds !== null) {
                 $this->sincronizarServicios($id, $servicioIds);
             }
 
             $entrenador = $this->obtenerConServicios($id);
-            $this->auditar('gimnasio', 'ACTUALIZAR', 'gimnasio.entrenadores', $id, $antes, $entrenador);
+            $this->auditar('gimnasio', 'ACTUALIZAR', 'entrenamiento.entrenadores', $id, $antes, $entrenador);
 
             return $entrenador;
         });
@@ -49,7 +49,7 @@ class EntrenadorServicio
 
     public function catalogoServicios(): array
     {
-        return DB::table('gimnasio.servicios')
+        return DB::table('servicios.servicios')
             ->where('activo', true)
             ->where('requiere_reserva', true)
             ->orderBy('nombre')
@@ -59,7 +59,7 @@ class EntrenadorServicio
 
     public function configuracionCompleta(int $entrenadorId): array
     {
-        $entrenador = DB::table('gimnasio.entrenadores as e')
+        $entrenador = DB::table('entrenamiento.entrenadores as e')
             ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
             ->where('e.id', $entrenadorId)
             ->select(
@@ -80,8 +80,8 @@ class EntrenadorServicio
             throw ValidationException::withMessages(['entrenador_id' => 'El entrenador no existe.']);
         }
 
-        $servicios = DB::table('gimnasio.entrenador_servicios as es')
-            ->join('gimnasio.servicios as s', 's.id', '=', 'es.servicio_id')
+        $servicios = DB::table('entrenamiento.entrenador_servicios as es')
+            ->join('servicios.servicios as s', 's.id', '=', 'es.servicio_id')
             ->where('es.entrenador_id', $entrenadorId)
             ->where('es.activo', true)
             ->orderBy('s.nombre')
@@ -93,10 +93,10 @@ class EntrenadorServicio
                 's.activo',
             ]);
 
-        $asignaciones = DB::table('gimnasio.asignaciones_horario_entrenador as a')
+        $asignaciones = DB::table('agenda.asignaciones_horario_entrenador as a')
             ->join('institucional.sedes as sd', 'sd.id_sede', '=', 'a.sede_id')
-            ->join('gimnasio.jornadas as j', 'j.id', '=', 'a.jornada_id')
-            ->leftJoin('gimnasio.recesos as r', 'r.id', '=', 'a.receso_id')
+            ->join('agenda.jornadas as j', 'j.id', '=', 'a.jornada_id')
+            ->leftJoin('agenda.recesos as r', 'r.id', '=', 'a.receso_id')
             ->where('a.entrenador_id', $entrenadorId)
             ->where('a.activo', true)
             ->orderBy('a.fecha_inicio')
@@ -116,7 +116,7 @@ class EntrenadorServicio
             ]);
 
         foreach ($asignaciones as $asignacion) {
-            $detalles = DB::table('gimnasio.jornada_detalles')
+            $detalles = DB::table('agenda.jornada_detalles')
                 ->where('jornada_id', $asignacion->jornada_id)
                 ->where('activo', true)
                 ->get(['dia_semana', 'hora_inicio', 'hora_fin']);
@@ -130,7 +130,7 @@ class EntrenadorServicio
             $asignacion->hora_fin = $detalles->max('hora_fin');
         }
 
-        $excepciones = DB::table('gimnasio.excepciones_horario as x')
+        $excepciones = DB::table('agenda.excepciones_horario as x')
             ->leftJoin('institucional.sedes as sd', 'sd.id_sede', '=', 'x.sede_id')
             ->where('x.entrenador_id', $entrenadorId)
             ->where('x.activo', true)
@@ -165,7 +165,7 @@ class EntrenadorServicio
 
     public function obtenerPorUsuario(int $usuarioId): ?object
     {
-        return DB::table('gimnasio.entrenadores')
+        return DB::table('entrenamiento.entrenadores')
             ->where('usuario_id', $usuarioId)
             ->where('estado', 'ACTIVO')
             ->first();
@@ -265,14 +265,14 @@ class EntrenadorServicio
      */
     public function listarHorariosDisponibles(int $entrenadorId): array
     {
-        $asignadosIds = DB::table('gimnasio.horario_entrenadores')
+        $asignadosIds = DB::table('agenda.horario_entrenadores')
             ->where('entrenador_id', $entrenadorId)
             ->where('activo', true)
             ->pluck('horario_bloque_id');
 
-        $items = DB::table('gimnasio.horario_bloques as hb')
-            ->join('gimnasio.servicios as sv', 'hb.servicio_id', '=', 'sv.id')
-            ->leftJoin('gimnasio.horarios_servicio as hs', function ($join): void {
+        $items = DB::table('agenda.horario_bloques as hb')
+            ->join('servicios.servicios as sv', 'hb.servicio_id', '=', 'sv.id')
+            ->leftJoin('agenda.horarios_servicio as hs', function ($join): void {
                 $join->on('hs.horario_bloque_id', '=', 'hb.id')->where('hs.activo', true);
             })
             ->leftJoin('institucional.sedes as sd', 'hs.sede_id', '=', 'sd.id_sede')
@@ -299,7 +299,7 @@ class EntrenadorServicio
 
     public function asignarHorario(int $entrenadorId, int $horarioBloqueId): object
     {
-        $bloque = DB::table('gimnasio.horario_bloques')->where('id', $horarioBloqueId)->first();
+        $bloque = DB::table('agenda.horario_bloques')->where('id', $horarioBloqueId)->first();
 
         if (! $bloque || ! $bloque->activo) {
             throw ValidationException::withMessages([
@@ -307,7 +307,7 @@ class EntrenadorServicio
             ]);
         }
 
-        $existente = DB::table('gimnasio.horario_entrenadores')
+        $existente = DB::table('agenda.horario_entrenadores')
             ->where('entrenador_id', $entrenadorId)
             ->where('horario_bloque_id', $horarioBloqueId)
             ->first();
@@ -321,11 +321,11 @@ class EntrenadorServicio
         $this->validarSolapamientoHorario($entrenadorId, $horarioBloqueId);
 
         if ($existente) {
-            DB::table('gimnasio.horario_entrenadores')
+            DB::table('agenda.horario_entrenadores')
                 ->where('id', $existente->id)
                 ->update(['activo' => true, 'updated_at' => now()]);
         } else {
-            DB::table('gimnasio.horario_entrenadores')->insert([
+            DB::table('agenda.horario_entrenadores')->insert([
                 'entrenador_id' => $entrenadorId,
                 'horario_bloque_id' => $horarioBloqueId,
                 'activo' => true,
@@ -334,38 +334,38 @@ class EntrenadorServicio
             ]);
         }
 
-        $this->auditar('gimnasio', 'CREAR', 'gimnasio.horario_entrenadores', $entrenadorId, null, (object) ['entrenador_id' => $entrenadorId, 'horario_bloque_id' => $horarioBloqueId], 'Horario asignado al entrenador.');
+        $this->auditar('gimnasio', 'CREAR', 'agenda.horario_entrenadores', $entrenadorId, null, (object) ['entrenador_id' => $entrenadorId, 'horario_bloque_id' => $horarioBloqueId], 'Horario asignado al entrenador.');
 
         return (object) ['entrenador_id' => $entrenadorId, 'horario_bloque_id' => $horarioBloqueId];
     }
 
     public function quitarHorario(int $entrenadorId, int $horarioBloqueId): void
     {
-        $tieneAsignaciones = DB::table('gimnasio.asignaciones_entrenador_cliente')
+        $tieneAsignaciones = DB::table('entrenamiento.asignaciones_entrenador_cliente')
             ->where('entrenador_id', $entrenadorId)
             ->where('horario_bloque_id', $horarioBloqueId)
             ->where('estado', 'ACTIVO')
             ->exists();
 
         if ($tieneAsignaciones) {
-            DB::table('gimnasio.horario_entrenadores')
+            DB::table('agenda.horario_entrenadores')
                 ->where('entrenador_id', $entrenadorId)
                 ->where('horario_bloque_id', $horarioBloqueId)
                 ->update(['activo' => false, 'updated_at' => now()]);
-            $this->auditar('gimnasio', 'ACTUALIZAR', 'gimnasio.horario_entrenadores', $entrenadorId, null, null, 'Horario desactivado del entrenador (tenía clientes activos).');
+            $this->auditar('gimnasio', 'ACTUALIZAR', 'agenda.horario_entrenadores', $entrenadorId, null, null, 'Horario desactivado del entrenador (tenía clientes activos).');
             return;
         }
 
-        DB::table('gimnasio.horario_entrenadores')
+        DB::table('agenda.horario_entrenadores')
             ->where('entrenador_id', $entrenadorId)
             ->where('horario_bloque_id', $horarioBloqueId)
             ->delete();
-        $this->auditar('gimnasio', 'ELIMINAR', 'gimnasio.horario_entrenadores', $entrenadorId, null, null, 'Horario quitado del entrenador.');
+        $this->auditar('gimnasio', 'ELIMINAR', 'agenda.horario_entrenadores', $entrenadorId, null, null, 'Horario quitado del entrenador.');
     }
 
     private function validarSolapamientoHorario(int $entrenadorId, int $horarioBloqueId): void
     {
-        $detallesNuevos = DB::table('gimnasio.horarios_servicio')
+        $detallesNuevos = DB::table('agenda.horarios_servicio')
             ->where('horario_bloque_id', $horarioBloqueId)
             ->where('activo', true)
             ->get(['dia_semana', 'hora_inicio', 'hora_fin']);
@@ -377,9 +377,9 @@ class EntrenadorServicio
         }
 
         foreach ($detallesNuevos as $nuevo) {
-            $conflicto = DB::table('gimnasio.horario_entrenadores as he')
-                ->join('gimnasio.horario_bloques as hb', 'hb.id', '=', 'he.horario_bloque_id')
-                ->join('gimnasio.horarios_servicio as hs', function ($join): void {
+            $conflicto = DB::table('agenda.horario_entrenadores as he')
+                ->join('agenda.horario_bloques as hb', 'hb.id', '=', 'he.horario_bloque_id')
+                ->join('agenda.horarios_servicio as hs', function ($join): void {
                     $join->on('hs.horario_bloque_id', '=', 'hb.id')
                         ->where('hs.activo', true);
                 })
@@ -430,13 +430,13 @@ class EntrenadorServicio
             ->unique()
             ->values();
 
-        DB::table('gimnasio.entrenador_servicios')
+        DB::table('entrenamiento.entrenador_servicios')
             ->where('entrenador_id', $entrenadorId)
             ->whereNotIn('servicio_id', $ids->all() ?: [0])
             ->update(['activo' => false, 'updated_at' => now()]);
 
         foreach ($ids as $servicioId) {
-            DB::table('gimnasio.entrenador_servicios')->updateOrInsert(
+            DB::table('entrenamiento.entrenador_servicios')->updateOrInsert(
                 ['entrenador_id' => $entrenadorId, 'servicio_id' => $servicioId],
                 ['activo' => true, 'created_at' => now(), 'updated_at' => now()]
             );
@@ -445,13 +445,13 @@ class EntrenadorServicio
 
     private function obtenerConServicios(int $id): object
     {
-        $entrenador = DB::table('gimnasio.entrenadores')->where('id', $id)->first();
+        $entrenador = DB::table('entrenamiento.entrenadores')->where('id', $id)->first();
 
         if (! $entrenador) {
             throw ValidationException::withMessages(['entrenador_id' => 'El entrenador no existe.']);
         }
 
-        $entrenador->servicio_ids = DB::table('gimnasio.entrenador_servicios')
+        $entrenador->servicio_ids = DB::table('entrenamiento.entrenador_servicios')
             ->where('entrenador_id', $id)
             ->where('activo', true)
             ->pluck('servicio_id')

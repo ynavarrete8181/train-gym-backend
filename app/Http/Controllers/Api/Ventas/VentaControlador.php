@@ -268,8 +268,8 @@ class VentaControlador extends Controller
     public function guardarVenta(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'cliente_id' => 'nullable|exists:pgsql.gimnasio.deportistas,id',
-            'membresia_id' => 'nullable|exists:pgsql.gimnasio.membresias,id',
+            'cliente_id' => 'nullable|exists:pgsql.clientes.deportistas,id',
+            'membresia_id' => 'nullable|exists:pgsql.membresias.membresias,id',
             'caja_id' => 'nullable|exists:pgsql.ventas.cajas,id',
             'numero' => ['nullable', 'string', 'max:60', Rule::unique('ventas.ventas', 'numero')->ignore($id)],
             'tipo_venta' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO',

@@ -11,7 +11,7 @@ class ServicioAgendaServicio
 
     public function listarCategorias(array $filtros)
     {
-        $query = DB::table('gimnasio.categorias_servicio');
+        $query = DB::table('servicios.categorias_servicio');
         $this->buscar($query, $filtros['busqueda'] ?? null, ['nombre', 'descripcion']);
         $this->filtrarTexto($query, 'nombre', $filtros['nombre'] ?? null);
         $this->filtrarBooleano($query, 'activo', $filtros['estado'] ?? null);
@@ -21,55 +21,55 @@ class ServicioAgendaServicio
 
     public function guardarCategoria(array $datos, ?int $id = null): object
     {
-        $antes = $id ? DB::table('gimnasio.categorias_servicio')->where('id', $id)->first() : null;
+        $antes = $id ? DB::table('servicios.categorias_servicio')->where('id', $id)->first() : null;
         $datos['updated_at'] = now();
         if ($id) {
-            DB::table('gimnasio.categorias_servicio')->where('id', $id)->update($datos);
-            $despues = DB::table('gimnasio.categorias_servicio')->where('id', $id)->first();
-            $this->auditar('gimnasio', 'ACTUALIZAR', 'gimnasio.categorias_servicio', $id, $antes, $despues);
+            DB::table('servicios.categorias_servicio')->where('id', $id)->update($datos);
+            $despues = DB::table('servicios.categorias_servicio')->where('id', $id)->first();
+            $this->auditar('gimnasio', 'ACTUALIZAR', 'servicios.categorias_servicio', $id, $antes, $despues);
             return $despues;
         }
 
         $datos['created_at'] = now();
-        $id = DB::table('gimnasio.categorias_servicio')->insertGetId($datos);
-        $despues = DB::table('gimnasio.categorias_servicio')->where('id', $id)->first();
-        $this->auditar('gimnasio', 'CREAR', 'gimnasio.categorias_servicio', $id, null, $despues);
+        $id = DB::table('servicios.categorias_servicio')->insertGetId($datos);
+        $despues = DB::table('servicios.categorias_servicio')->where('id', $id)->first();
+        $this->auditar('gimnasio', 'CREAR', 'servicios.categorias_servicio', $id, null, $despues);
         return $despues;
     }
 
     public function listarServicios(array $filtros)
     {
-        $query = DB::table('gimnasio.servicios')
-            ->leftJoin('gimnasio.categorias_servicio', 'gimnasio.servicios.categoria_id', '=', 'gimnasio.categorias_servicio.id')
+        $query = DB::table('servicios.servicios')
+            ->leftJoin('servicios.categorias_servicio', 'servicios.servicios.categoria_id', '=', 'servicios.categorias_servicio.id')
             ->select(
-                'gimnasio.servicios.*',
-                'gimnasio.categorias_servicio.nombre as categoria_nombre'
+                'servicios.servicios.*',
+                'servicios.categorias_servicio.nombre as categoria_nombre'
             );
 
-        $this->buscar($query, $filtros['busqueda'] ?? null, ['gimnasio.servicios.nombre', 'gimnasio.servicios.descripcion', 'gimnasio.categorias_servicio.nombre']);
-        $this->filtrarTexto($query, 'gimnasio.servicios.nombre', $filtros['nombre'] ?? null);
-        $this->filtrarTexto($query, 'gimnasio.categorias_servicio.nombre', $filtros['categoria'] ?? null);
-        $this->filtrarBooleano($query, 'gimnasio.servicios.activo', $filtros['estado'] ?? null);
+        $this->buscar($query, $filtros['busqueda'] ?? null, ['servicios.servicios.nombre', 'servicios.servicios.descripcion', 'servicios.categorias_servicio.nombre']);
+        $this->filtrarTexto($query, 'servicios.servicios.nombre', $filtros['nombre'] ?? null);
+        $this->filtrarTexto($query, 'servicios.categorias_servicio.nombre', $filtros['categoria'] ?? null);
+        $this->filtrarBooleano($query, 'servicios.servicios.activo', $filtros['estado'] ?? null);
 
-        return $query->orderBy('gimnasio.categorias_servicio.nombre')->orderBy('gimnasio.servicios.nombre')
+        return $query->orderBy('servicios.categorias_servicio.nombre')->orderBy('servicios.servicios.nombre')
             ->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
     }
 
     public function guardarServicio(array $datos, ?int $id = null): object
     {
-        $antes = $id ? DB::table('gimnasio.servicios')->where('id', $id)->first() : null;
+        $antes = $id ? DB::table('servicios.servicios')->where('id', $id)->first() : null;
         $datos['updated_at'] = now();
         if ($id) {
-            DB::table('gimnasio.servicios')->where('id', $id)->update($datos);
+            DB::table('servicios.servicios')->where('id', $id)->update($datos);
             $despues = $this->obtenerServicio($id);
-            $this->auditar('gimnasio', 'ACTUALIZAR', 'gimnasio.servicios', $id, $antes, $despues);
+            $this->auditar('gimnasio', 'ACTUALIZAR', 'servicios.servicios', $id, $antes, $despues);
             return $despues;
         }
 
         $datos['created_at'] = now();
-        $id = DB::table('gimnasio.servicios')->insertGetId($datos);
+        $id = DB::table('servicios.servicios')->insertGetId($datos);
         $despues = $this->obtenerServicio($id);
-        $this->auditar('gimnasio', 'CREAR', 'gimnasio.servicios', $id, null, $despues);
+        $this->auditar('gimnasio', 'CREAR', 'servicios.servicios', $id, null, $despues);
         return $despues;
     }
 
@@ -79,13 +79,13 @@ class ServicioAgendaServicio
             return $this->listarHorariosDetalle($filtros);
         }
 
-        $query = DB::table('gimnasio.horario_bloques')
-            ->join('gimnasio.servicios', 'gimnasio.horario_bloques.servicio_id', '=', 'gimnasio.servicios.id')
-            ->leftJoin('gimnasio.horarios_servicio as horarios', 'gimnasio.horario_bloques.id', '=', 'horarios.horario_bloque_id')
+        $query = DB::table('agenda.horario_bloques')
+            ->join('servicios.servicios', 'agenda.horario_bloques.servicio_id', '=', 'servicios.servicios.id')
+            ->leftJoin('agenda.horarios_servicio as horarios', 'agenda.horario_bloques.id', '=', 'horarios.horario_bloque_id')
             ->leftJoin('institucional.sedes', 'horarios.sede_id', '=', 'institucional.sedes.id_sede')
             ->select(
-                'gimnasio.horario_bloques.*',
-                'gimnasio.servicios.nombre as servicio_nombre',
+                'agenda.horario_bloques.*',
+                'servicios.servicios.nombre as servicio_nombre',
                 DB::raw('MIN(horarios.hora_inicio) as hora_inicio'),
                 DB::raw('MAX(horarios.hora_fin) as hora_fin'),
                 DB::raw('MAX(horarios.capacidad) as capacidad'),
@@ -95,15 +95,15 @@ class ServicioAgendaServicio
                 DB::raw("STRING_AGG(DISTINCT horarios.dia_semana, ',') as dias_text")
             );
 
-        $this->buscar($query, $filtros['busqueda'] ?? null, ['gimnasio.horario_bloques.nombre', 'gimnasio.servicios.nombre', 'institucional.sedes.nombre', 'horarios.dia_semana']);
-        $this->filtrarTexto($query, 'gimnasio.servicios.nombre', $filtros['servicio'] ?? null);
+        $this->buscar($query, $filtros['busqueda'] ?? null, ['agenda.horario_bloques.nombre', 'servicios.servicios.nombre', 'institucional.sedes.nombre', 'horarios.dia_semana']);
+        $this->filtrarTexto($query, 'servicios.servicios.nombre', $filtros['servicio'] ?? null);
         $this->filtrarTexto($query, 'institucional.sedes.nombre', $filtros['sede'] ?? null);
         $this->filtrarTexto($query, 'horarios.dia_semana', $filtros['dia'] ?? null);
-        $this->filtrarBooleano($query, 'gimnasio.horario_bloques.activo', $filtros['estado'] ?? null);
+        $this->filtrarBooleano($query, 'agenda.horario_bloques.activo', $filtros['estado'] ?? null);
 
         $paginador = $query
-            ->groupBy('gimnasio.horario_bloques.id', 'gimnasio.servicios.nombre')
-            ->orderBy('gimnasio.horario_bloques.nombre')
+            ->groupBy('agenda.horario_bloques.id', 'servicios.servicios.nombre')
+            ->orderBy('agenda.horario_bloques.nombre')
             ->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
 
         $ordenDias = ['LUNES' => 1, 'MARTES' => 2, 'MIERCOLES' => 3, 'JUEVES' => 4, 'VIERNES' => 5, 'SABADO' => 6, 'DOMINGO' => 7];
@@ -121,25 +121,25 @@ class ServicioAgendaServicio
 
     private function listarHorariosDetalle(array $filtros)
     {
-        $query = DB::table('gimnasio.horarios_servicio')
-            ->join('gimnasio.servicios', 'gimnasio.horarios_servicio.servicio_id', '=', 'gimnasio.servicios.id')
-            ->join('institucional.sedes', 'gimnasio.horarios_servicio.sede_id', '=', 'institucional.sedes.id_sede')
+        $query = DB::table('agenda.horarios_servicio')
+            ->join('servicios.servicios', 'agenda.horarios_servicio.servicio_id', '=', 'servicios.servicios.id')
+            ->join('institucional.sedes', 'agenda.horarios_servicio.sede_id', '=', 'institucional.sedes.id_sede')
             ->select(
-                'gimnasio.horarios_servicio.*',
-                'gimnasio.servicios.nombre as servicio_nombre',
+                'agenda.horarios_servicio.*',
+                'servicios.servicios.nombre as servicio_nombre',
                 'institucional.sedes.nombre as sede_nombre'
             );
 
         $query;
-        $this->buscar($query, $filtros['busqueda'] ?? null, ['gimnasio.horarios_servicio.nombre', 'gimnasio.servicios.nombre', 'institucional.sedes.nombre', 'gimnasio.horarios_servicio.dia_semana']);
-        $this->filtrarTexto($query, 'gimnasio.servicios.nombre', $filtros['servicio'] ?? null);
+        $this->buscar($query, $filtros['busqueda'] ?? null, ['agenda.horarios_servicio.nombre', 'servicios.servicios.nombre', 'institucional.sedes.nombre', 'agenda.horarios_servicio.dia_semana']);
+        $this->filtrarTexto($query, 'servicios.servicios.nombre', $filtros['servicio'] ?? null);
         $this->filtrarTexto($query, 'institucional.sedes.nombre', $filtros['sede'] ?? null);
-        $this->filtrarTexto($query, 'gimnasio.horarios_servicio.dia_semana', $filtros['dia'] ?? null);
-        $this->filtrarBooleano($query, 'gimnasio.horarios_servicio.activo', $filtros['estado'] ?? null);
+        $this->filtrarTexto($query, 'agenda.horarios_servicio.dia_semana', $filtros['dia'] ?? null);
+        $this->filtrarBooleano($query, 'agenda.horarios_servicio.activo', $filtros['estado'] ?? null);
 
-        return $query->orderByRaw("CASE gimnasio.horarios_servicio.dia_semana WHEN 'LUNES' THEN 1 WHEN 'MARTES' THEN 2 WHEN 'MIERCOLES' THEN 3 WHEN 'JUEVES' THEN 4 WHEN 'VIERNES' THEN 5 WHEN 'SABADO' THEN 6 ELSE 7 END")
-            ->orderBy('gimnasio.horarios_servicio.hora_inicio')
-            ->orderBy('gimnasio.horarios_servicio.nombre')
+        return $query->orderByRaw("CASE agenda.horarios_servicio.dia_semana WHEN 'LUNES' THEN 1 WHEN 'MARTES' THEN 2 WHEN 'MIERCOLES' THEN 3 WHEN 'JUEVES' THEN 4 WHEN 'VIERNES' THEN 5 WHEN 'SABADO' THEN 6 ELSE 7 END")
+            ->orderBy('agenda.horarios_servicio.hora_inicio')
+            ->orderBy('agenda.horarios_servicio.nombre')
             ->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
     }
 
@@ -154,18 +154,18 @@ class ServicioAgendaServicio
             ];
 
             if ($id) {
-                DB::table('gimnasio.horario_bloques')->where('id', $id)->update($bloque);
+                DB::table('agenda.horario_bloques')->where('id', $id)->update($bloque);
                 $bloqueId = $id;
             } else {
                 $bloque['created_at'] = now();
-                $bloqueId = DB::table('gimnasio.horario_bloques')->insertGetId($bloque);
+                $bloqueId = DB::table('agenda.horario_bloques')->insertGetId($bloque);
             }
 
             $combinacionesActivas = [];
             foreach (array_values(array_unique($sedeIds)) as $sedeId) {
                 foreach (array_values(array_unique($diasSemana)) as $diaSemana) {
                     $combinacionesActivas[] = "{$sedeId}|{$diaSemana}";
-                    $detalle = DB::table('gimnasio.horarios_servicio')
+                    $detalle = DB::table('agenda.horarios_servicio')
                         ->where('horario_bloque_id', $bloqueId)
                         ->where('sede_id', (int) $sedeId)
                         ->where('dia_semana', $diaSemana)
@@ -190,19 +190,19 @@ class ServicioAgendaServicio
                 }
             }
 
-            DB::table('gimnasio.horarios_servicio')
+            DB::table('agenda.horarios_servicio')
                 ->where('horario_bloque_id', $bloqueId)
                 ->get()
                 ->each(function ($detalle) use ($combinacionesActivas): void {
                     if (! in_array("{$detalle->sede_id}|{$detalle->dia_semana}", $combinacionesActivas, true)) {
-                        DB::table('gimnasio.horarios_servicio')
+                        DB::table('agenda.horarios_servicio')
                             ->where('id', $detalle->id)
                             ->update(['activo' => false, 'updated_at' => now()]);
                     }
                 });
 
             $bloqueDespues = $this->obtenerHorarioBloque($bloqueId);
-            $this->auditar('gimnasio', $id ? 'ACTUALIZAR' : 'CREAR', 'gimnasio.horario_bloques', $bloqueId, null, $bloqueDespues);
+            $this->auditar('gimnasio', $id ? 'ACTUALIZAR' : 'CREAR', 'agenda.horario_bloques', $bloqueId, null, $bloqueDespues);
             return $bloqueDespues;
         });
     }
@@ -210,13 +210,13 @@ class ServicioAgendaServicio
     public function listarDetalleHorarioBloque(int $id): array
     {
         $bloque = $this->obtenerHorarioBloque($id);
-        $detalles = DB::table('gimnasio.horarios_servicio')
-            ->join('institucional.sedes', 'gimnasio.horarios_servicio.sede_id', '=', 'institucional.sedes.id_sede')
-            ->where('gimnasio.horarios_servicio.horario_bloque_id', $id)
-            ->orderByRaw("CASE gimnasio.horarios_servicio.dia_semana WHEN 'LUNES' THEN 1 WHEN 'MARTES' THEN 2 WHEN 'MIERCOLES' THEN 3 WHEN 'JUEVES' THEN 4 WHEN 'VIERNES' THEN 5 WHEN 'SABADO' THEN 6 ELSE 7 END")
-            ->orderBy('gimnasio.horarios_servicio.hora_inicio')
+        $detalles = DB::table('agenda.horarios_servicio')
+            ->join('institucional.sedes', 'agenda.horarios_servicio.sede_id', '=', 'institucional.sedes.id_sede')
+            ->where('agenda.horarios_servicio.horario_bloque_id', $id)
+            ->orderByRaw("CASE agenda.horarios_servicio.dia_semana WHEN 'LUNES' THEN 1 WHEN 'MARTES' THEN 2 WHEN 'MIERCOLES' THEN 3 WHEN 'JUEVES' THEN 4 WHEN 'VIERNES' THEN 5 WHEN 'SABADO' THEN 6 ELSE 7 END")
+            ->orderBy('agenda.horarios_servicio.hora_inicio')
             ->orderBy('institucional.sedes.nombre')
-            ->get(['gimnasio.horarios_servicio.*', 'institucional.sedes.nombre as sede_nombre'])
+            ->get(['agenda.horarios_servicio.*', 'institucional.sedes.nombre as sede_nombre'])
             ->all();
 
         return [
@@ -228,49 +228,49 @@ class ServicioAgendaServicio
     public function desactivarHorarioBloque(int $id): object
     {
         DB::transaction(function () use ($id): void {
-            DB::table('gimnasio.horario_bloques')
+            DB::table('agenda.horario_bloques')
                 ->where('id', $id)
                 ->update(['activo' => false, 'updated_at' => now()]);
 
-            DB::table('gimnasio.horarios_servicio')
+            DB::table('agenda.horarios_servicio')
                 ->where('horario_bloque_id', $id)
                 ->update(['activo' => false, 'updated_at' => now()]);
         });
 
         $bloque = $this->obtenerHorarioBloque($id);
-        $this->auditar('gimnasio', 'ACTUALIZAR', 'gimnasio.horario_bloques', $id, null, $bloque, 'Horario desactivado.');
+        $this->auditar('gimnasio', 'ACTUALIZAR', 'agenda.horario_bloques', $id, null, $bloque, 'Horario desactivado.');
         return $bloque;
     }
 
     public function eliminarHorarioBloque(int $id): object
     {
         return DB::transaction(function () use ($id): object {
-            $detalleIds = DB::table('gimnasio.horarios_servicio')
+            $detalleIds = DB::table('agenda.horarios_servicio')
                 ->where('horario_bloque_id', $id)
                 ->pluck('id');
 
-            $tieneReservas = DB::table('gimnasio.reservas_dia')
+            $tieneReservas = DB::table('agenda.reservas_dia')
                 ->whereIn('horario_id', $detalleIds)
                 ->exists();
 
             if (! $tieneReservas) {
-                DB::table('gimnasio.horarios_servicio')->where('horario_bloque_id', $id)->delete();
-                DB::table('gimnasio.horario_bloques')->where('id', $id)->delete();
+                DB::table('agenda.horarios_servicio')->where('horario_bloque_id', $id)->delete();
+                DB::table('agenda.horario_bloques')->where('id', $id)->delete();
 
                 $resultado = (object) [
                     'id' => $id,
                     'eliminado' => true,
                     'tipo_eliminacion' => 'fisica',
                 ];
-                $this->auditar('gimnasio', 'ELIMINAR', 'gimnasio.horario_bloques', $id, null, null, 'Horario eliminado definitivamente.');
+                $this->auditar('gimnasio', 'ELIMINAR', 'agenda.horario_bloques', $id, null, null, 'Horario eliminado definitivamente.');
                 return $resultado;
             }
 
-            DB::table('gimnasio.horario_bloques')
+            DB::table('agenda.horario_bloques')
                 ->where('id', $id)
                 ->update(['activo' => false, 'updated_at' => now()]);
 
-            DB::table('gimnasio.horarios_servicio')
+            DB::table('agenda.horarios_servicio')
                 ->where('horario_bloque_id', $id)
                 ->update(['activo' => false, 'updated_at' => now()]);
 
@@ -279,7 +279,7 @@ class ServicioAgendaServicio
                 'eliminado' => true,
                 'tipo_eliminacion' => 'logica',
             ];
-            $this->auditar('gimnasio', 'ACTUALIZAR', 'gimnasio.horario_bloques', $id, null, $resultado, 'Horario desactivado por tener reservas asociadas.');
+            $this->auditar('gimnasio', 'ACTUALIZAR', 'agenda.horario_bloques', $id, null, $resultado, 'Horario desactivado por tener reservas asociadas.');
             return $resultado;
         });
     }
@@ -288,102 +288,102 @@ class ServicioAgendaServicio
     {
         $datos['updated_at'] = now();
         if ($id) {
-            DB::table('gimnasio.horarios_servicio')->where('id', $id)->update($datos);
+            DB::table('agenda.horarios_servicio')->where('id', $id)->update($datos);
             return $this->obtenerHorario($id);
         }
 
         $datos['created_at'] = now();
-        $id = DB::table('gimnasio.horarios_servicio')->insertGetId($datos);
+        $id = DB::table('agenda.horarios_servicio')->insertGetId($datos);
         return $this->obtenerHorario($id);
     }
 
     public function listarReservasDia(array $filtros)
     {
-        $query = DB::table('gimnasio.reservas_dia')
-            ->join('gimnasio.deportistas', 'gimnasio.reservas_dia.cliente_id', '=', 'gimnasio.deportistas.id')
-            ->join('seguridad.users as clientes', 'gimnasio.deportistas.usuario_id', '=', 'clientes.id')
-            ->join('gimnasio.servicios', 'gimnasio.reservas_dia.servicio_id', '=', 'gimnasio.servicios.id')
-            ->leftJoin('institucional.sedes', 'gimnasio.reservas_dia.sede_id', '=', 'institucional.sedes.id_sede')
+        $query = DB::table('agenda.reservas_dia')
+            ->join('clientes.deportistas', 'agenda.reservas_dia.cliente_id', '=', 'clientes.deportistas.id')
+            ->join('seguridad.users as clientes', 'clientes.deportistas.usuario_id', '=', 'clientes.id')
+            ->join('servicios.servicios', 'agenda.reservas_dia.servicio_id', '=', 'servicios.servicios.id')
+            ->leftJoin('institucional.sedes', 'agenda.reservas_dia.sede_id', '=', 'institucional.sedes.id_sede')
             ->select(
-                'gimnasio.reservas_dia.*',
+                'agenda.reservas_dia.*',
                 'clientes.name as cliente_nombre',
-                'gimnasio.deportistas.codigo_deportista',
-                'gimnasio.servicios.nombre as servicio_nombre',
+                'clientes.deportistas.codigo_deportista',
+                'servicios.servicios.nombre as servicio_nombre',
                 'institucional.sedes.nombre as sede_nombre'
             );
 
-        $this->buscar($query, $filtros['busqueda'] ?? null, ['clientes.name', 'gimnasio.deportistas.codigo_deportista', 'gimnasio.servicios.nombre', 'institucional.sedes.nombre', 'gimnasio.reservas_dia.estado']);
+        $this->buscar($query, $filtros['busqueda'] ?? null, ['clientes.name', 'clientes.deportistas.codigo_deportista', 'servicios.servicios.nombre', 'institucional.sedes.nombre', 'agenda.reservas_dia.estado']);
         $this->filtrarTexto($query, 'clientes.name', $filtros['cliente'] ?? null);
-        $this->filtrarTexto($query, 'gimnasio.servicios.nombre', $filtros['servicio'] ?? null);
-        $this->filtrarTexto($query, 'gimnasio.reservas_dia.estado', $filtros['estado'] ?? null);
+        $this->filtrarTexto($query, 'servicios.servicios.nombre', $filtros['servicio'] ?? null);
+        $this->filtrarTexto($query, 'agenda.reservas_dia.estado', $filtros['estado'] ?? null);
 
         if (! empty($filtros['fecha'])) {
-            $query->whereDate('gimnasio.reservas_dia.fecha', $filtros['fecha']);
+            $query->whereDate('agenda.reservas_dia.fecha', $filtros['fecha']);
         }
 
-        return $query->orderByDesc('gimnasio.reservas_dia.fecha')->orderBy('gimnasio.reservas_dia.hora_inicio')
+        return $query->orderByDesc('agenda.reservas_dia.fecha')->orderBy('agenda.reservas_dia.hora_inicio')
             ->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
     }
 
     public function guardarReservaDia(array $datos, ?int $id = null): object
     {
-        $antes = $id ? DB::table('gimnasio.reservas_dia')->where('id', $id)->first() : null;
+        $antes = $id ? DB::table('agenda.reservas_dia')->where('id', $id)->first() : null;
         $datos['updated_at'] = now();
         if ($id) {
-            DB::table('gimnasio.reservas_dia')->where('id', $id)->update($datos);
+            DB::table('agenda.reservas_dia')->where('id', $id)->update($datos);
             $despues = $this->obtenerReservaDia($id);
-            $this->auditar('gimnasio', 'ACTUALIZAR', 'gimnasio.reservas_dia', $id, $antes, $despues);
+            $this->auditar('gimnasio', 'ACTUALIZAR', 'agenda.reservas_dia', $id, $antes, $despues);
             return $despues;
         }
 
         $datos['created_at'] = now();
-        $id = DB::table('gimnasio.reservas_dia')->insertGetId($datos);
+        $id = DB::table('agenda.reservas_dia')->insertGetId($datos);
         $despues = $this->obtenerReservaDia($id);
-        $this->auditar('gimnasio', 'CREAR', 'gimnasio.reservas_dia', $id, null, $despues);
+        $this->auditar('gimnasio', 'CREAR', 'agenda.reservas_dia', $id, null, $despues);
         return $despues;
     }
 
     public function opcionesFiltro(): array
     {
         return [
-            'categorias' => DB::table('gimnasio.categorias_servicio')->where('activo', true)->orderBy('nombre')->get(),
-            'servicios' => DB::table('gimnasio.servicios')->where('activo', true)->orderBy('nombre')->get(),
+            'categorias' => DB::table('servicios.categorias_servicio')->where('activo', true)->orderBy('nombre')->get(),
+            'servicios' => DB::table('servicios.servicios')->where('activo', true)->orderBy('nombre')->get(),
             'sedes' => DB::table('institucional.sedes')->where('activo', true)->orderBy('nombre')->get(['id_sede as id', 'nombre']),
         ];
     }
 
     private function obtenerServicio(int $id): object
     {
-        return DB::table('gimnasio.servicios')
-            ->leftJoin('gimnasio.categorias_servicio', 'gimnasio.servicios.categoria_id', '=', 'gimnasio.categorias_servicio.id')
-            ->select('gimnasio.servicios.*', 'gimnasio.categorias_servicio.nombre as categoria_nombre')
-            ->where('gimnasio.servicios.id', $id)
+        return DB::table('servicios.servicios')
+            ->leftJoin('servicios.categorias_servicio', 'servicios.servicios.categoria_id', '=', 'servicios.categorias_servicio.id')
+            ->select('servicios.servicios.*', 'servicios.categorias_servicio.nombre as categoria_nombre')
+            ->where('servicios.servicios.id', $id)
             ->first();
     }
 
     private function obtenerHorario(int $id): object
     {
-        return DB::table('gimnasio.horarios_servicio')
-            ->join('gimnasio.servicios', 'gimnasio.horarios_servicio.servicio_id', '=', 'gimnasio.servicios.id')
-            ->join('institucional.sedes', 'gimnasio.horarios_servicio.sede_id', '=', 'institucional.sedes.id_sede')
-            ->select('gimnasio.horarios_servicio.*', 'gimnasio.servicios.nombre as servicio_nombre', 'institucional.sedes.nombre as sede_nombre')
-            ->where('gimnasio.horarios_servicio.id', $id)
+        return DB::table('agenda.horarios_servicio')
+            ->join('servicios.servicios', 'agenda.horarios_servicio.servicio_id', '=', 'servicios.servicios.id')
+            ->join('institucional.sedes', 'agenda.horarios_servicio.sede_id', '=', 'institucional.sedes.id_sede')
+            ->select('agenda.horarios_servicio.*', 'servicios.servicios.nombre as servicio_nombre', 'institucional.sedes.nombre as sede_nombre')
+            ->where('agenda.horarios_servicio.id', $id)
             ->first();
     }
 
     private function obtenerHorarioBloque(int $id): object
     {
-        $bloque = DB::table('gimnasio.horario_bloques')
-            ->join('gimnasio.servicios', 'gimnasio.horario_bloques.servicio_id', '=', 'gimnasio.servicios.id')
-            ->select('gimnasio.horario_bloques.*', 'gimnasio.servicios.nombre as servicio_nombre')
-            ->where('gimnasio.horario_bloques.id', $id)
+        $bloque = DB::table('agenda.horario_bloques')
+            ->join('servicios.servicios', 'agenda.horario_bloques.servicio_id', '=', 'servicios.servicios.id')
+            ->select('agenda.horario_bloques.*', 'servicios.servicios.nombre as servicio_nombre')
+            ->where('agenda.horario_bloques.id', $id)
             ->first();
 
-        $detalles = DB::table('gimnasio.horarios_servicio')
-            ->join('institucional.sedes', 'gimnasio.horarios_servicio.sede_id', '=', 'institucional.sedes.id_sede')
-            ->where('gimnasio.horarios_servicio.horario_bloque_id', $id)
-            ->where('gimnasio.horarios_servicio.activo', true)
-            ->get(['gimnasio.horarios_servicio.*', 'institucional.sedes.nombre as sede_nombre']);
+        $detalles = DB::table('agenda.horarios_servicio')
+            ->join('institucional.sedes', 'agenda.horarios_servicio.sede_id', '=', 'institucional.sedes.id_sede')
+            ->where('agenda.horarios_servicio.horario_bloque_id', $id)
+            ->where('agenda.horarios_servicio.activo', true)
+            ->get(['agenda.horarios_servicio.*', 'institucional.sedes.nombre as sede_nombre']);
 
         $ordenDias = ['LUNES' => 1, 'MARTES' => 2, 'MIERCOLES' => 3, 'JUEVES' => 4, 'VIERNES' => 5, 'SABADO' => 6, 'DOMINGO' => 7];
         $bloque->sede_ids = $detalles->pluck('sede_id')->unique()->values()->all();
@@ -400,13 +400,13 @@ class ServicioAgendaServicio
 
     private function obtenerReservaDia(int $id): object
     {
-        return DB::table('gimnasio.reservas_dia')
-            ->join('gimnasio.deportistas', 'gimnasio.reservas_dia.cliente_id', '=', 'gimnasio.deportistas.id')
-            ->join('seguridad.users as clientes', 'gimnasio.deportistas.usuario_id', '=', 'clientes.id')
-            ->join('gimnasio.servicios', 'gimnasio.reservas_dia.servicio_id', '=', 'gimnasio.servicios.id')
-            ->leftJoin('institucional.sedes', 'gimnasio.reservas_dia.sede_id', '=', 'institucional.sedes.id_sede')
-            ->select('gimnasio.reservas_dia.*', 'clientes.name as cliente_nombre', 'gimnasio.deportistas.codigo_deportista', 'gimnasio.servicios.nombre as servicio_nombre', 'institucional.sedes.nombre as sede_nombre')
-            ->where('gimnasio.reservas_dia.id', $id)
+        return DB::table('agenda.reservas_dia')
+            ->join('clientes.deportistas', 'agenda.reservas_dia.cliente_id', '=', 'clientes.deportistas.id')
+            ->join('seguridad.users as clientes', 'clientes.deportistas.usuario_id', '=', 'clientes.id')
+            ->join('servicios.servicios', 'agenda.reservas_dia.servicio_id', '=', 'servicios.servicios.id')
+            ->leftJoin('institucional.sedes', 'agenda.reservas_dia.sede_id', '=', 'institucional.sedes.id_sede')
+            ->select('agenda.reservas_dia.*', 'clientes.name as cliente_nombre', 'clientes.deportistas.codigo_deportista', 'servicios.servicios.nombre as servicio_nombre', 'institucional.sedes.nombre as sede_nombre')
+            ->where('agenda.reservas_dia.id', $id)
             ->first();
     }
 

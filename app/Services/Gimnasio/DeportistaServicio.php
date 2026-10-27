@@ -57,6 +57,20 @@ class DeportistaServicio
 
             if ($persona && $actual?->persona_id) {
                 $this->actualizarPersonaCliente((int) $actual->persona_id, $persona);
+
+                // Mantener las columnas de compatibilidad del usuario alineadas
+                // con la identidad canónica cuando esa cuenta pertenece al cliente.
+                if ($actual->usuario_id) {
+                    DB::table('seguridad.users')
+                        ->where('id', $actual->usuario_id)
+                        ->where('persona_id', $actual->persona_id)
+                        ->update([
+                            'nombres' => trim((string) ($persona['nombres'] ?? '')) ?: null,
+                            'apellidos' => trim((string) ($persona['apellidos'] ?? '')) ?: null,
+                            'cedula' => trim((string) ($persona['identificacion'] ?? '')) ?: null,
+                            'updated_at' => now(),
+                        ]);
+                }
             }
 
             $datos['updated_at'] = now();

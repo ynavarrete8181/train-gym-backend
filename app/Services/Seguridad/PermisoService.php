@@ -28,6 +28,21 @@ class PermisoService
             return false;
         }
 
+        // El ADMINISTRADOR activo gestiona toda la operación deportiva.
+        // Las funciones técnicas de seguridad siguen restringidas.
+        $administradorActivo = DB::table('seguridad.cpu_userrole')
+            ->where('id_userrole', $usuario->usr_tipo)
+            ->where('role', 'ADMINISTRADOR')
+            ->where('activo', true)
+            ->exists();
+
+        if ($administradorActivo && $codigosNormalizados->contains(
+            fn (string $codigo): bool => str_starts_with($codigo, 'GIMNASIO-')
+                || str_starts_with($codigo, 'ENTRENAMIENTO-')
+        )) {
+            return true;
+        }
+
         return DB::table('seguridad.cpu_userfunction')
             ->where('id_users', $usuario->id)
             ->where('activo', true)

@@ -22,8 +22,8 @@ class AgendaConfiguracionServicio
 
     public function listarJornadas(array $filtros)
     {
-        $query = DB::table('gimnasio.jornadas as j')
-            ->leftJoin('gimnasio.jornada_detalles as jd', function ($join): void {
+        $query = DB::table('agenda.jornadas as j')
+            ->leftJoin('agenda.jornada_detalles as jd', function ($join): void {
                 $join->on('jd.jornada_id', '=', 'j.id')->where('jd.activo', true);
             })
             ->select(
@@ -63,7 +63,7 @@ class AgendaConfiguracionServicio
     public function guardarJornada(array $datos, ?int $id = null): object
     {
         return DB::transaction(function () use ($datos, $id): object {
-            $antes = $id ? DB::table('gimnasio.jornadas')->where('id', $id)->first() : null;
+            $antes = $id ? DB::table('agenda.jornadas')->where('id', $id)->first() : null;
 
             $cabecera = [
                 'nombre' => trim($datos['nombre']),
@@ -73,21 +73,21 @@ class AgendaConfiguracionServicio
             ];
 
             if ($id) {
-                DB::table('gimnasio.jornadas')->where('id', $id)->update($cabecera);
+                DB::table('agenda.jornadas')->where('id', $id)->update($cabecera);
                 $jornadaId = $id;
             } else {
                 $cabecera['created_at'] = now();
-                $jornadaId = DB::table('gimnasio.jornadas')->insertGetId($cabecera);
+                $jornadaId = DB::table('agenda.jornadas')->insertGetId($cabecera);
             }
 
             $dias = array_values(array_unique($datos['dias_semana']));
-            DB::table('gimnasio.jornada_detalles')
+            DB::table('agenda.jornada_detalles')
                 ->where('jornada_id', $jornadaId)
                 ->whereNotIn('dia_semana', $dias)
                 ->update(['activo' => false, 'updated_at' => now()]);
 
             foreach ($dias as $dia) {
-                DB::table('gimnasio.jornada_detalles')->updateOrInsert(
+                DB::table('agenda.jornada_detalles')->updateOrInsert(
                     ['jornada_id' => $jornadaId, 'dia_semana' => $dia],
                     [
                         'hora_inicio' => $datos['hora_inicio'],
@@ -100,7 +100,7 @@ class AgendaConfiguracionServicio
             }
 
             $despues = $this->obtenerJornada($jornadaId);
-            $this->auditar('gimnasio', $id ? 'ACTUALIZAR' : 'CREAR', 'gimnasio.jornadas', $jornadaId, $antes, $despues);
+            $this->auditar('gimnasio', $id ? 'ACTUALIZAR' : 'CREAR', 'agenda.jornadas', $jornadaId, $antes, $despues);
 
             return $despues;
         });
@@ -108,13 +108,13 @@ class AgendaConfiguracionServicio
 
     public function obtenerJornada(int $id): object
     {
-        $jornada = DB::table('gimnasio.jornadas')->where('id', $id)->first();
+        $jornada = DB::table('agenda.jornadas')->where('id', $id)->first();
 
         if (! $jornada) {
             throw ValidationException::withMessages(['jornada_id' => 'La jornada no existe.']);
         }
 
-        $detalles = DB::table('gimnasio.jornada_detalles')
+        $detalles = DB::table('agenda.jornada_detalles')
             ->where('jornada_id', $id)
             ->where('activo', true)
             ->get(['dia_semana', 'hora_inicio', 'hora_fin']);
@@ -132,7 +132,7 @@ class AgendaConfiguracionServicio
 
     public function listarRecesos(array $filtros)
     {
-        $query = DB::table('gimnasio.recesos');
+        $query = DB::table('agenda.recesos');
 
         if (! empty($filtros['busqueda'])) {
             $texto = '%' . mb_strtolower(trim($filtros['busqueda'])) . '%';
@@ -154,31 +154,31 @@ class AgendaConfiguracionServicio
 
     public function guardarReceso(array $datos, ?int $id = null): object
     {
-        $antes = $id ? DB::table('gimnasio.recesos')->where('id', $id)->first() : null;
+        $antes = $id ? DB::table('agenda.recesos')->where('id', $id)->first() : null;
         $datos['updated_at'] = now();
 
         if ($id) {
-            DB::table('gimnasio.recesos')->where('id', $id)->update($datos);
+            DB::table('agenda.recesos')->where('id', $id)->update($datos);
             $recesoId = $id;
         } else {
             $datos['created_at'] = now();
-            $recesoId = DB::table('gimnasio.recesos')->insertGetId($datos);
+            $recesoId = DB::table('agenda.recesos')->insertGetId($datos);
         }
 
-        $despues = DB::table('gimnasio.recesos')->where('id', $recesoId)->first();
-        $this->auditar('gimnasio', $id ? 'ACTUALIZAR' : 'CREAR', 'gimnasio.recesos', $recesoId, $antes, $despues);
+        $despues = DB::table('agenda.recesos')->where('id', $recesoId)->first();
+        $this->auditar('gimnasio', $id ? 'ACTUALIZAR' : 'CREAR', 'agenda.recesos', $recesoId, $antes, $despues);
 
         return $despues;
     }
 
     public function listarAsignaciones(array $filtros)
     {
-        $query = DB::table('gimnasio.asignaciones_horario_entrenador as a')
-            ->join('gimnasio.entrenadores as e', 'e.id', '=', 'a.entrenador_id')
+        $query = DB::table('agenda.asignaciones_horario_entrenador as a')
+            ->join('entrenamiento.entrenadores as e', 'e.id', '=', 'a.entrenador_id')
             ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
             ->join('institucional.sedes as s', 's.id_sede', '=', 'a.sede_id')
-            ->join('gimnasio.jornadas as j', 'j.id', '=', 'a.jornada_id')
-            ->leftJoin('gimnasio.recesos as r', 'r.id', '=', 'a.receso_id')
+            ->join('agenda.jornadas as j', 'j.id', '=', 'a.jornada_id')
+            ->leftJoin('agenda.recesos as r', 'r.id', '=', 'a.receso_id')
             ->select(
                 'a.*',
                 'u.name as entrenador_nombre',
@@ -216,7 +216,7 @@ class AgendaConfiguracionServicio
             ->orderBy('a.fecha_inicio', 'desc')
             ->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
 
-        $jornadas = DB::table('gimnasio.jornada_detalles')
+        $jornadas = DB::table('agenda.jornada_detalles')
             ->whereIn('jornada_id', collect($paginador->items())->pluck('jornada_id')->filter()->unique())
             ->where('activo', true)
             ->get()
@@ -241,19 +241,19 @@ class AgendaConfiguracionServicio
     {
         $this->validarAsignacion($datos, $id);
 
-        $antes = $id ? DB::table('gimnasio.asignaciones_horario_entrenador')->where('id', $id)->first() : null;
+        $antes = $id ? DB::table('agenda.asignaciones_horario_entrenador')->where('id', $id)->first() : null;
         $datos['updated_at'] = now();
 
         if ($id) {
-            DB::table('gimnasio.asignaciones_horario_entrenador')->where('id', $id)->update($datos);
+            DB::table('agenda.asignaciones_horario_entrenador')->where('id', $id)->update($datos);
             $asignacionId = $id;
         } else {
             $datos['created_at'] = now();
-            $asignacionId = DB::table('gimnasio.asignaciones_horario_entrenador')->insertGetId($datos);
+            $asignacionId = DB::table('agenda.asignaciones_horario_entrenador')->insertGetId($datos);
         }
 
-        $despues = DB::table('gimnasio.asignaciones_horario_entrenador')->where('id', $asignacionId)->first();
-        $this->auditar('gimnasio', $id ? 'ACTUALIZAR' : 'CREAR', 'gimnasio.asignaciones_horario_entrenador', $asignacionId, $antes, $despues);
+        $despues = DB::table('agenda.asignaciones_horario_entrenador')->where('id', $asignacionId)->first();
+        $this->auditar('gimnasio', $id ? 'ACTUALIZAR' : 'CREAR', 'agenda.asignaciones_horario_entrenador', $asignacionId, $antes, $despues);
 
         return $despues;
     }
@@ -267,7 +267,7 @@ class AgendaConfiguracionServicio
                 ->orderBy('nombre')
                 ->get(['id_sede as id', 'nombre']),
             'jornadas' => collect($this->listarJornadasActivas()),
-            'recesos' => DB::table('gimnasio.recesos')
+            'recesos' => DB::table('agenda.recesos')
                 ->where('activo', true)
                 ->orderBy('hora_inicio')
                 ->get(),
@@ -285,7 +285,7 @@ class AgendaConfiguracionServicio
             return collect();
         }
 
-        $query = DB::table('gimnasio.entrenadores as e')
+        $query = DB::table('entrenamiento.entrenadores as e')
             ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
             ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
             ->where('e.estado', 'ACTIVO')
@@ -324,7 +324,7 @@ class AgendaConfiguracionServicio
     private function validarAsignacion(array $datos, ?int $ignorarId = null): void
     {
         $jornada = $this->obtenerJornada((int) $datos['jornada_id']);
-        $detallesNuevos = DB::table('gimnasio.jornada_detalles')
+        $detallesNuevos = DB::table('agenda.jornada_detalles')
             ->where('jornada_id', $jornada->id)
             ->where('activo', true)
             ->get();
@@ -334,7 +334,7 @@ class AgendaConfiguracionServicio
         }
 
         if (! empty($datos['receso_id'])) {
-            $receso = DB::table('gimnasio.recesos')->where('id', $datos['receso_id'])->where('activo', true)->first();
+            $receso = DB::table('agenda.recesos')->where('id', $datos['receso_id'])->where('activo', true)->first();
 
             if (! $receso) {
                 throw ValidationException::withMessages(['receso_id' => 'El receso seleccionado no está disponible.']);
@@ -354,8 +354,8 @@ class AgendaConfiguracionServicio
         $fechaInicio = $datos['fecha_inicio'];
         $fechaFin = $datos['fecha_fin'] ?? '9999-12-31';
 
-        $existentes = DB::table('gimnasio.asignaciones_horario_entrenador as a')
-            ->join('gimnasio.jornadas as j', 'j.id', '=', 'a.jornada_id')
+        $existentes = DB::table('agenda.asignaciones_horario_entrenador as a')
+            ->join('agenda.jornadas as j', 'j.id', '=', 'a.jornada_id')
             ->where('a.entrenador_id', (int) $datos['entrenador_id'])
             ->where('a.activo', true)
             ->when($ignorarId, fn ($q) => $q->where('a.id', '!=', $ignorarId))
@@ -366,7 +366,7 @@ class AgendaConfiguracionServicio
             ->get(['a.id', 'a.sede_id', 'a.jornada_id', 'j.nombre as jornada_nombre']);
 
         foreach ($existentes as $existente) {
-            $detallesExistentes = DB::table('gimnasio.jornada_detalles')
+            $detallesExistentes = DB::table('agenda.jornada_detalles')
                 ->where('jornada_id', $existente->jornada_id)
                 ->where('activo', true)
                 ->get();

@@ -229,7 +229,7 @@ Artisan::command('revive:auditar-identidades', function (): int {
         'Personas' => DB::table('personas.personas')->count(),
         'Clientes' => DB::table('clientes.deportistas')->count(),
         'Usuarios' => DB::table('seguridad.users')->count(),
-        'Entrenadores' => DB::table('gimnasio.entrenadores')->count(),
+        'Entrenadores' => DB::table('entrenamiento.entrenadores')->count(),
     ];
 
     $hallazgos = [
@@ -257,7 +257,7 @@ Artisan::command('revive:auditar-identidades', function (): int {
             ->whereNotNull('persona_id')
             ->select('persona_id')->groupBy('persona_id')
             ->havingRaw('COUNT(*) > 1')->get()->count(),
-        'Entrenadores con usuario inexistente' => DB::table('gimnasio.entrenadores as e')
+        'Entrenadores con usuario inexistente' => DB::table('entrenamiento.entrenadores as e')
             ->leftJoin('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
             ->whereNull('u.id')->count(),
     ];

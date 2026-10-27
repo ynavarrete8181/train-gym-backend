@@ -23,7 +23,7 @@ class DeportistaControlador extends Controller
         $porPagina = $request->input('per_page', 15);
         $pagina = $request->input('page', 1);
         $busqueda = $request->input('busqueda');
-        $codigo = $request->input('codigo');
+        $cedula = $request->input('cedula');
         $nombres = $request->input('nombres');
         $telefono = $request->input('telefono');
         $sede = $request->input('sede');
@@ -62,7 +62,7 @@ class DeportistaControlador extends Controller
             });
         }
 
-        $this->aplicarFiltro($deportistas, 'clientes.deportistas.codigo_deportista', $codigo);
+        $this->aplicarFiltro($deportistas, 'p.identificacion', $cedula);
         $this->aplicarFiltro($deportistas, 'clientes.deportistas.telefono', $telefono);
         $this->aplicarFiltro($deportistas, 'institucional.sedes.nombre', $sede);
         $this->aplicarFiltro($deportistas, 'clientes.deportistas.estado', $estado);
@@ -157,6 +157,11 @@ class DeportistaControlador extends Controller
     public function store(Request $request)
     {
         $validados = $this->validarDatosCliente($request);
+        // Código opaco y corto: generado exclusivamente en Laravel, no por el cliente.
+        do {
+            $codigoInterno = 'CL-' . strtoupper(\\Illuminate\\Support\\Str::random(8));
+        } while (DB::table('clientes.deportistas')->where('codigo_deportista', $codigoInterno)->exists());
+        $validados['codigo_deportista'] = $codigoInterno;
 
         if (! empty($validados['usuario_id'])) {
             $this->validarRolDeportista((int) $validados['usuario_id']);
@@ -265,7 +270,7 @@ class DeportistaControlador extends Controller
 
             'persona_id' => ['nullable', 'exists:pgsql.personas.personas,id', $reglaPersonaUnica],
             'usuario_id' => ['nullable', 'exists:pgsql.seguridad.users,id', $reglaUsuarioUnico],
-            'codigo_deportista' => ['required', 'string', 'max:40', $reglaCodigoUnico],
+            'codigo_deportista' => [$id ? 'sometimes' : 'nullable', 'string', 'max:40', $reglaCodigoUnico],
             'fecha_nacimiento' => 'nullable|date',
             'genero' => 'nullable|string|max:20',
             'telefono' => 'nullable|string|max:30',
@@ -355,11 +360,11 @@ class DeportistaControlador extends Controller
             });
 
         return [
-            'codigo' => (clone $base)
-                ->whereNotNull('clientes.deportistas.codigo_deportista')
+            'cedula' => (clone $base)
+                ->whereNotNull('p.identificacion')
                 ->distinct()
-                ->orderBy('clientes.deportistas.codigo_deportista')
-                ->pluck('clientes.deportistas.codigo_deportista')
+                ->orderBy('p.identificacion')
+                ->pluck('p.identificacion')
                 ->values(),
             'nombres' => (clone $base)
                 ->whereNotNull('p.nombre_completo')

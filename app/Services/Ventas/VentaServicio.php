@@ -45,12 +45,12 @@ class VentaServicio
     public function listarVentas(array $filtros, ?int $usuarioId = null)
     {
         $query = DB::table('ventas.ventas')
-            ->leftJoin('gimnasio.deportistas', 'ventas.ventas.cliente_id', '=', 'gimnasio.deportistas.id')
-            ->leftJoin('personas.personas as persona_cliente', 'gimnasio.deportistas.persona_id', '=', 'persona_cliente.id')
-            ->leftJoin('seguridad.users as cliente_user', 'gimnasio.deportistas.usuario_id', '=', 'cliente_user.id')
+            ->leftJoin('clientes.deportistas', 'ventas.ventas.cliente_id', '=', 'clientes.deportistas.id')
+            ->leftJoin('personas.personas as persona_cliente', 'clientes.deportistas.persona_id', '=', 'persona_cliente.id')
+            ->leftJoin('seguridad.users as cliente_user', 'clientes.deportistas.usuario_id', '=', 'cliente_user.id')
             ->leftJoin('ventas.cajas', 'ventas.ventas.caja_id', '=', 'ventas.cajas.id')
-            ->leftJoin('gimnasio.membresias as membresia_sede', 'ventas.ventas.membresia_id', '=', 'membresia_sede.id')
-            ->leftJoin('gimnasio.planes as plan_venta', 'plan_venta.id', '=', 'membresia_sede.plan_id')
+            ->leftJoin('membresias.membresias as membresia_sede', 'ventas.ventas.membresia_id', '=', 'membresia_sede.id')
+            ->leftJoin('membresias.planes as plan_venta', 'plan_venta.id', '=', 'membresia_sede.plan_id')
             ->leftJoin('institucional.sedes as sede_operacion', DB::raw('COALESCE(ventas.cajas.sede_id, membresia_sede.sede_id)'), '=', 'sede_operacion.id_sede')
             ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'ventas.ventas.estado_id', '=', 'estado_cfg.id')
             ->leftJoin('seguridad.users as generado_por', 'ventas.ventas.usuario_id', '=', 'generado_por.id')
@@ -60,7 +60,7 @@ class VentaServicio
                 'generado_por.name as generado_por_nombre',
                 'responsable_comercial.name as responsable_comercial_nombre',
                 'cliente_user.name as cliente_nombre',
-                'gimnasio.deportistas.codigo_deportista',
+                'clientes.deportistas.codigo_deportista',
                 'ventas.cajas.nombre as caja_nombre',
                 DB::raw('COALESCE(ventas.cajas.sede_id, membresia_sede.sede_id) as sede_id'),
                 'sede_operacion.nombre as sede_nombre',
@@ -170,12 +170,12 @@ class VentaServicio
         $this->validarVisibilidadDetalleVenta($ventaId, $usuarioId, $sedeId);
 
         $venta = DB::table('ventas.ventas as v')
-            ->leftJoin('gimnasio.deportistas as d', 'd.id', '=', 'v.cliente_id')
+            ->leftJoin('clientes.deportistas as d', 'd.id', '=', 'v.cliente_id')
             ->leftJoin('seguridad.users as cu', 'cu.id', '=', 'd.usuario_id')
             ->leftJoin('personas.personas as persona', 'persona.id', '=', 'd.persona_id')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
-            ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
-            ->leftJoin('gimnasio.planes as pm', 'pm.id', '=', 'm.plan_id')
+            ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
+            ->leftJoin('membresias.planes as pm', 'pm.id', '=', 'm.plan_id')
             ->leftJoin('membresias.plan_modalidades as modalidad', 'modalidad.id', '=', 'm.modalidad_id')
             ->leftJoin('institucional.sedes as s', 's.id_sede', '=', DB::raw('COALESCE(c.sede_id, m.sede_id)'))
             ->leftJoin('configuracion.estados_catalogo as e', 'e.id', '=', 'v.estado_id')
@@ -235,7 +235,7 @@ class VentaServicio
         $venta->entrenadores_membresia = collect();
 
         if ($venta->membresia_id) {
-            $venta->sedes_membresia = DB::table('gimnasio.membresia_sedes as ms')
+            $venta->sedes_membresia = DB::table('membresias.membresia_sedes as ms')
                 ->join('institucional.sedes as s', 's.id_sede', '=', 'ms.sede_id')
                 ->where('ms.membresia_id', $venta->membresia_id)
                 ->where('ms.activo', true)
@@ -243,11 +243,11 @@ class VentaServicio
                 ->orderBy('s.nombre')
                 ->get(['ms.sede_id', 'ms.es_principal', 's.nombre as sede_nombre']);
 
-            $venta->entrenadores_membresia = DB::table('gimnasio.asignaciones_entrenador_cliente as a')
-                ->join('gimnasio.entrenadores as e', 'e.id', '=', 'a.entrenador_id')
+            $venta->entrenadores_membresia = DB::table('entrenamiento.asignaciones_entrenador_cliente as a')
+                ->join('entrenamiento.entrenadores as e', 'e.id', '=', 'a.entrenador_id')
                 ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
                 ->leftJoin('institucional.sedes as s', 's.id_sede', '=', 'a.sede_id')
-                ->leftJoin('gimnasio.horario_bloques as hb', 'hb.id', '=', 'a.horario_bloque_id')
+                ->leftJoin('agenda.horario_bloques as hb', 'hb.id', '=', 'a.horario_bloque_id')
                 ->where('a.membresia_id', $venta->membresia_id)
                 ->where('a.estado', 'ACTIVO')
                 ->orderBy('s.nombre')
@@ -291,10 +291,10 @@ class VentaServicio
         $query = DB::table('ventas.pagos as p')
             ->join('ventas.ventas as v', 'p.venta_id', '=', 'v.id')
             ->leftJoin('ventas.cajas as caja_venta', 'v.caja_id', '=', 'caja_venta.id')
-            ->leftJoin('gimnasio.membresias as membresia_sede', 'v.membresia_id', '=', 'membresia_sede.id')
+            ->leftJoin('membresias.membresias as membresia_sede', 'v.membresia_id', '=', 'membresia_sede.id')
             ->leftJoin('ventas.cajas as caja_pago', 'p.caja_id', '=', 'caja_pago.id')
             ->leftJoin('ventas.turnos_caja as turno', 'p.turno_caja_id', '=', 'turno.id')
-            ->leftJoin('gimnasio.deportistas as d', 'v.cliente_id', '=', 'd.id')
+            ->leftJoin('clientes.deportistas as d', 'v.cliente_id', '=', 'd.id')
             ->leftJoin('personas.personas as persona', 'd.persona_id', '=', 'persona.id')
             ->leftJoin('seguridad.users as cliente_user', 'd.usuario_id', '=', 'cliente_user.id')
             ->leftJoin('seguridad.users as cobrador', 'p.usuario_id', '=', 'cobrador.id')
@@ -407,10 +407,10 @@ class VentaServicio
         $query = DB::table('ventas.comprobantes')
             ->join('ventas.ventas', 'ventas.comprobantes.venta_id', '=', 'ventas.ventas.id')
             ->leftJoin('ventas.cajas as caja_venta', 'ventas.ventas.caja_id', '=', 'caja_venta.id')
-            ->leftJoin('gimnasio.membresias as membresia_sede', 'ventas.ventas.membresia_id', '=', 'membresia_sede.id')
-            ->leftJoin('gimnasio.deportistas', 'ventas.ventas.cliente_id', '=', 'gimnasio.deportistas.id')
-            ->leftJoin('personas.personas as persona_cliente', 'gimnasio.deportistas.persona_id', '=', 'persona_cliente.id')
-            ->leftJoin('seguridad.users as cliente_user', 'gimnasio.deportistas.usuario_id', '=', 'cliente_user.id')
+            ->leftJoin('membresias.membresias as membresia_sede', 'ventas.ventas.membresia_id', '=', 'membresia_sede.id')
+            ->leftJoin('clientes.deportistas', 'ventas.ventas.cliente_id', '=', 'clientes.deportistas.id')
+            ->leftJoin('personas.personas as persona_cliente', 'clientes.deportistas.persona_id', '=', 'persona_cliente.id')
+            ->leftJoin('seguridad.users as cliente_user', 'clientes.deportistas.usuario_id', '=', 'cliente_user.id')
             ->select(
                 'ventas.comprobantes.*',
                 'ventas.ventas.numero as venta_numero',
@@ -436,11 +436,11 @@ class VentaServicio
 
         return [
             'cajas' => DB::table('ventas.cajas')->where('activa', true)->whereIn('sede_id', $sedes)->orderBy('nombre')->get(['id', 'nombre', 'codigo', 'sede_id']),
-            'clientes' => DB::table('gimnasio.deportistas')
-                ->leftJoin('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')
+            'clientes' => DB::table('clientes.deportistas')
+                ->leftJoin('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
                 ->orderBy('seguridad.users.name')
-                ->get(['gimnasio.deportistas.id', 'gimnasio.deportistas.codigo_deportista', 'seguridad.users.name as nombre']),
-            'membresias' => DB::table('gimnasio.membresias')->whereIn('sede_id', $sedes)->orderByDesc('created_at')->limit(100)->get(['id', 'codigo_contrato', 'estado', 'estado_id', 'precio_aplicado', 'sede_id']),
+                ->get(['clientes.deportistas.id', 'clientes.deportistas.codigo_deportista', 'seguridad.users.name as nombre']),
+            'membresias' => DB::table('membresias.membresias')->whereIn('sede_id', $sedes)->orderByDesc('created_at')->limit(100)->get(['id', 'codigo_contrato', 'estado', 'estado_id', 'precio_aplicado', 'sede_id']),
             'productos' => DB::table('inventario.productos')->where('activo', true)->orderBy('nombre')->get(['id', 'codigo', 'nombre', 'precio_venta']),
             'sedes' => DB::table('institucional.sedes')->where('activo', true)->whereIn('id_sede', $sedes)->orderBy('nombre')->get(['id_sede as id', 'nombre']),
             'ventas_pendientes' => $this->ventasPendientesCatalogo($sedes),
@@ -455,12 +455,12 @@ class VentaServicio
         $cajas = DB::table('ventas.cajas')->whereIn('sede_id', $sedes);
         $ventas = DB::table('ventas.ventas as v')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
-            ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
+            ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
             ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes);
         $pagos = DB::table('ventas.pagos as p')
             ->join('ventas.ventas as v', 'v.id', '=', 'p.venta_id')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
-            ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
+            ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
             ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes);
 
         return [
@@ -478,7 +478,7 @@ class VentaServicio
     {
         return DB::table('ventas.ventas as v')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
-            ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
+            ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
             ->whereIn('v.estado', ['PENDIENTE', 'PARCIAL'])
             ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes)
             ->orderByDesc('v.fecha_venta')
@@ -624,7 +624,7 @@ class VentaServicio
 
         if ($estado === 'PAGADA' && $venta->membresia_id) {
             $estadoMembresiaId = $this->estados->idPorValor('MEMBRESIA', 'ACTIVA');
-            DB::table('gimnasio.membresias')
+            DB::table('membresias.membresias')
                 ->where('id', $venta->membresia_id)
                 ->where('estado', 'PENDIENTE_PAGO')
                 ->update([
@@ -633,7 +633,7 @@ class VentaServicio
                     'updated_at' => now(),
                 ]);
 
-            DB::table('gimnasio.membresia_periodos')
+            DB::table('membresias.membresia_periodos')
                 ->where('membresia_id', $venta->membresia_id)
                 ->where('venta_id', $ventaId)
                 ->update([

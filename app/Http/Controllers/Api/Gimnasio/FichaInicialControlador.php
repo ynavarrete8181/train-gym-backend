@@ -23,7 +23,7 @@ class FichaInicialControlador extends Controller
         );
         if ($rol === 'ENTRENADOR') {
             $asignado = DB::table('entrenamiento.asignaciones_entrenador_cliente')
-                ->join('gimnasio.entrenadores as e', 'e.id', '=', 'entrenamiento.asignaciones_entrenador_cliente.entrenador_id')
+                ->join('entrenamiento.entrenadores as e', 'e.id', '=', 'entrenamiento.asignaciones_entrenador_cliente.entrenador_id')
                 ->where('entrenamiento.asignaciones_entrenador_cliente.deportista_id', $deportistaId)
                 ->where('e.usuario_id', $user->id)
                 ->where('entrenamiento.asignaciones_entrenador_cliente.estado', 'ACTIVO')->exists();

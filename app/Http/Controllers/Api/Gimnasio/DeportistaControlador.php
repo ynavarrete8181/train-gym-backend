@@ -23,7 +23,7 @@ class DeportistaControlador extends Controller
         $porPagina = $request->input('per_page', 15);
         $pagina = $request->input('page', 1);
         $busqueda = $request->input('busqueda');
-        $codigo = $request->input('codigo');
+        $cedula = $request->input('cedula');
         $nombres = $request->input('nombres');
         $telefono = $request->input('telefono');
         $sede = $request->input('sede');
@@ -32,12 +32,7 @@ class DeportistaControlador extends Controller
         $deportistas = DB::table('clientes.deportistas')
             ->leftJoin('personas.personas as p', 'clientes.deportistas.persona_id', '=', 'p.id')
             ->leftJoin('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
-            ->leftJoin('seguridad.cpu_userrole', 'seguridad.cpu_userrole.id_userrole', '=', 'seguridad.users.usr_tipo')
             ->leftJoin('institucional.sedes', 'clientes.deportistas.sede_principal_id', '=', 'institucional.sedes.id_sede')
-            ->where(function ($q) {
-                $q->whereNull('clientes.deportistas.usuario_id')
-                    ->orWhere('seguridad.cpu_userrole.role', 'DEPORTISTA');
-            })
             ->select(
                 'clientes.deportistas.*',
                 'p.identificacion as cedula',
@@ -62,7 +57,7 @@ class DeportistaControlador extends Controller
             });
         }
 
-        $this->aplicarFiltro($deportistas, 'clientes.deportistas.codigo_deportista', $codigo);
+        $this->aplicarFiltro($deportistas, 'p.identificacion', $cedula);
         $this->aplicarFiltro($deportistas, 'clientes.deportistas.telefono', $telefono);
         $this->aplicarFiltro($deportistas, 'institucional.sedes.nombre', $sede);
         $this->aplicarFiltro($deportistas, 'clientes.deportistas.estado', $estado);
@@ -157,6 +152,7 @@ class DeportistaControlador extends Controller
     public function store(Request $request)
     {
         $validados = $this->validarDatosCliente($request);
+        $validados['codigo_deportista'] = app(\App\Services\Gimnasio\CodigoClienteServicio::class)->generar();
 
         if (! empty($validados['usuario_id'])) {
             $this->validarRolDeportista((int) $validados['usuario_id']);
@@ -265,7 +261,7 @@ class DeportistaControlador extends Controller
 
             'persona_id' => ['nullable', 'exists:pgsql.personas.personas,id', $reglaPersonaUnica],
             'usuario_id' => ['nullable', 'exists:pgsql.seguridad.users,id', $reglaUsuarioUnico],
-            'codigo_deportista' => ['required', 'string', 'max:40', $reglaCodigoUnico],
+            'codigo_deportista' => [$id ? 'sometimes' : 'nullable', 'string', 'max:40', $reglaCodigoUnico],
             'fecha_nacimiento' => 'nullable|date',
             'genero' => 'nullable|string|max:20',
             'telefono' => 'nullable|string|max:30',
@@ -287,6 +283,11 @@ class DeportistaControlador extends Controller
             'representante_legal.tipo_relacion' => 'nullable|string|in:REPRESENTANTE_LEGAL,MADRE,PADRE,TUTOR,OTRO',
             'representante_legal.responsable_pago' => 'boolean',
         ]);
+
+        // El código es exclusivo del servidor: al editar se mantiene inmutable.
+        if ($id !== null) {
+            unset($validados['codigo_deportista']);
+        }
 
         $validados['requiere_representante_legal'] = (bool) ($validados['requiere_representante_legal'] ?? false);
 
@@ -347,19 +348,14 @@ class DeportistaControlador extends Controller
         $base = DB::table('clientes.deportistas')
             ->leftJoin('personas.personas as p', 'clientes.deportistas.persona_id', '=', 'p.id')
             ->leftJoin('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
-            ->leftJoin('seguridad.cpu_userrole', 'seguridad.cpu_userrole.id_userrole', '=', 'seguridad.users.usr_tipo')
-            ->leftJoin('institucional.sedes', 'clientes.deportistas.sede_principal_id', '=', 'institucional.sedes.id_sede')
-            ->where(function ($q) {
-                $q->whereNull('clientes.deportistas.usuario_id')
-                    ->orWhere('seguridad.cpu_userrole.role', 'DEPORTISTA');
-            });
+            ->leftJoin('institucional.sedes', 'clientes.deportistas.sede_principal_id', '=', 'institucional.sedes.id_sede');
 
         return [
-            'codigo' => (clone $base)
-                ->whereNotNull('clientes.deportistas.codigo_deportista')
+            'cedula' => (clone $base)
+                ->whereNotNull('p.identificacion')
                 ->distinct()
-                ->orderBy('clientes.deportistas.codigo_deportista')
-                ->pluck('clientes.deportistas.codigo_deportista')
+                ->orderBy('p.identificacion')
+                ->pluck('p.identificacion')
                 ->values(),
             'nombres' => (clone $base)
                 ->whereNotNull('p.nombre_completo')

@@ -17,13 +17,13 @@ class VentaFiltroServicio
 
         $baseVentas = fn () => DB::table('ventas.ventas as v')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
-            ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
+            ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
             ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes);
 
         $basePagos = fn () => DB::table('ventas.pagos as p')
             ->join('ventas.ventas as v', 'v.id', '=', 'p.venta_id')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
-            ->leftJoin('gimnasio.membresias as m', 'm.id', '=', 'v.membresia_id')
+            ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
             ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes);
 
         return [

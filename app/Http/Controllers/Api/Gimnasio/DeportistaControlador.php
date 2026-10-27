@@ -32,12 +32,8 @@ class DeportistaControlador extends Controller
         $deportistas = DB::table('clientes.deportistas')
             ->leftJoin('personas.personas as p', 'clientes.deportistas.persona_id', '=', 'p.id')
             ->leftJoin('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
-            ->leftJoin('seguridad.cpu_userrole', 'seguridad.cpu_userrole.id_userrole', '=', 'seguridad.users.usr_tipo')
             ->leftJoin('institucional.sedes', 'clientes.deportistas.sede_principal_id', '=', 'institucional.sedes.id_sede')
-            ->where(function ($q) {
-                $q->whereNull('clientes.deportistas.usuario_id')
-                    ->orWhere('seguridad.cpu_userrole.role', 'DEPORTISTA');
-            })
+
             ->select(
                 'clientes.deportistas.*',
                 'p.identificacion as cedula',
@@ -353,12 +349,8 @@ class DeportistaControlador extends Controller
         $base = DB::table('clientes.deportistas')
             ->leftJoin('personas.personas as p', 'clientes.deportistas.persona_id', '=', 'p.id')
             ->leftJoin('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
-            ->leftJoin('seguridad.cpu_userrole', 'seguridad.cpu_userrole.id_userrole', '=', 'seguridad.users.usr_tipo')
             ->leftJoin('institucional.sedes', 'clientes.deportistas.sede_principal_id', '=', 'institucional.sedes.id_sede')
-            ->where(function ($q) {
-                $q->whereNull('clientes.deportistas.usuario_id')
-                    ->orWhere('seguridad.cpu_userrole.role', 'DEPORTISTA');
-            });
+;
 
         return [
             'cedula' => (clone $base)

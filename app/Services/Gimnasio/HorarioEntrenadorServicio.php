@@ -51,7 +51,7 @@ class HorarioEntrenadorServicio
     {
         $this->validarEntrenador($entrenadorId);
 
-        return DB::table('gimnasio.entrenador_horarios')
+        return DB::table('agenda.entrenador_horarios')
             ->where('entrenador_id', $entrenadorId)
             ->orderByDesc('activo')
             ->orderByDesc('version')
@@ -73,7 +73,7 @@ class HorarioEntrenadorServicio
             : now()->toDateString();
 
         $antes = $id
-            ? DB::table('gimnasio.entrenador_horarios')
+            ? DB::table('agenda.entrenador_horarios')
                 ->where('id', $id)
                 ->where('entrenador_id', $entrenadorId)
                 ->first()
@@ -112,18 +112,18 @@ class HorarioEntrenadorServicio
                 $actual = $this->hidratar($antes);
 
                 if ($this->esMismaConfiguracion($actual, $datos)) {
-                    DB::table('gimnasio.entrenador_horarios')
+                    DB::table('agenda.entrenador_horarios')
                         ->where('id', $antes->id)
                         ->update([
                             'observaciones' => $datos['observaciones'] ?? null,
                             'updated_at' => now(),
                         ]);
 
-                    $despues = DB::table('gimnasio.entrenador_horarios')->where('id', $antes->id)->first();
+                    $despues = DB::table('agenda.entrenador_horarios')->where('id', $antes->id)->first();
                     $this->auditar(
                         'gimnasio',
                         'ACTUALIZAR',
-                        'gimnasio.entrenador_horarios',
+                        'agenda.entrenador_horarios',
                         $antes->id,
                         $antes,
                         $despues
@@ -137,7 +137,7 @@ class HorarioEntrenadorServicio
                     $fechaCierre = Carbon::parse($fechaCierre)->subDay()->toDateString();
                 }
 
-                DB::table('gimnasio.entrenador_horarios')
+                DB::table('agenda.entrenador_horarios')
                     ->where('id', $antes->id)
                     ->update([
                         'fecha_fin' => $fechaCierre,
@@ -145,18 +145,18 @@ class HorarioEntrenadorServicio
                         'updated_at' => now(),
                     ]);
 
-                $anteriorCerrado = DB::table('gimnasio.entrenador_horarios')->where('id', $antes->id)->first();
+                $anteriorCerrado = DB::table('agenda.entrenador_horarios')->where('id', $antes->id)->first();
                 $this->auditar(
                     'gimnasio',
                     'FINALIZAR_VERSION',
-                    'gimnasio.entrenador_horarios',
+                    'agenda.entrenador_horarios',
                     $antes->id,
                     $antes,
                     $anteriorCerrado
                 );
             }
 
-            $version = ((int) DB::table('gimnasio.entrenador_horarios')
+            $version = ((int) DB::table('agenda.entrenador_horarios')
                 ->where('entrenador_id', $entrenadorId)
                 ->max('version')) + 1;
 
@@ -175,7 +175,7 @@ class HorarioEntrenadorServicio
                 'updated_at' => now(),
             ];
 
-            $horarioId = DB::table('gimnasio.entrenador_horarios')->insertGetId($cabecera);
+            $horarioId = DB::table('agenda.entrenador_horarios')->insertGetId($cabecera);
 
             $this->insertarDetalles(
                 $horarioId,
@@ -183,11 +183,11 @@ class HorarioEntrenadorServicio
                 $datos['recesos'] ?? []
             );
 
-            $despues = DB::table('gimnasio.entrenador_horarios')->where('id', $horarioId)->first();
+            $despues = DB::table('agenda.entrenador_horarios')->where('id', $horarioId)->first();
             $this->auditar(
                 'gimnasio',
                 $antes ? 'CREAR_VERSION' : 'CREAR',
-                'gimnasio.entrenador_horarios',
+                'agenda.entrenador_horarios',
                 $horarioId,
                 $antes,
                 $despues
@@ -200,7 +200,7 @@ class HorarioEntrenadorServicio
     private function insertarDetalles(int $horarioId, array $franjas, array $recesos): void
     {
         foreach ($franjas as $franja) {
-            DB::table('gimnasio.entrenador_horario_franjas')->insert([
+            DB::table('agenda.entrenador_horario_franjas')->insert([
                 'entrenador_horario_id' => $horarioId,
                 'sede_id' => (int) $franja['sede_id'],
                 'dia_semana' => $franja['dia_semana'],
@@ -213,7 +213,7 @@ class HorarioEntrenadorServicio
         }
 
         foreach ($recesos as $receso) {
-            DB::table('gimnasio.entrenador_horario_recesos')->insert([
+            DB::table('agenda.entrenador_horario_recesos')->insert([
                 'entrenador_horario_id' => $horarioId,
                 'dia_semana' => $receso['dia_semana'],
                 'tipo' => $receso['tipo'] ?? 'PAUSA',
@@ -278,7 +278,7 @@ class HorarioEntrenadorServicio
 
     private function hidratar(object $horario): array
     {
-        $franjas = DB::table('gimnasio.entrenador_horario_franjas as f')
+        $franjas = DB::table('agenda.entrenador_horario_franjas as f')
             ->join('institucional.sedes as s', 's.id_sede', '=', 'f.sede_id')
             ->where('f.entrenador_horario_id', $horario->id)
             ->where('f.activo', true)
@@ -286,7 +286,7 @@ class HorarioEntrenadorServicio
             ->sortBy(fn ($x) => (self::ORDEN_DIAS[$x->dia_semana] ?? 99).sprintf('%05d', str_replace(':','',substr((string)$x->hora_inicio,0,5))))
             ->values();
 
-        $recesos = DB::table('gimnasio.entrenador_horario_recesos')
+        $recesos = DB::table('agenda.entrenador_horario_recesos')
             ->where('entrenador_horario_id', $horario->id)
             ->where('activo', true)
             ->orderBy('dia_semana')
@@ -366,7 +366,7 @@ class HorarioEntrenadorServicio
         }
 
         if ($tipoHorario === 'INSTITUCIONAL') {
-            $cruce = DB::table('gimnasio.entrenador_horarios')
+            $cruce = DB::table('agenda.entrenador_horarios')
                 ->where('entrenador_id', $entrenadorId)
                 ->where('activo', true)
                 ->when($ignorarId, fn ($q) => $q->where('id', '!=', $ignorarId))
@@ -382,7 +382,7 @@ class HorarioEntrenadorServicio
         }
 
         $hasta = $fin ?: '9999-12-31';
-        $cruce = DB::table('gimnasio.entrenador_horarios')
+        $cruce = DB::table('agenda.entrenador_horarios')
             ->where('entrenador_id', $entrenadorId)
             ->where('activo', true)
             ->when($ignorarId, fn ($q) => $q->where('id', '!=', $ignorarId))

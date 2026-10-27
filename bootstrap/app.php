@@ -9,6 +9,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Database\QueryException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -48,6 +49,8 @@ return Application::configure(basePath: dirname(__DIR__))
                     'clase' => $e::class,
                     'archivo' => basename($e->getFile()),
                     'linea' => $e->getLine(),
+                    'sqlstate' => $e instanceof QueryException ? ($e->errorInfo[0] ?? null) : null,
+                    'codigo_pg' => $e instanceof QueryException ? ($e->errorInfo[1] ?? null) : null,
                 ];
                 $json = json_encode($diagnostico, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
                 if ($json !== false) {
@@ -63,7 +66,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 try {
                     file_put_contents(
                         'php://stderr',
-                        '[REVIVE_ERROR] registro_excepcion_fallido clase='. $falloRegistro::class .PHP_EOL,
+                        '[REVIVE_ERROR] registro_excepcion_fallido '.json_encode(['clase' => get_class($falloRegistro), 'archivo' => basename($falloRegistro->getFile()), 'linea' => $falloRegistro->getLine()], JSON_UNESCAPED_UNICODE).PHP_EOL,
                         FILE_APPEND
                     );
                 } catch (Throwable) {

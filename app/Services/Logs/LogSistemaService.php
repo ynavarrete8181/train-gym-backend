@@ -188,10 +188,10 @@ class LogSistemaService
         if (! empty($filtros['busqueda'])) {
             $texto = '%' . mb_strtolower((string) $filtros['busqueda']) . '%';
             $query->where(function ($q) use ($texto): void {
-                $q->whereRaw('LOWER(COALESCE(proveedor, '')) LIKE ?', [$texto])
-                    ->orWhereRaw('LOWER(COALESCE(tipo, '')) LIKE ?', [$texto])
-                    ->orWhereRaw('LOWER(COALESCE(endpoint, '')) LIKE ?', [$texto])
-                    ->orWhereRaw('LOWER(COALESCE(error, '')) LIKE ?', [$texto]);
+                $q->whereRaw("LOWER(COALESCE(proveedor, '')) LIKE ?", [$texto])
+                    ->orWhereRaw("LOWER(COALESCE(tipo, '')) LIKE ?", [$texto])
+                    ->orWhereRaw("LOWER(COALESCE(endpoint, '')) LIKE ?", [$texto])
+                    ->orWhereRaw("LOWER(COALESCE(error, '')) LIKE ?", [$texto]);
             });
         }
 

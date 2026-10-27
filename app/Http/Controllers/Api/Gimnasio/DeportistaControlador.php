@@ -159,7 +159,7 @@ class DeportistaControlador extends Controller
         $validados = $this->validarDatosCliente($request);
         // Código opaco y corto: generado exclusivamente en Laravel, no por el cliente.
         do {
-            $codigoInterno = 'CL-' . strtoupper(\\Illuminate\\Support\\Str::random(8));
+            $codigoInterno = 'CL-' . strtoupper(\Illuminate\Support\Str::random(8));
         } while (DB::table('clientes.deportistas')->where('codigo_deportista', $codigoInterno)->exists());
         $validados['codigo_deportista'] = $codigoInterno;
 

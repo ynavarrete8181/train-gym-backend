@@ -35,8 +35,8 @@ class ClienteCatalogoControlador extends Controller
             ->where('seguridad.users.usr_estado', 1)
             ->whereNotExists(function ($query): void {
                 $query->selectRaw('1')
-                    ->from('gimnasio.deportistas')
-                    ->whereColumn('gimnasio.deportistas.usuario_id', 'seguridad.users.id');
+                    ->from('clientes.deportistas')
+                    ->whereColumn('clientes.deportistas.usuario_id', 'seguridad.users.id');
             })
             ->orderBy('seguridad.users.name')
             ->select([

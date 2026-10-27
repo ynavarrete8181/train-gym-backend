@@ -95,15 +95,13 @@ return new class extends Migration
                 ->where('activo', true)
                 ->pluck('id');
 
-            if ($tieneServicios) {
-                continue;
-            }
-
-            foreach ($servicios as $servicioId) {
-                DB::table('membresias.plan_servicios')->updateOrInsert(
-                    ['plan_id' => $plan->id, 'servicio_id' => $servicioId],
-                    ['activo' => true, 'created_at' => now(), 'updated_at' => now()]
-                );
+            if (! $tieneServicios) {
+                foreach ($servicios as $servicioId) {
+                    DB::table('membresias.plan_servicios')->updateOrInsert(
+                        ['plan_id' => $plan->id, 'servicio_id' => $servicioId],
+                        ['activo' => true, 'created_at' => now(), 'updated_at' => now()]
+                    );
+                }
             }
 
             // Los pases diarios tienen tarifas específicas; se incorporan

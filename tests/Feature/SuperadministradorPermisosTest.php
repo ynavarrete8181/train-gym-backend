@@ -62,4 +62,35 @@ class SuperadministradorPermisosTest extends TestCase
             $usuario, ['GIMNASIO-DEPORTISTAS'],
         ));
     }
+
+    public function test_administrador_activo_puede_operar_clientes_y_entrenamiento(): void
+    {
+        DB::table('seguridad.cpu_userrole')->insert([
+            'id_userrole' => 3, 'role' => 'ADMINISTRADOR', 'activo' => true,
+        ]);
+
+        $usuario = new User;
+        $usuario->id = 3;
+        $usuario->usr_tipo = 3;
+
+        $servicio = app(PermisoService::class);
+        $this->assertTrue($servicio->usuarioTieneAlgunaFuncion($usuario, ['GIMNASIO-DEPORTISTAS']));
+        $this->assertTrue($servicio->usuarioTieneAlgunaFuncion($usuario, ['ENTRENAMIENTO-EVALUACIONES-CREAR']));
+        $this->assertFalse($servicio->usuarioTieneAlgunaFuncion($usuario, ['SEGURIDAD-ROLES']));
+    }
+
+    public function test_administrador_inactivo_no_obtiene_acceso_operativo_global(): void
+    {
+        DB::table('seguridad.cpu_userrole')->insert([
+            'id_userrole' => 3, 'role' => 'ADMINISTRADOR', 'activo' => false,
+        ]);
+
+        $usuario = new User;
+        $usuario->id = 3;
+        $usuario->usr_tipo = 3;
+
+        $this->assertFalse(app(PermisoService::class)->usuarioTieneAlgunaFuncion(
+            $usuario, ['GIMNASIO-DEPORTISTAS'],
+        ));
+    }
 }

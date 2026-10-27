@@ -314,7 +314,7 @@ class UsuarioController extends Controller
             ->where('id_userrole', $idRol)
             ->value('role');
 
-        if (in_array($rol, ['SUPERADMINISTRADOR', 'DEPORTISTA', 'RESPONSABLE'], true)) {
+        if (in_array(mb_strtoupper(trim((string) $rol)), ['ROOT', 'SUPERADMINISTRADOR', 'DEPORTISTA', 'RESPONSABLE'], true)) {
             return [];
         }
 

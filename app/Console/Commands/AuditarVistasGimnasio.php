@@ -32,6 +32,12 @@ class AuditarVistasGimnasio extends Command
                     continue;
                 }
 
+                // Estos archivos declaran nombres de rutas (gimnasio.*), no vistas SQL.
+                $relativa = str_replace(base_path().DIRECTORY_SEPARATOR, '', $ruta);
+                if (in_array($relativa, ['routes/api.php', 'routes/base/gimnasio.php'], true)) {
+                    continue;
+                }
+
                 $contenido = file_get_contents($ruta);
                 if ($contenido === false) {
                     continue;
@@ -39,7 +45,7 @@ class AuditarVistasGimnasio extends Command
 
                 if (preg_match_all('/(?<![a-zA-Z0-9_])gimnasio\\.[a-z_][a-z0-9_]*/i', $contenido, $coincidencias)) {
                     $hallazgos[] = [
-                        'archivo' => str_replace(base_path().DIRECTORY_SEPARATOR, '', $ruta),
+                        'archivo' => $relativa,
                         'referencias' => implode(', ', array_unique($coincidencias[0])),
                     ];
                 }
@@ -62,7 +68,7 @@ class AuditarVistasGimnasio extends Command
             return self::FAILURE;
         }
 
-        $this->info('Sin referencias literales en app/ y routes/. Revisar también SQL dinámico y consumidores externos.');
+        $this->info('Sin referencias literales detectadas (excluidas rutas declarativas). Revisar migraciones, SQL dinámico y consumidores externos.');
         return self::SUCCESS;
     }
 }

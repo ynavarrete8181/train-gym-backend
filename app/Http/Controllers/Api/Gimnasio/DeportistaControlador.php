@@ -157,11 +157,7 @@ class DeportistaControlador extends Controller
     public function store(Request $request)
     {
         $validados = $this->validarDatosCliente($request);
-        // Código opaco y corto: generado exclusivamente en Laravel, no por el cliente.
-        do {
-            $codigoInterno = 'CL-' . strtoupper(\Illuminate\Support\Str::random(8));
-        } while (DB::table('clientes.deportistas')->where('codigo_deportista', $codigoInterno)->exists());
-        $validados['codigo_deportista'] = $codigoInterno;
+        $validados['codigo_deportista'] = app(\App\Services\Gimnasio\CodigoClienteServicio::class)->generar();
 
         if (! empty($validados['usuario_id'])) {
             $this->validarRolDeportista((int) $validados['usuario_id']);
@@ -292,6 +288,11 @@ class DeportistaControlador extends Controller
             'representante_legal.tipo_relacion' => 'nullable|string|in:REPRESENTANTE_LEGAL,MADRE,PADRE,TUTOR,OTRO',
             'representante_legal.responsable_pago' => 'boolean',
         ]);
+
+        // El código es exclusivo del servidor: al editar se mantiene inmutable.
+        if ($id !== null) {
+            unset($validados['codigo_deportista']);
+        }
 
         $validados['requiere_representante_legal'] = (bool) ($validados['requiere_representante_legal'] ?? false);
 

@@ -37,10 +37,10 @@ class EntrenamientoServicio
     public function listarPlanes(array $filtros)
     {
         $query = DB::table('entrenamiento.planes')
-            ->join('gimnasio.deportistas', 'entrenamiento.planes.cliente_id', '=', 'gimnasio.deportistas.id')
-            ->join('seguridad.users as clientes', 'gimnasio.deportistas.usuario_id', '=', 'clientes.id')
+            ->join('clientes.deportistas', 'entrenamiento.planes.cliente_id', '=', 'clientes.deportistas.id')
+            ->join('seguridad.users as clientes', 'clientes.deportistas.usuario_id', '=', 'clientes.id')
             ->leftJoin('seguridad.users as entrenadores', 'entrenamiento.planes.entrenador_id', '=', 'entrenadores.id')
-            ->select('entrenamiento.planes.*', 'clientes.name as cliente_nombre', 'gimnasio.deportistas.codigo_deportista', 'entrenadores.name as entrenador_nombre');
+            ->select('entrenamiento.planes.*', 'clientes.name as cliente_nombre', 'clientes.deportistas.codigo_deportista', 'entrenadores.name as entrenador_nombre');
 
         if (!empty($filtros['cliente_id'])) {
             $query->where('entrenamiento.planes.cliente_id', $filtros['cliente_id']);
@@ -64,8 +64,8 @@ class EntrenamientoServicio
         $query = DB::table('entrenamiento.rutinas')
             ->join('entrenamiento.planes', 'entrenamiento.rutinas.plan_id', '=', 'entrenamiento.planes.id')
             ->join('entrenamiento.ejercicios', 'entrenamiento.rutinas.ejercicio_id', '=', 'entrenamiento.ejercicios.id')
-            ->join('gimnasio.deportistas', 'entrenamiento.planes.cliente_id', '=', 'gimnasio.deportistas.id')
-            ->join('seguridad.users as clientes', 'gimnasio.deportistas.usuario_id', '=', 'clientes.id')
+            ->join('clientes.deportistas', 'entrenamiento.planes.cliente_id', '=', 'clientes.deportistas.id')
+            ->join('seguridad.users as clientes', 'clientes.deportistas.usuario_id', '=', 'clientes.id')
             ->select('entrenamiento.rutinas.*', 'entrenamiento.planes.nombre as plan_nombre', 'clientes.name as cliente_nombre', 'entrenamiento.ejercicios.nombre as ejercicio_nombre');
 
         if (!empty($filtros['cliente_id'])) {
@@ -92,16 +92,16 @@ class EntrenamientoServicio
     public function listarRm(array $filtros)
     {
         $query = DB::table('entrenamiento.rm_registros')
-            ->join('gimnasio.deportistas', 'entrenamiento.rm_registros.cliente_id', '=', 'gimnasio.deportistas.id')
-            ->join('seguridad.users as clientes', 'gimnasio.deportistas.usuario_id', '=', 'clientes.id')
+            ->join('clientes.deportistas', 'entrenamiento.rm_registros.cliente_id', '=', 'clientes.deportistas.id')
+            ->join('seguridad.users as clientes', 'clientes.deportistas.usuario_id', '=', 'clientes.id')
             ->join('entrenamiento.ejercicios', 'entrenamiento.rm_registros.ejercicio_id', '=', 'entrenamiento.ejercicios.id')
-            ->select('entrenamiento.rm_registros.*', 'clientes.name as cliente_nombre', 'gimnasio.deportistas.codigo_deportista', 'entrenamiento.ejercicios.nombre as ejercicio_nombre');
+            ->select('entrenamiento.rm_registros.*', 'clientes.name as cliente_nombre', 'clientes.deportistas.codigo_deportista', 'entrenamiento.ejercicios.nombre as ejercicio_nombre');
 
         if (!empty($filtros['cliente_id'])) {
             $query->where('entrenamiento.rm_registros.cliente_id', $filtros['cliente_id']);
         }
 
-        $this->buscar($query, $filtros['busqueda'] ?? null, ['clientes.name', 'gimnasio.deportistas.codigo_deportista', 'entrenamiento.ejercicios.nombre', 'entrenamiento.rm_registros.tipo_registro']);
+        $this->buscar($query, $filtros['busqueda'] ?? null, ['clientes.name', 'clientes.deportistas.codigo_deportista', 'entrenamiento.ejercicios.nombre', 'entrenamiento.rm_registros.tipo_registro']);
         $this->filtrarTexto($query, 'clientes.name', $filtros['cliente'] ?? null);
         $this->filtrarTexto($query, 'entrenamiento.ejercicios.nombre', $filtros['ejercicio'] ?? null);
         $this->filtrarTexto($query, 'entrenamiento.rm_registros.tipo_registro', $filtros['tipo'] ?? null);
@@ -135,15 +135,15 @@ class EntrenamientoServicio
     public function listarProgreso(array $filtros)
     {
         $query = DB::table('entrenamiento.progresos_corporales')
-            ->join('gimnasio.deportistas', 'entrenamiento.progresos_corporales.cliente_id', '=', 'gimnasio.deportistas.id')
-            ->join('seguridad.users as clientes', 'gimnasio.deportistas.usuario_id', '=', 'clientes.id')
-            ->select('entrenamiento.progresos_corporales.*', 'clientes.name as cliente_nombre', 'gimnasio.deportistas.codigo_deportista');
+            ->join('clientes.deportistas', 'entrenamiento.progresos_corporales.cliente_id', '=', 'clientes.deportistas.id')
+            ->join('seguridad.users as clientes', 'clientes.deportistas.usuario_id', '=', 'clientes.id')
+            ->select('entrenamiento.progresos_corporales.*', 'clientes.name as cliente_nombre', 'clientes.deportistas.codigo_deportista');
 
         if (!empty($filtros['cliente_id'])) {
             $query->where('entrenamiento.progresos_corporales.cliente_id', $filtros['cliente_id']);
         }
 
-        $this->buscar($query, $filtros['busqueda'] ?? null, ['clientes.name', 'gimnasio.deportistas.codigo_deportista']);
+        $this->buscar($query, $filtros['busqueda'] ?? null, ['clientes.name', 'clientes.deportistas.codigo_deportista']);
         $this->filtrarTexto($query, 'clientes.name', $filtros['cliente'] ?? null);
 
         return $query->orderByDesc('entrenamiento.progresos_corporales.fecha_registro')->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
@@ -165,9 +165,9 @@ class EntrenamientoServicio
     public function obtenerProgreso(int $id): object
     {
         return DB::table('entrenamiento.progresos_corporales')
-            ->join('gimnasio.deportistas', 'entrenamiento.progresos_corporales.cliente_id', '=', 'gimnasio.deportistas.id')
-            ->join('seguridad.users as clientes', 'gimnasio.deportistas.usuario_id', '=', 'clientes.id')
-            ->select('entrenamiento.progresos_corporales.*', 'clientes.name as cliente_nombre', 'gimnasio.deportistas.codigo_deportista')
+            ->join('clientes.deportistas', 'entrenamiento.progresos_corporales.cliente_id', '=', 'clientes.deportistas.id')
+            ->join('seguridad.users as clientes', 'clientes.deportistas.usuario_id', '=', 'clientes.id')
+            ->select('entrenamiento.progresos_corporales.*', 'clientes.name as cliente_nombre', 'clientes.deportistas.codigo_deportista')
             ->where('entrenamiento.progresos_corporales.id', $id)->first();
     }
 
@@ -196,8 +196,8 @@ class EntrenamientoServicio
     public function catalogos(): array
     {
         return [
-            'clientes' => DB::table('gimnasio.deportistas')->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')->orderBy('seguridad.users.name')->get(['gimnasio.deportistas.id', 'gimnasio.deportistas.codigo_deportista', 'seguridad.users.name as nombre']),
-            'entrenadores' => DB::table('gimnasio.entrenadores')->join('seguridad.users', 'gimnasio.entrenadores.usuario_id', '=', 'seguridad.users.id')->orderBy('seguridad.users.name')->get(['seguridad.users.id', 'seguridad.users.name as nombre']),
+            'clientes' => DB::table('clientes.deportistas')->join('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')->orderBy('seguridad.users.name')->get(['clientes.deportistas.id', 'clientes.deportistas.codigo_deportista', 'seguridad.users.name as nombre']),
+            'entrenadores' => DB::table('entrenamiento.entrenadores')->join('seguridad.users', 'entrenamiento.entrenadores.usuario_id', '=', 'seguridad.users.id')->orderBy('seguridad.users.name')->get(['seguridad.users.id', 'seguridad.users.name as nombre']),
             'ejercicios' => DB::table('entrenamiento.ejercicios')->where('activo', true)->orderBy('nombre')->get(['id', 'nombre', 'grupo_muscular']),
             'planes' => DB::table('entrenamiento.planes')->orderByDesc('created_at')->get(['id', 'nombre', 'cliente_id', 'estado']),
         ];
@@ -209,8 +209,8 @@ class EntrenamientoServicio
             'nombre' => DB::table('entrenamiento.ejercicios')->distinct()->orderBy('nombre')->pluck('nombre')->values(),
             'grupo' => DB::table('entrenamiento.ejercicios')->distinct()->orderBy('grupo_muscular')->pluck('grupo_muscular')->values(),
             'equipamiento' => DB::table('entrenamiento.ejercicios')->distinct()->orderBy('equipamiento')->pluck('equipamiento')->values(),
-            'cliente' => DB::table('gimnasio.deportistas')->join('seguridad.users', 'gimnasio.deportistas.usuario_id', '=', 'seguridad.users.id')->distinct()->orderBy('seguridad.users.name')->pluck('seguridad.users.name')->values(),
-            'entrenador' => DB::table('gimnasio.entrenadores')->join('seguridad.users', 'gimnasio.entrenadores.usuario_id', '=', 'seguridad.users.id')->distinct()->orderBy('seguridad.users.name')->pluck('seguridad.users.name')->values(),
+            'cliente' => DB::table('clientes.deportistas')->join('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')->distinct()->orderBy('seguridad.users.name')->pluck('seguridad.users.name')->values(),
+            'entrenador' => DB::table('entrenamiento.entrenadores')->join('seguridad.users', 'entrenamiento.entrenadores.usuario_id', '=', 'seguridad.users.id')->distinct()->orderBy('seguridad.users.name')->pluck('seguridad.users.name')->values(),
             'plan' => DB::table('entrenamiento.planes')->distinct()->orderBy('nombre')->pluck('nombre')->values(),
             'ejercicio' => DB::table('entrenamiento.ejercicios')->distinct()->orderBy('nombre')->pluck('nombre')->values(),
         ];
@@ -241,10 +241,10 @@ class EntrenamientoServicio
     private function obtenerPlan(int $id): object
     {
         return DB::table('entrenamiento.planes')
-            ->join('gimnasio.deportistas', 'entrenamiento.planes.cliente_id', '=', 'gimnasio.deportistas.id')
-            ->join('seguridad.users as clientes', 'gimnasio.deportistas.usuario_id', '=', 'clientes.id')
+            ->join('clientes.deportistas', 'entrenamiento.planes.cliente_id', '=', 'clientes.deportistas.id')
+            ->join('seguridad.users as clientes', 'clientes.deportistas.usuario_id', '=', 'clientes.id')
             ->leftJoin('seguridad.users as entrenadores', 'entrenamiento.planes.entrenador_id', '=', 'entrenadores.id')
-            ->select('entrenamiento.planes.*', 'clientes.name as cliente_nombre', 'gimnasio.deportistas.codigo_deportista', 'entrenadores.name as entrenador_nombre')
+            ->select('entrenamiento.planes.*', 'clientes.name as cliente_nombre', 'clientes.deportistas.codigo_deportista', 'entrenadores.name as entrenador_nombre')
             ->where('entrenamiento.planes.id', $id)->first();
     }
 
@@ -253,8 +253,8 @@ class EntrenamientoServicio
         return DB::table('entrenamiento.rutinas')
             ->join('entrenamiento.planes', 'entrenamiento.rutinas.plan_id', '=', 'entrenamiento.planes.id')
             ->join('entrenamiento.ejercicios', 'entrenamiento.rutinas.ejercicio_id', '=', 'entrenamiento.ejercicios.id')
-            ->join('gimnasio.deportistas', 'entrenamiento.planes.cliente_id', '=', 'gimnasio.deportistas.id')
-            ->join('seguridad.users as clientes', 'gimnasio.deportistas.usuario_id', '=', 'clientes.id')
+            ->join('clientes.deportistas', 'entrenamiento.planes.cliente_id', '=', 'clientes.deportistas.id')
+            ->join('seguridad.users as clientes', 'clientes.deportistas.usuario_id', '=', 'clientes.id')
             ->select('entrenamiento.rutinas.*', 'entrenamiento.planes.nombre as plan_nombre', 'clientes.name as cliente_nombre', 'entrenamiento.ejercicios.nombre as ejercicio_nombre')
             ->where('entrenamiento.rutinas.id', $id)->first();
     }
@@ -262,10 +262,10 @@ class EntrenamientoServicio
     private function obtenerRm(int $id): object
     {
         return DB::table('entrenamiento.rm_registros')
-            ->join('gimnasio.deportistas', 'entrenamiento.rm_registros.cliente_id', '=', 'gimnasio.deportistas.id')
-            ->join('seguridad.users as clientes', 'gimnasio.deportistas.usuario_id', '=', 'clientes.id')
+            ->join('clientes.deportistas', 'entrenamiento.rm_registros.cliente_id', '=', 'clientes.deportistas.id')
+            ->join('seguridad.users as clientes', 'clientes.deportistas.usuario_id', '=', 'clientes.id')
             ->join('entrenamiento.ejercicios', 'entrenamiento.rm_registros.ejercicio_id', '=', 'entrenamiento.ejercicios.id')
-            ->select('entrenamiento.rm_registros.*', 'clientes.name as cliente_nombre', 'gimnasio.deportistas.codigo_deportista', 'entrenamiento.ejercicios.nombre as ejercicio_nombre')
+            ->select('entrenamiento.rm_registros.*', 'clientes.name as cliente_nombre', 'clientes.deportistas.codigo_deportista', 'entrenamiento.ejercicios.nombre as ejercicio_nombre')
             ->where('entrenamiento.rm_registros.id', $id)->first();
     }
 

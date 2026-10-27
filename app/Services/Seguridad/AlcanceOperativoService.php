@@ -27,6 +27,7 @@ class AlcanceOperativoService
     public function puedeGestionarCartera(?int $usuarioId): bool
     {
         return in_array($this->rolUsuario($usuarioId), [
+            'ROOT',
             'SUPERADMINISTRADOR',
             'ADMINISTRADOR',
             'SUPERVISOR DE VENTAS',
@@ -49,7 +50,7 @@ class AlcanceOperativoService
             ->where('u.id', $usuarioId)
             ->where('u.usr_estado', 1)
             ->where('r.activo', true)
-            ->where('r.role', 'SUPERADMINISTRADOR')
+            ->whereIn('r.role', ['ROOT', 'SUPERADMINISTRADOR'])
             ->exists();
     }
 

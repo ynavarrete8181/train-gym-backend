@@ -15,10 +15,15 @@ class FichaInicialControlador extends Controller
         abort_unless(DB::table('clientes.deportistas')->where('id', $deportistaId)->exists(), 404);
         $user = $request->user();
         $rol = DB::table('seguridad.cpu_userrole')->where('id_userrole', $user->usr_tipo)->value('role');
-        abort_unless(in_array($rol, ['SUPERADMINISTRADOR', 'ADMINISTRADOR', 'ENTRENADOR'], true), 403);
+        abort_unless(
+            app(\App\Services\Seguridad\PermisoService::class)->usuarioTieneAlgunaFuncion(
+                $user, ['GIMNASIO-DEPORTISTAS', 'ENTRENAMIENTO-EVALUACIONES']
+            ) || in_array($rol, ['SUPERADMINISTRADOR', 'ADMINISTRADOR', 'ENTRENADOR'], true),
+            403
+        );
         if ($rol === 'ENTRENADOR') {
             $asignado = DB::table('entrenamiento.asignaciones_entrenador_cliente')
-                ->join('entrenamiento.entrenadores as e', 'e.id', '=', 'entrenamiento.asignaciones_entrenador_cliente.entrenador_id')
+                ->join('gimnasio.entrenadores as e', 'e.id', '=', 'entrenamiento.asignaciones_entrenador_cliente.entrenador_id')
                 ->where('entrenamiento.asignaciones_entrenador_cliente.deportista_id', $deportistaId)
                 ->where('e.usuario_id', $user->id)
                 ->where('entrenamiento.asignaciones_entrenador_cliente.estado', 'ACTIVO')->exists();

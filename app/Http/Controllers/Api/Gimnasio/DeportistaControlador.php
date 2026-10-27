@@ -188,13 +188,16 @@ class DeportistaControlador extends Controller
             return response()->json(['mensaje' => 'Cliente no encontrado'], 404);
         }
 
-        $membresias = DB::table('gimnasio.membresias')
-            ->join('gimnasio.planes', 'gimnasio.membresias.plan_id', '=', 'gimnasio.planes.id')
-            ->leftJoin('membresias.plan_modalidades as modalidad', 'gimnasio.membresias.modalidad_id', '=', 'modalidad.id')
-            ->where('deportista_id', $id)
+        // Una sola fuente comercial para ficha del cliente y asignaciones de entrenador.
+        $membresias = DB::table('membresias.membresias as m')
+            ->join('membresias.planes as p', 'm.plan_id', '=', 'p.id')
+            ->leftJoin('membresias.plan_modalidades as modalidad', 'm.modalidad_id', '=', 'modalidad.id')
+            ->where('m.deportista_id', (int) $id)
             ->select(
-                'gimnasio.membresias.*',
-                'gimnasio.planes.nombre as plan_nombre',
+                'm.*',
+                'p.nombre as plan_nombre',
+                'p.requiere_entrenador',
+                'p.tipo_producto',
                 'modalidad.nombre as modalidad_nombre',
                 'modalidad.dias_por_semana as modalidad_dias_por_semana',
                 'modalidad.usos_por_semana as modalidad_usos_por_semana',
@@ -202,8 +205,9 @@ class DeportistaControlador extends Controller
                 'modalidad.tipo_duracion as modalidad_tipo_duracion',
                 'modalidad.duracion as modalidad_duracion'
             )
+            ->orderByDesc('m.fecha_inicio')
             ->get();
-            
+
         $deportista->membresias = $membresias;
 
         return ApiResponse::exito('Cliente consultado.', (array) $deportista);

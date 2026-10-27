@@ -44,6 +44,7 @@ class LogSistemaService
         );
 
         if (! $logEventoId || ! $this->tablaExiste('logs.excepciones')) {
+            $this->respaldoExcepcion($request, $exception, 'No se pudo persistir el evento o no existe logs.excepciones');
             return $logEventoId;
         }
 
@@ -58,7 +59,7 @@ class LogSistemaService
                 'created_at' => now(),
             ]);
         } catch (Throwable $e) {
-            Log::warning('No se pudo registrar excepción técnica', ['message' => $e->getMessage()]);
+            $this->respaldoExcepcion($request, $exception, 'Fallo al insertar logs.excepciones', $e);
         }
 
         return $logEventoId;
@@ -101,6 +102,7 @@ class LogSistemaService
         array $contexto = []
     ): ?int {
         if (! $this->tablaExiste('logs.eventos')) {
+            $this->respaldoRegistro($request, $nivel, $modulo, $accion, 'No existe o no es accesible logs.eventos');
             return null;
         }
 
@@ -123,7 +125,7 @@ class LogSistemaService
                 'created_at' => now(),
             ]);
         } catch (Throwable $e) {
-            Log::warning('No se pudo registrar log técnico', ['message' => $e->getMessage()]);
+            $this->respaldoRegistro($request, $nivel, $modulo, $accion, 'Fallo al insertar logs.eventos', $e);
             return null;
         }
     }
@@ -236,6 +238,54 @@ class LogSistemaService
     {
         if (empty($valor)) return;
         is_array($valor) ? $query->whereIn($columna, array_filter($valor)) : $query->whereRaw("LOWER({$columna}) LIKE ?", ['%' . mb_strtolower($valor) . '%']);
+    }
+
+    /**
+     * Respaldo mínimo a stderr para Railway cuando falla la persistencia.
+     * No incluir parámetros, payloads, mensajes SQL, contraseñas ni trazas en contexto.
+     */
+    private function respaldoRegistro(?Request $request, string $nivel, ?string $modulo, ?string $accion, string $motivo, ?Throwable $fallo = null): void
+    {
+        try {
+            $this->escribirStderr([
+                'evento' => 'revive_log_persistencia_fallida',
+                'nivel' => $nivel,
+                'modulo' => $modulo,
+                'accion' => $accion,
+                'motivo' => $motivo,
+                'fallo_clase' => $fallo ? $fallo::class : null,
+                'request_id' => $request?->attributes->get('request_id'),
+            ]);
+        } catch (Throwable) {
+            // El fallo del registrador nunca debe reemplazar la excepción original.
+        }
+    }
+
+    private function respaldoExcepcion(?Request $request, Throwable $original, string $motivo, ?Throwable $fallo = null): void
+    {
+        try {
+            $this->escribirStderr([
+                'evento' => 'revive_excepcion_no_persistida',
+                'request_id' => $request?->attributes->get('request_id'),
+                'metodo' => $request?->method(),
+                'ruta' => $request?->path(),
+                'clase' => $original::class,
+                'archivo' => $original->getFile(),
+                'linea' => $original->getLine(),
+                'motivo' => $motivo,
+                'fallo_clase' => $fallo ? $fallo::class : null,
+            ]);
+        } catch (Throwable) {
+            // Mantener la operación original intacta.
+        }
+    }
+
+    private function escribirStderr(array $datos): void
+    {
+        $linea = json_encode($datos, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($linea !== false) {
+            file_put_contents('php://stderr', '[REVIVE_LOG] '.$linea.PHP_EOL, FILE_APPEND);
+        }
     }
 
     private function tablaExiste(string $tabla): bool

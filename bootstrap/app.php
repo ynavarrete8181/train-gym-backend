@@ -63,7 +63,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 try {
                     file_put_contents(
                         'php://stderr',
-                        '[REVIVE_ERROR] registro_excepcion_fallido clase='. $falloRegistro::class .PHP_EOL,
+                        '[REVIVE_ERROR] registro_excepcion_fallido '.json_encode(['clase' => get_class($falloRegistro), 'archivo' => basename($falloRegistro->getFile()), 'linea' => $falloRegistro->getLine()], JSON_UNESCAPED_UNICODE).PHP_EOL,
                         FILE_APPEND
                     );
                 } catch (Throwable) {

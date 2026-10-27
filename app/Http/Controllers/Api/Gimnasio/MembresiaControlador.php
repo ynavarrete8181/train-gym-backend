@@ -594,12 +594,8 @@ class MembresiaControlador extends Controller
             ]);
         }
 
-        if (($plan->requiere_entrenador ?? false) && empty($asignaciones)) {
-            throw ValidationException::withMessages([
-                'asignaciones_entrenador' => 'Este plan requiere al menos una asignación de entrenador.',
-            ]);
-        }
-
+        // El entrenador se asigna después de crear la membresía.
+        // Si el usuario incluye asignaciones, se validan individualmente abajo.
         foreach ($asignaciones as $indice => $asignacion) {
             $sedeId = (int) ($asignacion['sede_id'] ?? 0);
             $entrenadorId = (int) ($asignacion['entrenador_id'] ?? 0);

@@ -27,7 +27,7 @@ class AsignarDeportistasPruebaDaniel extends Command
             return 1;
         }
 
-        $entrenador = DB::table('gimnasio.entrenadores')
+        $entrenador = DB::table('entrenamiento.entrenadores')
             ->where('usuario_id', $usuarioDaniel->id)
             ->where('estado', 'ACTIVO')
             ->first();
@@ -52,7 +52,7 @@ class AsignarDeportistasPruebaDaniel extends Command
             return 1;
         }
 
-        $horarioBloqueId = DB::table('gimnasio.horario_entrenadores')
+        $horarioBloqueId = DB::table('agenda.horario_entrenadores')
             ->where('entrenador_id', $entrenador->id)
             ->where('activo', true)
             ->orderBy('id')
@@ -64,7 +64,7 @@ class AsignarDeportistasPruebaDaniel extends Command
 
         DB::transaction(function () use ($usuarios, $entrenador, $horarioBloqueId, $servicioAsignaciones, &$creadas, &$existentes): void {
             foreach ($usuarios as $usuario) {
-                $deportista = DB::table('gimnasio.deportistas')
+                $deportista = DB::table('clientes.deportistas')
                     ->where('usuario_id', $usuario->id)
                     ->first();
 
@@ -74,7 +74,7 @@ class AsignarDeportistasPruebaDaniel extends Command
 
                 $this->line("{$usuario->name}: perfil {$deportista->codigo_deportista} / estado {$deportista->estado}.");
 
-                $yaExiste = DB::table('gimnasio.asignaciones_entrenador_cliente')
+                $yaExiste = DB::table('entrenamiento.asignaciones_entrenador_cliente')
                     ->where('entrenador_id', $entrenador->id)
                     ->where('deportista_id', $deportista->id)
                     ->where('estado', 'ACTIVO')

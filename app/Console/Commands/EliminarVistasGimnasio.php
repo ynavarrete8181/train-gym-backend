@@ -57,6 +57,13 @@ class EliminarVistasGimnasio extends Command
             return self::FAILURE;
         }
 
+        $base = DB::connection()->getDatabaseName();
+        $host = config('database.connections.pgsql.host');
+        if ($base !== 'db_gimnasio_limpieza_prueba' || ! in_array($host, ['127.0.0.1', 'localhost'], true)) {
+            $this->error('Por seguridad este comando solo funciona en db_gimnasio_limpieza_prueba alojada localmente.');
+            return self::FAILURE;
+        }
+
         DB::transaction(function (): void {
         $actuales = DB::select("
             SELECT c.relname, c.relkind

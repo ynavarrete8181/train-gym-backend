@@ -153,6 +153,17 @@ class MembresiaServicio
 
         $actualizada = DB::table('membresias.membresias')->where('id', $id)->first();
 
+        if (in_array(strtoupper((string) $actualizada->estado), ['CANCELADA', 'VENCIDA'], true)) {
+            DB::table('entrenamiento.asignaciones_entrenador_cliente')
+                ->where('membresia_id', $id)
+                ->where('estado', 'ACTIVO')
+                ->update([
+                    'estado' => 'FINALIZADO',
+                    'fecha_fin' => now()->toDateString(),
+                    'updated_at' => now(),
+                ]);
+        }
+
         if ($sedesHabilitadas !== null) {
             $this->sincronizarSedes($id, (int) $actualizada->sede_id, $sedesHabilitadas);
         }

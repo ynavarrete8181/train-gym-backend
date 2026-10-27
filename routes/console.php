@@ -7,6 +7,8 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Schedule;
 use App\Services\Gimnasio\CobroProgramadoMembresiaServicio;
+use App\Services\Gimnasio\ActualizarEstadosMembresiaServicio;
+use App\Services\Gimnasio\DiagnosticoConfiguracionInicialServicio;
 use App\Services\Alertas\AlertaOperativaServicio;
 use App\Services\Logs\LogRetencionServicio;
 use App\Services\Ventas\CierreAutomaticoCajaServicio;
@@ -104,6 +106,34 @@ Artisan::command('revive:procesar-cobros-membresias {--fecha=}', function (Cobro
 Schedule::command('revive:procesar-cobros-membresias')
     ->dailyAt('00:05')
     ->withoutOverlapping();
+
+Artisan::command('revive:actualizar-estados-membresias {--fecha=}', function (ActualizarEstadosMembresiaServicio $servicio): int {
+    $resultado = $servicio->procesar($this->option('fecha') ?: null);
+
+    $this->info(
+        "Membresías revisadas: {$resultado['procesadas']} | "
+        . "vencidas: {$resultado['vencidas']} | "
+        . "asignaciones finalizadas: {$resultado['asignaciones_finalizadas']} | "
+        . "fecha: {$resultado['fecha']}"
+    );
+
+    return 0;
+})->purpose('Vence membresías fuera de vigencia y finaliza sus asignaciones de entrenador.');
+
+Schedule::command('revive:actualizar-estados-membresias')
+    ->dailyAt('00:15')
+    ->withoutOverlapping();
+
+Artisan::command('revive:diagnosticar-configuracion-inicial', function (DiagnosticoConfiguracionInicialServicio $servicio): int {
+    $resultado = $servicio->ejecutar();
+
+    $this->table(['Control', 'Pendientes'], collect($resultado)
+        ->map(fn ($cantidad, $control) => [$control, $cantidad])
+        ->values()
+        ->all());
+
+    return collect($resultado)->sum() > 0 ? 2 : 0;
+})->purpose('Audita inconsistencias entre planes, entrenadores, membresías, pagos y asignaciones.');
 
 
 Artisan::command('revive:sincronizar-ventas-membresias {--membresia=}', function (SincronizarVentasMembresiasServicio $servicio): int {

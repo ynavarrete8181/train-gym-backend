@@ -28,9 +28,19 @@ class ActualizarEstadosMembresiaServicio
             ->pluck('id');
 
         foreach ($ids as $id) {
-            DB::transaction(function () use ($id, &$vencidas, &$asignacionesFinalizadas): void {
+            DB::transaction(function () use ($id, $hoy, &$vencidas, &$asignacionesFinalizadas): void {
                 $antes = DB::table('membresias.membresias')->where('id', $id)->lockForUpdate()->first();
                 if (! $antes || in_array($antes->estado, ['CANCELADA', 'VENCIDA', 'CONGELADA'], true)) {
+                    return;
+                }
+
+                // Verificar de nuevo dentro del bloqueo: otra operación pudo
+                // ampliar vigencia, agregar gracia o congelar la membresía.
+                if (! $antes->fecha_fin
+                    || Carbon::parse($antes->fecha_fin)
+                        ->addDays(max(0, (int) ($antes->dias_gracia ?? 0)))
+                        ->startOfDay()
+                        ->greaterThanOrEqualTo($hoy)) {
                     return;
                 }
 

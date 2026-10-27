@@ -18,10 +18,15 @@ class ValoracionDeportistaControlador extends Controller
         abort_unless(DB::table('clientes.deportistas')->where('id',$id)->exists(),404);
         $usuario = $request->user();
         $rol = DB::table('seguridad.cpu_userrole')->where('id_userrole',$usuario->usr_tipo)->value('role');
-        abort_unless(in_array($rol,['SUPERADMINISTRADOR','ADMINISTRADOR','ENTRENADOR'],true),403);
+        abort_unless(
+            app(\App\Services\Seguridad\PermisoService::class)->usuarioTieneAlgunaFuncion(
+                $usuario, ['GIMNASIO-DEPORTISTAS', 'ENTRENAMIENTO-EVALUACIONES']
+            ) || in_array($rol, ['SUPERADMINISTRADOR', 'ADMINISTRADOR', 'ENTRENADOR'], true),
+            403
+        );
         if ($rol === 'ENTRENADOR') {
             abort_unless(DB::table('entrenamiento.asignaciones_entrenador_cliente as a')
-                ->join('entrenamiento.entrenadores as e','e.id','=','a.entrenador_id')
+                ->join('gimnasio.entrenadores as e','e.id','=','a.entrenador_id')
                 ->where('a.deportista_id',$id)->where('e.usuario_id',$usuario->id)
                 ->where('a.estado','ACTIVO')->exists(),403);
         }

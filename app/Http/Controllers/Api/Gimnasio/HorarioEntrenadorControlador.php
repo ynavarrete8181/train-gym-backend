@@ -36,7 +36,7 @@ class HorarioEntrenadorControlador extends Controller
     {
         $datos = $request->validate([
             'tipo_horario' => 'required|string|in:INSTITUCIONAL,PERSONALIZADO',
-            'jornada_id' => 'nullable|integer|exists:pgsql.gimnasio.jornadas,id',
+            'jornada_id' => 'nullable|integer|exists:pgsql.agenda.jornadas,id',
             'fecha_inicio' => 'nullable|date',
             'fecha_fin' => 'nullable|date|after_or_equal:fecha_inicio',
             'activo' => 'boolean',

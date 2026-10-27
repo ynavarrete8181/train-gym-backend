@@ -112,6 +112,12 @@ class MembresiaControlador extends Controller
             'renovacion_automatica' => 'boolean',
             'fecha_congelacion_inicio' => 'nullable|required_with:fecha_congelacion_fin|date',
             'fecha_congelacion_fin' => 'nullable|required_with:fecha_congelacion_inicio|date|after_or_equal:fecha_congelacion_inicio',
+            'descuento' => 'nullable|array',
+            'descuento.tipo' => 'required_with:descuento|in:PORCENTAJE,FIJO',
+            'descuento.valor' => 'required_with:descuento|numeric|gt:0',
+            'descuento.motivo' => 'required_with:descuento|string|max:500',
+            'descuento.fecha_inicio' => 'required_with:descuento|date',
+            'descuento.fecha_fin' => 'nullable|date|after_or_equal:descuento.fecha_inicio',
         ]);
 
         $validados['sede_id'] = (int) collect($validados['sedes_habilitadas'])->first();
@@ -140,6 +146,9 @@ class MembresiaControlador extends Controller
 
         [$membresia, $venta] = DB::transaction(function () use ($validados, $generarVenta, $request): array {
             $membresia = $this->membresiaServicio->crear($validados);
+            if (!empty($validados['descuento'])) {
+                $this->registrarDescuentoMembresia($validados['descuento'], $membresia, (int) $request->user()->id);
+            }
             $venta = null;
             $plan = DB::table('membresias.planes')->where('id', $membresia->plan_id)->first();
 
@@ -344,6 +353,12 @@ class MembresiaControlador extends Controller
             'renovacion_automatica' => 'boolean',
             'fecha_congelacion_inicio' => 'nullable|required_with:fecha_congelacion_fin|date',
             'fecha_congelacion_fin' => 'nullable|required_with:fecha_congelacion_inicio|date|after_or_equal:fecha_congelacion_inicio',
+            'descuento' => 'nullable|array',
+            'descuento.tipo' => 'required_with:descuento|in:PORCENTAJE,FIJO',
+            'descuento.valor' => 'required_with:descuento|numeric|gt:0',
+            'descuento.motivo' => 'required_with:descuento|string|max:500',
+            'descuento.fecha_inicio' => 'required_with:descuento|date',
+            'descuento.fecha_fin' => 'nullable|date|after_or_equal:descuento.fecha_inicio',
         ]);
 
         $planActual = DB::table('membresias.planes')->where('id', $membresia->plan_id)->first();
@@ -382,6 +397,10 @@ class MembresiaControlador extends Controller
 
         $membresiaActualizada = DB::transaction(function () use ($id, $validados, $generarVenta, $request) {
             $actualizada = $this->membresiaServicio->actualizar($id, $validados);
+            if (!empty($validados['descuento'])) {
+                $membresiaParaDescuento = DB::table('membresias.membresias')->where('id', $id)->first();
+                $this->registrarDescuentoMembresia($validados['descuento'], $membresiaParaDescuento, (int) $request->user()->id);
+            }
 
             $this->sincronizarFacturacion((int) $id, $generarVenta, $request);
             $actualizada = $this->membresiaServicio->obtenerMembresiaConRelaciones((int) $id);
@@ -390,6 +409,24 @@ class MembresiaControlador extends Controller
         });
 
         return ApiResponse::exito('Membresía actualizada correctamente.', (array) $membresiaActualizada);
+    }
+
+    private function registrarDescuentoMembresia(array $datos, object $membresia, int $usuarioId): void
+    {
+        if ($datos['tipo'] === 'PORCENTAJE' && (float) $datos['valor'] > 100) {
+            throw ValidationException::withMessages(['descuento.valor' => 'El porcentaje no puede superar el 100 %.']);
+        }
+
+        $this->descuentos->crear([
+            'deportista_id' => (int) $membresia->deportista_id,
+            'plan_id' => (int) $membresia->plan_id,
+            'modalidad_id' => $membresia->modalidad_id ? (int) $membresia->modalidad_id : null,
+            'tipo' => $datos['tipo'],
+            'valor' => (float) $datos['valor'],
+            'motivo' => trim($datos['motivo']),
+            'fecha_inicio' => $datos['fecha_inicio'],
+            'fecha_fin' => $datos['fecha_fin'] ?? null,
+        ], $usuarioId);
     }
 
     private function sincronizarFacturacion(int $membresiaId, bool $generarVenta, Request $request): void

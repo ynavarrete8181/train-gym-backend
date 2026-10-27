@@ -36,10 +36,39 @@ return Application::configure(basePath: dirname(__DIR__))
         // Cualquier excepción no controlada queda guardada en logs.eventos/logs.excepciones,
         // visible desde Auditoría > Errores del sistema, además del storage/logs/laravel.log de siempre.
         $exceptions->report(function (Throwable $e): void {
+            // Diagnóstico independiente de PostgreSQL y del canal LOG_CHANNEL.
+            // Nunca registrar el mensaje de la excepción, SQL, tokens ni payloads.
+            try {
+                $request = request();
+                $diagnostico = [
+                    'evento' => 'revive_excepcion_global',
+                    'request_id' => $request->attributes->get('request_id'),
+                    'metodo' => $request->method(),
+                    'ruta' => $request->path(),
+                    'clase' => $e::class,
+                    'archivo' => basename($e->getFile()),
+                    'linea' => $e->getLine(),
+                ];
+                $json = json_encode($diagnostico, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+                if ($json !== false) {
+                    file_put_contents('php://stderr', '[REVIVE_ERROR] '.$json.PHP_EOL, FILE_APPEND);
+                }
+            } catch (Throwable) {
+                // El diagnóstico nunca debe ocultar la excepción original.
+            }
+
             try {
                 app(LogSistemaService::class)->excepcion(request(), $e);
-            } catch (Throwable) {
-                // Nunca dejar que un fallo al loguear rompa el manejo de la excepción original.
+            } catch (Throwable $falloRegistro) {
+                try {
+                    file_put_contents(
+                        'php://stderr',
+                        '[REVIVE_ERROR] registro_excepcion_fallido clase='. $falloRegistro::class .PHP_EOL,
+                        FILE_APPEND
+                    );
+                } catch (Throwable) {
+                    // No reemplazar el error original.
+                }
             }
         });
     })->create();

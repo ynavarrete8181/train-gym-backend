@@ -223,9 +223,23 @@ class PlanControlador extends Controller
             'modalidades.*.permite_rollover' => 'boolean',
             'modalidades.*.activo' => 'boolean',
             'modalidades.*.precios_sede' => 'nullable|array',
-            'modalidades.*.precios_sede.*.sede_id' => 'required|integer|distinct|exists:pgsql.institucional.sedes,id_sede',
+            'modalidades.*.precios_sede.*.sede_id' => 'required|integer|exists:pgsql.institucional.sedes,id_sede',
             'modalidades.*.precios_sede.*.precio' => 'required|numeric|min:0',
         ]);
+
+        // La misma sede puede tener un precio por cada modalidad, pero no
+        // puede repetirse dentro de la lista de precios de UNA modalidad.
+        foreach (($datos['modalidades'] ?? []) as $indice => $modalidad) {
+            $sedes = collect($modalidad['precios_sede'] ?? [])
+                ->pluck('sede_id')
+                ->map(fn ($sedeId) => (string) $sedeId);
+            if ($sedes->count() !== $sedes->unique()->count()) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    "modalidades.{$indice}.precios_sede" =>
+                        'No se puede repetir una sede dentro de las tarifas de una misma modalidad.',
+                ]);
+            }
+        }
 
         if (($datos['tipo_producto'] ?? null) === 'PASE_DIARIO') {
             $datos['tipo_cobro'] = 'PAGO_UNICO';

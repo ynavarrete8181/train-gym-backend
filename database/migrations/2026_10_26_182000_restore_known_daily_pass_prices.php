@@ -30,13 +30,16 @@ return new class extends Migration
                     continue;
                 }
 
-                DB::table('membresias.plan_precios_sede')
-                    ->where('plan_id', $planId)
-                    ->where('sede_id', $sedeId)
-                    ->update([
-                        'precio' => $precio,
-                        'updated_at' => now(),
-                    ]);
+                // Completar tarifas faltantes sin reemplazar valores comerciales
+                // que ya fueron configurados por el administrador.
+                DB::table('membresias.plan_precios_sede')->insertOrIgnore([
+                    'plan_id' => $planId,
+                    'sede_id' => $sedeId,
+                    'precio' => $precio,
+                    'activo' => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
             }
         }
     }

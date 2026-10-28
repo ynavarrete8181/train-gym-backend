@@ -190,6 +190,7 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
 
     Route::middleware(['base.permiso:GIMNASIO-DISPONIBILIDAD'])->group(function (): void {
         Route::get('agenda/catalogos-operacion', [AgendaOperacionControlador::class, 'catalogos'])->name('gimnasio.agenda.operacion.catalogos');
+        Route::get('agenda/entrenadores-disponibilidad', [AgendaConfiguracionControlador::class, 'entrenadoresDisponibilidad'])->name('gimnasio.agenda.entrenadores-disponibilidad');
         Route::get('agenda/servicios-disponibles', [AgendaOperacionControlador::class, 'serviciosDisponibles'])->name('gimnasio.agenda.servicios-disponibles');
         Route::get('agenda/disponibilidad', [AgendaOperacionControlador::class, 'disponibilidad'])->name('gimnasio.agenda.disponibilidad');
     });

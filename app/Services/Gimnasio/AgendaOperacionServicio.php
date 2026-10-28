@@ -41,13 +41,20 @@ class AgendaOperacionServicio
 
     public function serviciosDisponibles(int $entrenadorId, int $sedeId): array
     {
-        $tieneAsignacion = DB::table('agenda.asignaciones_horario_entrenador')
-            ->where('entrenador_id', $entrenadorId)
-            ->where('sede_id', $sedeId)
-            ->where('activo', true)
+        $tieneHorario = DB::table('agenda.entrenador_horarios as h')
+            ->join('agenda.entrenador_horario_franjas as f', 'f.entrenador_horario_id', '=', 'h.id')
+            ->where('h.entrenador_id', $entrenadorId)
+            ->where('h.activo', true)
+            ->where('f.sede_id', $sedeId)
+            ->where('f.activo', true)
+            ->whereDate('h.fecha_inicio', '<=', now()->toDateString())
+            ->where(function ($q): void {
+                $q->whereNull('h.fecha_fin')
+                    ->orWhereDate('h.fecha_fin', '>=', now()->toDateString());
+            })
             ->exists();
 
-        if (! $tieneAsignacion) {
+        if (! $tieneHorario) {
             return [];
         }
 
@@ -92,44 +99,30 @@ class AgendaOperacionServicio
             ]);
         }
 
-        $asignaciones = DB::table('agenda.asignaciones_horario_entrenador as a')
-            ->join('agenda.jornadas as j', 'j.id', '=', 'a.jornada_id')
-            ->leftJoin('agenda.recesos as r', 'r.id', '=', 'a.receso_id')
-            ->where('a.entrenador_id', $entrenadorId)
-            ->where('a.sede_id', $sedeId)
-            ->where('a.activo', true)
-            ->where('j.activo', true)
-            ->whereDate('a.fecha_inicio', '<=', $fecha->toDateString())
+        $franjas = DB::table('agenda.entrenador_horarios as h')
+            ->join('agenda.entrenador_horario_franjas as f', 'f.entrenador_horario_id', '=', 'h.id')
+            ->where('h.entrenador_id', $entrenadorId)
+            ->where('h.activo', true)
+            ->where('f.activo', true)
+            ->where('f.sede_id', $sedeId)
+            ->where('f.dia_semana', $dia)
+            ->whereDate('h.fecha_inicio', '<=', $fecha->toDateString())
             ->where(function ($q) use ($fecha): void {
-                $q->whereNull('a.fecha_fin')
-                    ->orWhereDate('a.fecha_fin', '>=', $fecha->toDateString());
+                $q->whereNull('h.fecha_fin')
+                    ->orWhereDate('h.fecha_fin', '>=', $fecha->toDateString());
             })
-            ->select(
-                'a.id',
-                'a.jornada_id',
-                'j.nombre as jornada_nombre',
-                'r.id as receso_id',
-                'r.nombre as receso_nombre',
-                'r.hora_inicio as receso_hora_inicio',
-                'r.hora_fin as receso_hora_fin'
-            )
-            ->get();
+            ->get(['h.id as horario_id', 'f.id as franja_id', 'f.hora_inicio', 'f.hora_fin']);
 
         $bloques = collect();
 
-        foreach ($asignaciones as $asignacion) {
-            $detalle = DB::table('agenda.jornada_detalles')
-                ->where('jornada_id', $asignacion->jornada_id)
+        foreach ($franjas as $franja) {
+            $inicio = Carbon::parse($fecha->toDateString() . ' ' . $franja->hora_inicio);
+            $finJornada = Carbon::parse($fecha->toDateString() . ' ' . $franja->hora_fin);
+            $recesos = DB::table('agenda.entrenador_horario_recesos')
+                ->where('entrenador_horario_id', $franja->horario_id)
                 ->where('dia_semana', $dia)
                 ->where('activo', true)
-                ->first();
-
-            if (! $detalle) {
-                continue;
-            }
-
-            $inicio = Carbon::parse($fecha->toDateString() . ' ' . $detalle->hora_inicio);
-            $finJornada = Carbon::parse($fecha->toDateString() . ' ' . $detalle->hora_fin);
+                ->get(['hora_inicio', 'hora_fin', 'descripcion', 'tipo']);
             $duracion = max(5, (int) $servicio->duracion_minutos);
             $capacidad = max(1, (int) $servicio->capacidad_base);
 
@@ -139,17 +132,17 @@ class AgendaOperacionServicio
                 $estado = 'DISPONIBLE';
                 $motivo = null;
 
-                if (
-                    $asignacion->receso_id
-                    && $this->solapa(
+                foreach ($recesos as $receso) {
+                    if ($this->solapa(
                         $inicio->format('H:i:s'),
                         $fin->format('H:i:s'),
-                        $asignacion->receso_hora_inicio,
-                        $asignacion->receso_hora_fin
-                    )
-                ) {
-                    $estado = 'RECESO';
-                    $motivo = $asignacion->receso_nombre;
+                        $receso->hora_inicio,
+                        $receso->hora_fin
+                    )) {
+                        $estado = 'RECESO';
+                        $motivo = $receso->descripcion ?: $receso->tipo;
+                        break;
+                    }
                 }
 
                 $excepcion = $this->buscarExcepcion(
@@ -180,8 +173,10 @@ class AgendaOperacionServicio
                 }
 
                 $bloques->push([
-                    'asignacion_id' => $asignacion->id,
-                    'jornada' => $asignacion->jornada_nombre,
+                    'asignacion_id' => null,
+                    'entrenador_horario_id' => $franja->horario_id,
+                    'franja_id' => $franja->franja_id,
+                    'jornada' => 'Horario personalizado',
                     'fecha' => $fecha->toDateString(),
                     'hora_inicio' => $inicio->format('H:i'),
                     'hora_fin' => $fin->format('H:i'),

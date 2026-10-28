@@ -274,7 +274,7 @@ class AgendaConfiguracionServicio
         ];
     }
 
-    public function buscarEntrenadores(?string $busqueda = null, ?int $entrenadorId = null, int $limite = 20)
+    public function buscarEntrenadores(?string $busqueda = null, ?int $entrenadorId = null, int $limite = 20, ?int $sedeId = null, ?string $fecha = null)
     {
         $termino = trim((string) $busqueda);
 
@@ -282,6 +282,24 @@ class AgendaConfiguracionServicio
         $query = DB::table('entrenamiento.entrenadores as e')
             ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
             ->where('e.estado', 'ACTIVO')
+            ->when($sedeId, function ($consulta) use ($sedeId, $fecha): void {
+                $consulta->whereExists(function ($subconsulta) use ($sedeId, $fecha): void {
+                    $subconsulta->selectRaw('1')
+                        ->from('agenda.entrenador_horarios as eh')
+                        ->join('agenda.entrenador_horario_franjas as f', 'f.entrenador_horario_id', '=', 'eh.id')
+                        ->whereColumn('eh.entrenador_id', 'e.id')
+                        ->where('eh.activo', true)
+                        ->where('f.activo', true)
+                        ->where('f.sede_id', $sedeId);
+
+                    if ($fecha) {
+                        $subconsulta->whereDate('eh.fecha_inicio', '<=', $fecha)
+                            ->where(function ($rango) use ($fecha): void {
+                                $rango->whereNull('eh.fecha_fin')->orWhereDate('eh.fecha_fin', '>=', $fecha);
+                            });
+                    }
+                });
+            })
             ->select([
                 'e.id',
                 'e.tipo',

@@ -278,13 +278,7 @@ class AgendaConfiguracionServicio
     {
         $termino = trim((string) $busqueda);
 
-        // Para altas nuevas no precargamos catálogos completos.
-        // Solo devolvemos resultados cuando el usuario busca (mínimo 2 caracteres)
-        // o cuando necesitamos recuperar el entrenador ya asignado al editar.
-        if (! $entrenadorId && mb_strlen($termino) < 2) {
-            return collect();
-        }
-
+        // Precarga limitada para el selector y búsqueda por texto cuando corresponda.
         $query = DB::table('entrenamiento.entrenadores as e')
             ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
             ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
@@ -303,7 +297,7 @@ class AgendaConfiguracionServicio
 
         if ($entrenadorId) {
             $query->where('e.id', $entrenadorId);
-        } else {
+        } elseif ($termino !== '') {
             $texto = '%' . mb_strtolower($termino) . '%';
             $query->where(function ($q) use ($texto): void {
                 $q->whereRaw("LOWER(COALESCE(u.name, '')) LIKE ?", [$texto])

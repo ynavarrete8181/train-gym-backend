@@ -41,23 +41,9 @@ class AgendaOperacionServicio
 
     public function serviciosDisponibles(int $entrenadorId, int $sedeId): array
     {
-        $tieneHorario = DB::table('agenda.entrenador_horarios as h')
-            ->join('agenda.entrenador_horario_franjas as f', 'f.entrenador_horario_id', '=', 'h.id')
-            ->where('h.entrenador_id', $entrenadorId)
-            ->where('h.activo', true)
-            ->where('f.sede_id', $sedeId)
-            ->where('f.activo', true)
-            ->whereDate('h.fecha_inicio', '<=', now()->toDateString())
-            ->where(function ($q): void {
-                $q->whereNull('h.fecha_fin')
-                    ->orWhereDate('h.fecha_fin', '>=', now()->toDateString());
-            })
-            ->exists();
-
-        if (! $tieneHorario) {
-            return [];
-        }
-
+        // El catálogo de servicios habilitados es independiente de la jornada.
+        // La vigencia, sede y franjas se verifican al calcular la disponibilidad
+        // para la fecha seleccionada, no al poblar este selector.
         return DB::table('entrenamiento.entrenador_servicios as es')
             ->join('servicios.servicios as s', 's.id', '=', 'es.servicio_id')
             ->where('es.entrenador_id', $entrenadorId)

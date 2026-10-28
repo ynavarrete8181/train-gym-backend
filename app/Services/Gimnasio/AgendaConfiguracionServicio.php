@@ -281,9 +281,7 @@ class AgendaConfiguracionServicio
         // Precarga limitada para el selector y búsqueda por texto cuando corresponda.
         $query = DB::table('entrenamiento.entrenadores as e')
             ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
-            ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
             ->where('e.estado', 'ACTIVO')
-            ->where('r.role', 'ENTRENADOR')
             ->select([
                 'e.id',
                 'e.tipo',

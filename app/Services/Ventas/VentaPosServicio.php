@@ -202,6 +202,7 @@ class VentaPosServicio
             throw ValidationException::withMessages(['plan_id' => 'El plan no está activo.']);
         }
         $modalidadId = null;
+        $fechaCotizacion = now('America/Guayaquil')->toDateString();
         if ($membresiaId) {
             $m = DB::table('membresias.membresias')->where('id', $membresiaId)
                 ->where('deportista_id', $clienteId)->where('plan_id', $planId)

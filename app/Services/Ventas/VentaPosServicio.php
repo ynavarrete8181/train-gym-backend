@@ -414,7 +414,10 @@ class VentaPosServicio
             $beneficioAplicado = $this->beneficios->resolver(
                 (int) $m->deportista_id, (int) $m->plan_id,
                 $m->modalidad_id ? (int) $m->modalidad_id : null,
-                now('America/Guayaquil')->toDateString(), $subtotal
+                DB::table('membresias.planes')->where('id', $m->plan_id)->value('tipo_producto') === 'PASE_DIARIO'
+                    ? substr((string) $m->fecha_inicio, 0, 10)
+                    : now('America/Guayaquil')->toDateString(),
+                $subtotal
             );
             // El descuento contractual procede únicamente del beneficio autorizado.
             $descuento = (float) $beneficioAplicado['importe_descuento'];

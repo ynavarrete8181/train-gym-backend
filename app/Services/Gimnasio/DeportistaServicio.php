@@ -235,7 +235,11 @@ class DeportistaServicio
 
     private function guardarUbicacionPersona(int $personaId, ?array $ubicacion): void
     {
-        if (! $ubicacion || ! isset($ubicacion['latitud'], $ubicacion['longitud'])) {
+        if ($ubicacion === null) {
+            return;
+        }
+        if (! isset($ubicacion['latitud'], $ubicacion['longitud'])) {
+            DB::table('personas.persona_ubicaciones')->where('persona_id', $personaId)->delete();
             return;
         }
         DB::table('personas.persona_ubicaciones')->updateOrInsert(

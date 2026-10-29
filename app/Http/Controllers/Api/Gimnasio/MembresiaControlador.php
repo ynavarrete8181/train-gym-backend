@@ -379,9 +379,13 @@ class MembresiaControlador extends Controller
 
         $sedesHabilitadas = collect($validados['sedes_habilitadas'])->map(fn ($id) => (int) $id)->values();
         $sedeActual = (int) ($membresia->sede_id ?? 0);
-        $validados['sede_id'] = $sedeActual && $sedesHabilitadas->contains($sedeActual)
-            ? $sedeActual
-            : (int) $sedesHabilitadas->first();
+        $sedeSolicitada = (int) ($validados['sede_id'] ?? $sedeActual);
+        if (! $sedesHabilitadas->contains($sedeSolicitada)) {
+            throw ValidationException::withMessages([
+                'sede_id' => 'La sede principal debe estar entre las sedes autorizadas.',
+            ]);
+        }
+        $validados['sede_id'] = $sedeSolicitada;
         $sedeValidacion = (int) $validados['sede_id'];
         $modalidadValidacion = array_key_exists('modalidad_id', $validados)
             ? ($validados['modalidad_id'] ? (int) $validados['modalidad_id'] : null)

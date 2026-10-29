@@ -85,7 +85,11 @@ class VentaPosServicio
 
         $membresias = DB::table('membresias.membresias as m')
             ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
-            ->where('m.sede_id', $sedeId)
+            ->whereExists(function ($query) use ($sedeId): void {
+                $query->selectRaw('1')->from('membresias.membresia_sedes as ms')
+                    ->whereColumn('ms.membresia_id', 'm.id')
+                    ->where('ms.sede_id', $sedeId)->where('ms.activo', true);
+            })
             ->whereNotIn('m.estado', ['CANCELADA', 'VENCIDA'])
             ->whereNotExists(function ($query): void {
                 $query->selectRaw('1')
@@ -100,6 +104,7 @@ class VentaPosServicio
                 'm.id',
                 'm.deportista_id as cliente_id',
                 'm.plan_id',
+                'm.modalidad_id',
                 'm.codigo_contrato as codigo',
                 'm.fecha_inicio',
                 'm.fecha_fin',
@@ -108,6 +113,16 @@ class VentaPosServicio
                 'p.nombre',
                 'p.tipo_producto',
             ]);
+
+        // La tarifa visible en el POS corresponde a la sede del turno, no
+        // al precio histórico de contratación de la membresía.
+        $tarifasSede = $this->planesPorSede($sedeId)->keyBy('id');
+        $membresias = $membresias->map(function ($m) use ($tarifasSede, $sedeId) {
+            $m->precio = $m->modalidad_id
+                ? $this->precioModalidadSede((int) $m->modalidad_id, $sedeId)
+                : ($tarifasSede->get($m->plan_id)?->precio ?? $m->precio);
+            return $m;
+        });
 
         $productos = collect();
         if (Schema::connection('pgsql')->hasTable('inventario.productos')) {
@@ -190,10 +205,17 @@ class VentaPosServicio
         if ($membresiaId) {
             $m = DB::table('membresias.membresias')->where('id', $membresiaId)
                 ->where('deportista_id', $clienteId)->where('plan_id', $planId)
-                ->where('sede_id', $turno->sede_id)->first();
+                ->whereExists(function ($query) use ($turno): void {
+                    $query->selectRaw('1')->from('membresias.membresia_sedes as ms')
+                        ->whereColumn('ms.membresia_id', 'membresias.membresias.id')
+                        ->where('ms.sede_id', $turno->sede_id)->where('ms.activo', true);
+                })->first();
             if (! $m) throw ValidationException::withMessages(['membresia_id' => 'Membresía no válida para esta sede.']);
-            $precio = (float) $m->precio_aplicado;
             $modalidadId = $m->modalidad_id;
+            $precio = $modalidadId
+                ? $this->precioModalidadSede((int) $modalidadId, (int) $turno->sede_id)
+                : (float) ($this->planesPorSede((int) $turno->sede_id)
+                    ->firstWhere('id', $planId)?->precio ?? 0);
         } else {
             if ($plan->tipo_producto !== 'PASE_DIARIO') {
                 throw ValidationException::withMessages(['plan_id' => 'La cotización directa solo aplica al Pase Diario.']);
@@ -344,8 +366,11 @@ class VentaPosServicio
                 throw ValidationException::withMessages(['membresia_id' => 'La membresía no pertenece al cliente seleccionado.']);
             }
 
-            if ((int) $membresia->sede_id !== (int) $turno->sede_id) {
-                throw ValidationException::withMessages(['membresia_id' => 'La membresía pertenece a otra sede.']);
+            $accesoSede = DB::table('membresias.membresia_sedes')
+                ->where('membresia_id', $membresiaId)
+                ->where('sede_id', $turno->sede_id)->where('activo', true)->exists();
+            if (! $accesoSede) {
+                throw ValidationException::withMessages(['membresia_id' => 'La membresía no habilita el acceso a esta sede.']);
             }
 
             if (in_array(strtoupper((string) $membresia->estado), ['CANCELADA', 'VENCIDA'], true)) {
@@ -378,7 +403,7 @@ class VentaPosServicio
             $beneficioAplicado = $this->beneficios->resolver(
                 (int) $m->deportista_id, (int) $m->plan_id,
                 $m->modalidad_id ? (int) $m->modalidad_id : null,
-                now('America/Guayaquil')->toDateString(), (float) $m->precio_aplicado
+                now('America/Guayaquil')->toDateString(), $subtotal
             );
             // El descuento contractual procede únicamente del beneficio autorizado.
             $descuento = (float) $beneficioAplicado['importe_descuento'];
@@ -660,11 +685,16 @@ class VentaPosServicio
                     ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
                     ->leftJoin('membresias.plan_modalidades as pm', 'pm.id', '=', 'm.modalidad_id')
                     ->where('m.id', $membresiaId)
-                    ->where('m.sede_id', $sedeId)
+                    ->whereExists(function ($q) use ($sedeId): void {
+                        $q->selectRaw('1')->from('membresias.membresia_sedes as ms')
+                            ->whereColumn('ms.membresia_id', 'm.id')
+                            ->where('ms.sede_id', $sedeId)->where('ms.activo', true);
+                    })
                     ->whereNotIn('m.estado', ['CANCELADA', 'VENCIDA'])
                     ->first([
                         'm.id',
                         'm.plan_id',
+                        'm.modalidad_id',
                         'm.codigo_contrato',
                         'm.precio_aplicado',
                         'm.estado',
@@ -690,7 +720,10 @@ class VentaPosServicio
                     ]);
                 }
 
-                $precio = round((float) $membresia->precio_aplicado, 2);
+                $precio = $membresia->modalidad_id
+                    ? $this->precioModalidadSede((int) $membresia->modalidad_id, $sedeId)
+                    : (float) ($this->planesPorSede($sedeId)->firstWhere('id', $membresia->plan_id)?->precio ?? 0);
+                $precio = round($precio, 2);
                 if ($precio <= 0) {
                     throw ValidationException::withMessages([
                         'detalles' => 'La membresía seleccionada no tiene un precio aplicado válido.',
@@ -733,6 +766,15 @@ class VentaPosServicio
 
             throw ValidationException::withMessages(['detalles' => 'Existe un tipo de ítem no permitido en la venta.']);
         })->values();
+    }
+
+    private function precioModalidadSede(int $modalidadId, int $sedeId): float
+    {
+        $sede = DB::table('membresias.plan_modalidad_precios_sede')
+            ->where('modalidad_id', $modalidadId)->where('sede_id', $sedeId)
+            ->where('activo', true)->value('precio');
+        return (float) ($sede ?? DB::table('membresias.plan_modalidades')
+            ->where('id', $modalidadId)->value('precio_base'));
     }
 
     private function planesPorSede(int $sedeId)

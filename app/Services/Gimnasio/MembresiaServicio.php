@@ -241,6 +241,21 @@ class MembresiaServicio
             return null;
         }
 
+        // Datos de descuento vigente para precargar correctamente la edición.
+        $membresia->descuento_vigente = DB::table('membresias.descuentos_deportistas')
+            ->where('deportista_id', (int) $membresia->deportista_id)
+            ->where('plan_id', (int) $membresia->plan_id)
+            ->where(function ($q) use ($membresia): void {
+                if ($membresia->modalidad_id) {
+                    $q->where('modalidad_id', $membresia->modalidad_id);
+                } else {
+                    $q->whereNull('modalidad_id');
+                }
+            })
+            ->where('activo', true)
+            ->orderByDesc('fecha_inicio')->orderByDesc('id')
+            ->first(['id', 'tipo', 'valor', 'motivo', 'fecha_inicio', 'fecha_fin']);
+
         $membresia->sedes_habilitadas = DB::table('membresias.membresia_sedes as ms')
             ->join('institucional.sedes as s', 's.id_sede', '=', 'ms.sede_id')
             ->where('ms.membresia_id', $id)

@@ -62,6 +62,21 @@ class VentaControlador extends Controller
         );
     }
 
+    public function cotizarBeneficioPos(Request $request)
+    {
+        $datos = $request->validate([
+            'cliente_id' => 'required|integer|exists:pgsql.clientes.deportistas,id',
+            'plan_id' => 'required|integer|exists:pgsql.membresias.planes,id',
+            'membresia_id' => 'nullable|integer|exists:pgsql.membresias.membresias,id',
+        ]);
+        return ApiResponse::exito('Beneficio y tarifa cotizados.', $this->pos->cotizarBeneficio(
+            (int) $request->user()->id,
+            (int) $datos['cliente_id'],
+            (int) $datos['plan_id'],
+            isset($datos['membresia_id']) ? (int) $datos['membresia_id'] : null,
+        ));
+    }
+
     public function guardarVentaPos(Request $request)
     {
         $datos = $request->validate([
@@ -71,7 +86,7 @@ class VentaControlador extends Controller
             'impuesto' => 'nullable|numeric|min:0',
             'observaciones' => 'nullable|string|max:1000',
             'detalles' => 'required|array|min:1',
-            'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO',
+            'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO,PASE_DIARIO',
             'detalles.*.referencia_id' => 'nullable|integer',
             'detalles.*.membresia_id' => 'nullable|exists:pgsql.membresias.membresias,id',
             'detalles.*.producto_id' => 'nullable|exists:pgsql.inventario.productos,id',
@@ -98,7 +113,7 @@ class VentaControlador extends Controller
             'impuesto' => 'nullable|numeric|min:0',
             'observaciones' => 'nullable|string|max:1000',
             'detalles' => 'required|array|min:1',
-            'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO',
+            'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO,PASE_DIARIO',
             'detalles.*.referencia_id' => 'nullable|integer',
             'detalles.*.membresia_id' => 'nullable|exists:pgsql.membresias.membresias,id',
             'detalles.*.producto_id' => 'nullable|exists:pgsql.inventario.productos,id',
@@ -131,7 +146,7 @@ class VentaControlador extends Controller
             'pagos.*.referencia' => 'nullable|string|max:120',
             'pagos.*.observaciones' => 'nullable|string|max:1000',
             'detalles' => 'required|array|min:1',
-            'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO',
+            'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO,PASE_DIARIO',
             'detalles.*.referencia_id' => 'nullable|integer',
             'detalles.*.membresia_id' => 'nullable|exists:pgsql.membresias.membresias,id',
             'detalles.*.producto_id' => 'nullable|integer',
@@ -172,7 +187,7 @@ class VentaControlador extends Controller
             'pagos.*.referencia' => 'nullable|string|max:120',
             'pagos.*.observaciones' => 'nullable|string|max:1000',
             'detalles' => 'required|array|min:1',
-            'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO',
+            'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO,PASE_DIARIO',
             'detalles.*.referencia_id' => 'nullable|integer',
             'detalles.*.membresia_id' => 'nullable|exists:pgsql.membresias.membresias,id',
             'detalles.*.producto_id' => 'nullable|integer',
@@ -272,7 +287,7 @@ class VentaControlador extends Controller
             'membresia_id' => 'nullable|exists:pgsql.membresias.membresias,id',
             'caja_id' => 'nullable|exists:pgsql.ventas.cajas,id',
             'numero' => ['nullable', 'string', 'max:60', Rule::unique('ventas.ventas', 'numero')->ignore($id)],
-            'tipo_venta' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO',
+            'tipo_venta' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO,PASE_DIARIO',
             'concepto' => 'required|string|max:180',
             'subtotal' => 'nullable|numeric|min:0',
             'descuento' => 'nullable|numeric|min:0',

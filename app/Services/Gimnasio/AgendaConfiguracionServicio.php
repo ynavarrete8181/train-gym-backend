@@ -274,22 +274,32 @@ class AgendaConfiguracionServicio
         ];
     }
 
-    public function buscarEntrenadores(?string $busqueda = null, ?int $entrenadorId = null, int $limite = 20)
+    public function buscarEntrenadores(?string $busqueda = null, ?int $entrenadorId = null, int $limite = 20, ?int $sedeId = null, ?string $fecha = null)
     {
         $termino = trim((string) $busqueda);
 
-        // Para altas nuevas no precargamos catálogos completos.
-        // Solo devolvemos resultados cuando el usuario busca (mínimo 2 caracteres)
-        // o cuando necesitamos recuperar el entrenador ya asignado al editar.
-        if (! $entrenadorId && mb_strlen($termino) < 2) {
-            return collect();
-        }
-
+        // Precarga limitada para el selector y búsqueda por texto cuando corresponda.
         $query = DB::table('entrenamiento.entrenadores as e')
             ->join('seguridad.users as u', 'u.id', '=', 'e.usuario_id')
-            ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
             ->where('e.estado', 'ACTIVO')
-            ->where('r.role', 'ENTRENADOR')
+            ->when($sedeId, function ($consulta) use ($sedeId, $fecha): void {
+                $consulta->whereExists(function ($subconsulta) use ($sedeId, $fecha): void {
+                    $subconsulta->selectRaw('1')
+                        ->from('agenda.entrenador_horarios as eh')
+                        ->join('agenda.entrenador_horario_franjas as f', 'f.entrenador_horario_id', '=', 'eh.id')
+                        ->whereColumn('eh.entrenador_id', 'e.id')
+                        ->where('eh.activo', true)
+                        ->where('f.activo', true)
+                        ->where('f.sede_id', $sedeId);
+
+                    if ($fecha) {
+                        $subconsulta->whereDate('eh.fecha_inicio', '<=', $fecha)
+                            ->where(function ($rango) use ($fecha): void {
+                                $rango->whereNull('eh.fecha_fin')->orWhereDate('eh.fecha_fin', '>=', $fecha);
+                            });
+                    }
+                });
+            })
             ->select([
                 'e.id',
                 'e.tipo',
@@ -303,7 +313,7 @@ class AgendaConfiguracionServicio
 
         if ($entrenadorId) {
             $query->where('e.id', $entrenadorId);
-        } else {
+        } elseif ($termino !== '') {
             $texto = '%' . mb_strtolower($termino) . '%';
             $query->where(function ($q) use ($texto): void {
                 $q->whereRaw("LOWER(COALESCE(u.name, '')) LIKE ?", [$texto])

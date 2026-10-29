@@ -96,6 +96,26 @@ class AgendaConfiguracionControlador extends Controller
         );
     }
 
+    public function entrenadoresDisponibilidad(Request $request)
+    {
+        $datos = $request->validate([
+            'sede_id' => 'required|integer|exists:pgsql.institucional.sedes,id_sede',
+            'fecha' => 'nullable|date_format:Y-m-d',
+            'q' => 'nullable|string|max:150',
+        ]);
+
+        return ApiResponse::exito(
+            'Entrenadores disponibles para la sede consultados.',
+            $this->agenda->buscarEntrenadores(
+                $datos['q'] ?? null,
+                null,
+                100,
+                (int) $datos['sede_id'],
+                $datos['fecha'] ?? null,
+            ),
+        );
+    }
+
     public function guardarAsignacion(Request $request, ?int $id = null)
     {
         $datos = $request->validate([

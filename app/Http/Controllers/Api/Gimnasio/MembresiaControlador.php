@@ -354,6 +354,8 @@ class MembresiaControlador extends Controller
             'fecha_congelacion_inicio' => 'nullable|required_with:fecha_congelacion_fin|date',
             'fecha_congelacion_fin' => 'nullable|required_with:fecha_congelacion_inicio|date|after_or_equal:fecha_congelacion_inicio',
             'descuento' => 'nullable|array',
+            'descuento.id' => 'nullable|integer|exists:pgsql.membresias.descuentos_deportistas,id',
+            'descuento_desactivar_id' => 'nullable|integer|exists:pgsql.membresias.descuentos_deportistas,id',
             'descuento.tipo' => 'required_with:descuento|in:PORCENTAJE,FIJO',
             'descuento.valor' => 'required_with:descuento|numeric|gt:0',
             'descuento.motivo' => 'required_with:descuento|string|max:500',
@@ -377,9 +379,13 @@ class MembresiaControlador extends Controller
 
         $sedesHabilitadas = collect($validados['sedes_habilitadas'])->map(fn ($id) => (int) $id)->values();
         $sedeActual = (int) ($membresia->sede_id ?? 0);
-        $validados['sede_id'] = $sedeActual && $sedesHabilitadas->contains($sedeActual)
-            ? $sedeActual
-            : (int) $sedesHabilitadas->first();
+        $sedeSolicitada = (int) ($validados['sede_id'] ?? $sedeActual);
+        if (! $sedesHabilitadas->contains($sedeSolicitada)) {
+            throw ValidationException::withMessages([
+                'sede_id' => 'La sede principal debe estar entre las sedes autorizadas.',
+            ]);
+        }
+        $validados['sede_id'] = $sedeSolicitada;
         $sedeValidacion = (int) $validados['sede_id'];
         $modalidadValidacion = array_key_exists('modalidad_id', $validados)
             ? ($validados['modalidad_id'] ? (int) $validados['modalidad_id'] : null)
@@ -400,7 +406,35 @@ class MembresiaControlador extends Controller
             $actualizada = $this->membresiaServicio->actualizar($id, $validados);
             if (!empty($validados['descuento'])) {
                 $membresiaParaDescuento = DB::table('membresias.membresias')->where('id', $id)->first();
-                $this->registrarDescuentoMembresia($validados['descuento'], $membresiaParaDescuento, (int) $request->user()->id);
+                $descuentoDatos = $validados['descuento'];
+                $descuentoId = (int) ($descuentoDatos['id'] ?? 0);
+                unset($descuentoDatos['id']);
+                if ($descuentoId) {
+                    $anterior = DB::table('membresias.descuentos_deportistas')
+                        ->where('id', $descuentoId)
+                        ->where('deportista_id', $membresiaParaDescuento->deportista_id)
+                        ->where('plan_id', $membresiaParaDescuento->plan_id)
+                        ->first();
+                    if (! $anterior || (int) ($anterior->modalidad_id ?? 0) !== (int) ($membresiaParaDescuento->modalidad_id ?? 0)) {
+                        throw ValidationException::withMessages(['descuento.id' => 'El descuento seleccionado no corresponde a esta membresía.']);
+                    }
+                    $this->descuentos->actualizar($descuentoId, $descuentoDatos, (int) $request->user()->id);
+                } else {
+                    $this->registrarDescuentoMembresia($descuentoDatos, $membresiaParaDescuento, (int) $request->user()->id);
+                }
+            }
+
+            if (!empty($validados['descuento_desactivar_id'])) {
+                $beneficioId = (int) $validados['descuento_desactivar_id'];
+                $beneficio = DB::table('membresias.descuentos_deportistas')
+                    ->where('id', $beneficioId)
+                    ->where('deportista_id', $actualizada->deportista_id)
+                    ->where('plan_id', $actualizada->plan_id)
+                    ->first();
+                if (! $beneficio || (int) ($beneficio->modalidad_id ?? 0) !== (int) ($actualizada->modalidad_id ?? 0)) {
+                    throw ValidationException::withMessages(['descuento_desactivar_id' => 'El descuento no pertenece a esta membresía.']);
+                }
+                $this->descuentos->actualizar($beneficioId, ['activo' => false], (int) $request->user()->id);
             }
 
             $this->sincronizarFacturacion((int) $id, $generarVenta, $request);
@@ -416,6 +450,18 @@ class MembresiaControlador extends Controller
     {
         if ($datos['tipo'] === 'PORCENTAJE' && (float) $datos['valor'] > 100) {
             throw ValidationException::withMessages(['descuento.valor' => 'El porcentaje no puede superar el 100 %.']);
+        }
+
+        // El beneficio no puede superar el importe realmente aplicado al contrato.
+        // Dejarlo pasar crearía descuentos comerciales imposibles de interpretar.
+        $precio = round((float) $membresia->precio_aplicado, 2);
+        $valor = round((float) $datos['valor'], 2);
+        if ($datos['tipo'] === 'FIJO' && $valor > $precio) {
+            throw ValidationException::withMessages([
+                'descuento.valor' => 'El descuento fijo de $' . number_format($valor, 2)
+                    . ' supera el precio del plan ($' . number_format($precio, 2)
+                    . '). Ingresa un valor menor o igual al precio.',
+            ]);
         }
 
         $this->descuentos->crear([

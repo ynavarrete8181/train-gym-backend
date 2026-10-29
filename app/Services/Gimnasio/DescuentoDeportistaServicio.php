@@ -33,6 +33,26 @@ class DescuentoDeportistaServicio
             ->get();
 
         $beneficio = $beneficios->first();
+
+        // Un descuento futuro no disminuye la venta actual; se informa para
+        // explicar por qué el POS muestra $0 de descuento.
+        $programado = null;
+        if (! $beneficio) {
+            $programado = DB::table('membresias.descuentos_deportistas')
+                ->where('deportista_id', $deportistaId)
+                ->where('activo', true)
+                ->whereDate('fecha_inicio', '>', $fecha)
+                ->where(function ($q) use ($planId) {
+                    $q->whereNull('plan_id')->orWhere('plan_id', $planId);
+                })
+                ->where(function ($q) use ($modalidadId) {
+                    $q->whereNull('modalidad_id');
+                    if ($modalidadId !== null) $q->orWhere('modalidad_id', $modalidadId);
+                })
+                ->orderBy('fecha_inicio')
+                ->first(['id', 'tipo', 'valor', 'fecha_inicio', 'fecha_fin']);
+        }
+
         $importe = $beneficio
             ? self::calcularImporte($precioBase, $beneficio->tipo, (float) $beneficio->valor)
             : 0.0;
@@ -45,6 +65,13 @@ class DescuentoDeportistaServicio
             'importe_descuento' => $importe,
             'total' => round($precioBase - $importe, 2),
             'fecha_evaluacion' => $fecha,
+            'beneficio_estado' => $beneficio ? 'VIGENTE' : ($programado ? 'PROGRAMADO' : 'SIN_BENEFICIO'),
+            'beneficio_programado' => $programado ? [
+                'fecha_inicio' => $programado->fecha_inicio,
+                'fecha_fin' => $programado->fecha_fin,
+                'tipo' => $programado->tipo,
+                'valor' => (float) $programado->valor,
+            ] : null,
         ];
     }
 

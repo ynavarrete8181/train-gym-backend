@@ -32,6 +32,16 @@ class DescuentoDeportistaServicioTest extends TestCase
         $this->assertSame(0.0, DescuentoDeportistaServicio::calcularImporte(60, 'PORCENTAJE', -10));
     }
 
+    public function test_pase_diario_libre_de_daniela_se_descuenta_en_ambas_sedes(): void
+    {
+        $home = 2.00;
+        $xpadel = 2.50;
+        $beneficio = 0.50;
+
+        $this->assertSame(1.50, round($home - DescuentoDeportistaServicio::calcularImporte($home, 'FIJO', $beneficio), 2));
+        $this->assertSame(2.00, round($xpadel - DescuentoDeportistaServicio::calcularImporte($xpadel, 'FIJO', $beneficio), 2));
+    }
+
     public function test_no_admite_tipo_desconocido(): void
     {
         $this->expectException(\InvalidArgumentException::class);

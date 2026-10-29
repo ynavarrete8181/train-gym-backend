@@ -262,6 +262,14 @@ class DeportistaControlador extends Controller
             'persona.telefono' => 'nullable|string|max:30',
             'persona.email' => 'nullable|email|max:190',
             'persona.direccion' => 'nullable|string',
+            'persona.provincia_codigo' => ['nullable', 'regex:/^[0-9]{2}$/', 'exists:pgsql.geografia.provincias,codigo_dpa'],
+            'persona.canton_codigo' => ['nullable', 'regex:/^[0-9]{4}$/', 'exists:pgsql.geografia.cantones,codigo_dpa'],
+            'persona.parroquia_codigo' => ['nullable', 'regex:/^[0-9]{6}$/', 'exists:pgsql.geografia.parroquias,codigo_dpa'],
+            'ubicacion' => 'nullable|array',
+            'ubicacion.latitud' => 'required_with:ubicacion.longitud|nullable|numeric|between:-5.1,2',
+            'ubicacion.longitud' => 'required_with:ubicacion.latitud|nullable|numeric|between:-92.1,-74',
+            'ubicacion.referencia' => 'nullable|string|max:240',
+
 
             'persona_id' => ['nullable', 'exists:pgsql.personas.personas,id', $reglaPersonaUnica],
             'usuario_id' => ['nullable', 'exists:pgsql.seguridad.users,id', $reglaUsuarioUnico],
@@ -287,6 +295,21 @@ class DeportistaControlador extends Controller
             'representante_legal.tipo_relacion' => 'nullable|string|in:REPRESENTANTE_LEGAL,MADRE,PADRE,TUTOR,OTRO',
             'representante_legal.responsable_pago' => 'boolean',
         ]);
+
+        $provincia = $validados['persona']['provincia_codigo'] ?? null;
+        $canton = $validados['persona']['canton_codigo'] ?? null;
+        $parroquia = $validados['persona']['parroquia_codigo'] ?? null;
+        if ($canton && (! $provincia || ! DB::table('geografia.cantones')
+            ->where('codigo_dpa', $canton)->where('provincia_codigo', $provincia)->where('activo', true)->exists())) {
+            throw ValidationException::withMessages(['persona.canton_codigo' => 'El cantón no pertenece a la provincia seleccionada.']);
+        }
+        if ($parroquia && (! $canton || ! DB::table('geografia.parroquias')
+            ->where('codigo_dpa', $parroquia)->where('canton_codigo', $canton)->where('activo', true)->exists())) {
+            throw ValidationException::withMessages(['persona.parroquia_codigo' => 'La parroquia no pertenece al cantón seleccionado.']);
+        }
+        if ($provincia && ! DB::table('geografia.provincias')->where('codigo_dpa', $provincia)->where('activo', true)->exists()) {
+            throw ValidationException::withMessages(['persona.provincia_codigo' => 'Provincia inactiva o inexistente.']);
+        }
 
         // El código es exclusivo del servidor: al editar se mantiene inmutable.
         if ($id !== null) {

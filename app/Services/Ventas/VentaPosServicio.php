@@ -3,6 +3,8 @@
 namespace App\Services\Ventas;
 
 use App\Services\Configuracion\EstadoCatalogoServicio;
+use App\Services\Gimnasio\MembresiaServicio;
+use App\Services\Gimnasio\DescuentoDeportistaServicio;
 use App\Services\Seguridad\AlcanceOperativoService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -15,6 +17,8 @@ class VentaPosServicio
         private readonly VentaServicio $ventas,
         private readonly AlcanceOperativoService $alcance,
         private readonly EstadoCatalogoServicio $estados,
+        private readonly MembresiaServicio $membresias,
+        private readonly DescuentoDeportistaServicio $beneficios,
     ) {
     }
 
@@ -81,7 +85,11 @@ class VentaPosServicio
 
         $membresias = DB::table('membresias.membresias as m')
             ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
-            ->where('m.sede_id', $sedeId)
+            ->whereExists(function ($query) use ($sedeId): void {
+                $query->selectRaw('1')->from('membresias.membresia_sedes as ms')
+                    ->whereColumn('ms.membresia_id', 'm.id')
+                    ->where('ms.sede_id', $sedeId)->where('ms.activo', true);
+            })
             ->whereNotIn('m.estado', ['CANCELADA', 'VENCIDA'])
             ->whereNotExists(function ($query): void {
                 $query->selectRaw('1')
@@ -96,6 +104,7 @@ class VentaPosServicio
                 'm.id',
                 'm.deportista_id as cliente_id',
                 'm.plan_id',
+                'm.modalidad_id',
                 'm.codigo_contrato as codigo',
                 'm.fecha_inicio',
                 'm.fecha_fin',
@@ -104,6 +113,16 @@ class VentaPosServicio
                 'p.nombre',
                 'p.tipo_producto',
             ]);
+
+        // La tarifa visible en el POS corresponde a la sede del turno, no
+        // al precio histórico de contratación de la membresía.
+        $tarifasSede = $this->planesPorSede($sedeId)->keyBy('id');
+        $membresias = $membresias->map(function ($m) use ($tarifasSede, $sedeId) {
+            $m->precio = $m->modalidad_id
+                ? $this->precioModalidadSede((int) $m->modalidad_id, $sedeId)
+                : ($tarifasSede->get($m->plan_id)?->precio ?? $m->precio);
+            return $m;
+        });
 
         $productos = collect();
         if (Schema::connection('pgsql')->hasTable('inventario.productos')) {
@@ -169,6 +188,60 @@ class VentaPosServicio
         ];
     }
 
+    public function cotizarBeneficio(int $usuarioId, int $clienteId, int $planId, ?int $membresiaId = null): array
+    {
+        $turno = $this->turnos->turnoAbiertoUsuario($usuarioId);
+        if (! $turno) {
+            throw ValidationException::withMessages(['turno_caja_id' => 'Abre un turno de caja para cotizar.']);
+        }
+        if (! DB::table('clientes.deportistas')->where('id', $clienteId)->where('estado', 'ACTIVO')->exists()) {
+            throw ValidationException::withMessages(['cliente_id' => 'Selecciona un deportista activo.']);
+        }
+        $plan = DB::table('membresias.planes')->where('id', $planId)->where('activo', true)->first();
+        if (! $plan) {
+            throw ValidationException::withMessages(['plan_id' => 'El plan no está activo.']);
+        }
+        $modalidadId = null;
+        $fechaCotizacion = now('America/Guayaquil')->toDateString();
+        if ($membresiaId) {
+            $m = DB::table('membresias.membresias')->where('id', $membresiaId)
+                ->where('deportista_id', $clienteId)->where('plan_id', $planId)
+                ->whereExists(function ($query) use ($turno): void {
+                    $query->selectRaw('1')->from('membresias.membresia_sedes as ms')
+                        ->whereColumn('ms.membresia_id', 'membresias.membresias.id')
+                        ->where('ms.sede_id', $turno->sede_id)->where('ms.activo', true);
+                })->first();
+            if (! $m) throw ValidationException::withMessages(['membresia_id' => 'Membresía no válida para esta sede.']);
+            $modalidadId = $m->modalidad_id;
+            if ($plan->tipo_producto === 'PASE_DIARIO') {
+                $fechaCotizacion = substr((string) $m->fecha_inicio, 0, 10);
+                if ($fechaCotizacion < now('America/Guayaquil')->toDateString()) {
+                    throw ValidationException::withMessages([
+                        'membresia_id' => 'El Pase Diario corresponde a una fecha pasada. Revisa la vigencia.',
+                    ]);
+                }
+            }
+            $precio = $modalidadId
+                ? $this->precioModalidadSede((int) $modalidadId, (int) $turno->sede_id)
+                : (float) ($this->planesPorSede((int) $turno->sede_id)
+                    ->firstWhere('id', $planId)?->precio ?? 0);
+        } else {
+            if ($plan->tipo_producto !== 'PASE_DIARIO') {
+                throw ValidationException::withMessages(['plan_id' => 'La cotización directa solo aplica al Pase Diario.']);
+            }
+            if ($plan->requiere_entrenador) {
+                throw ValidationException::withMessages(['plan_id' => 'El Pase Diario Dirigido requiere asignación de entrenador y horario.']);
+            }
+            $precio = (float) DB::table('membresias.plan_precios_sede')
+                ->where('plan_id', $planId)->where('sede_id', $turno->sede_id)
+                ->where('activo', true)->value('precio');
+        }
+        if ($precio <= 0) throw ValidationException::withMessages(['plan_id' => 'Configura una tarifa positiva para esta sede.']);
+        $cotizacion = $this->beneficios->resolver($clienteId, $planId, $modalidadId, $fechaCotizacion, $precio);
+        $cotizacion['fecha_uso_pase'] = $plan->tipo_producto === 'PASE_DIARIO' ? $fechaCotizacion : null;
+        return $cotizacion;
+    }
+
     public function cuentasAbiertas(int $usuarioId): array
     {
         $turno = $this->turnos->turnoAbiertoUsuario($usuarioId);
@@ -226,6 +299,7 @@ class VentaPosServicio
 
     public function guardar(array $datos, int $usuarioId, ?int $ventaId = null): object
     {
+        return DB::transaction(function () use ($datos, $usuarioId, $ventaId): object {
         $turno = $this->turnos->turnoAbiertoUsuario($usuarioId);
         if (! $turno) {
             throw ValidationException::withMessages([
@@ -236,6 +310,38 @@ class VentaPosServicio
         $detallesEntrada = collect($datos['detalles'] ?? [])->values();
         if ($detallesEntrada->isEmpty()) {
             throw ValidationException::withMessages(['detalles' => 'Agrega al menos un ítem a la venta.']);
+        }
+
+        $pases = $detallesEntrada->filter(fn ($item) => strtoupper((string) ($item['tipo'] ?? '')) === 'PASE_DIARIO');
+        if ($pases->isNotEmpty()) {
+            if ($ventaId || $detallesEntrada->count() !== 1 || $pases->count() !== 1 || (float) ($pases->first()['cantidad'] ?? 0) !== 1.0) {
+                throw ValidationException::withMessages(['detalles' => 'El Pase Diario se registra como una venta individual de una unidad.']);
+            }
+            $clienteId = (int) ($datos['cliente_id'] ?? 0);
+            $planId = (int) ($pases->first()['referencia_id'] ?? 0);
+            $cotizacion = $this->cotizarBeneficio($usuarioId, $clienteId, $planId);
+            $turnoSede = $this->turnos->turnoAbiertoUsuario($usuarioId);
+            $hoy = now('America/Guayaquil')->toDateString();
+            // Impide duplicar un acceso del mismo plan/sede/fecha, aun con varias cajas.
+            DB::table('clientes.deportistas')->where('id', $clienteId)->lockForUpdate()->first();
+            $yaExiste = DB::table('membresias.membresias')
+                ->where('deportista_id', $clienteId)->where('plan_id', $planId)
+                ->where('sede_id', $turnoSede->sede_id)->whereDate('fecha_inicio', $hoy)
+                ->whereNotIn('estado', ['CANCELADA', 'VENCIDA'])->exists();
+            if ($yaExiste) {
+                throw ValidationException::withMessages(['plan_id' => 'Este deportista ya tiene un pase del mismo tipo para hoy en esta sede.']);
+            }
+            $nueva = $this->membresias->crear([
+                'deportista_id' => $clienteId, 'plan_id' => $planId,
+                'sede_id' => (int) $turnoSede->sede_id,
+                'sedes_habilitadas' => [(int) $turnoSede->sede_id],
+                'fecha_inicio' => $hoy, 'renovacion_automatica' => false,
+            ]);
+            $datos['membresia_id'] = (int) $nueva->id;
+            $detallesEntrada = collect([[
+                'tipo' => 'MEMBRESIA', 'membresia_id' => (int) $nueva->id,
+                'cantidad' => 1, 'referencia_id' => $planId,
+            ]]);
         }
 
         $membresiaId = $datos['membresia_id']
@@ -271,8 +377,11 @@ class VentaPosServicio
                 throw ValidationException::withMessages(['membresia_id' => 'La membresía no pertenece al cliente seleccionado.']);
             }
 
-            if ((int) $membresia->sede_id !== (int) $turno->sede_id) {
-                throw ValidationException::withMessages(['membresia_id' => 'La membresía pertenece a otra sede.']);
+            $accesoSede = DB::table('membresias.membresia_sedes')
+                ->where('membresia_id', $membresiaId)
+                ->where('sede_id', $turno->sede_id)->where('activo', true)->exists();
+            if (! $accesoSede) {
+                throw ValidationException::withMessages(['membresia_id' => 'La membresía no habilita el acceso a esta sede.']);
             }
 
             if (in_array(strtoupper((string) $membresia->estado), ['CANCELADA', 'VENCIDA'], true)) {
@@ -296,6 +405,23 @@ class VentaPosServicio
         $detalles = $this->resolverDetalles($detallesEntrada, (int) $turno->sede_id, $ventaId);
         $subtotal = round((float) $detalles->sum('total_linea'), 2);
         $descuento = round((float) ($datos['descuento'] ?? 0), 2);
+        $beneficioAplicado = null;
+        if ($ventaId) {
+            // Una cuenta ya creada mantiene su descuento original, incluso si el beneficio cambia.
+            $descuento = (float) DB::table('ventas.ventas')->where('id', $ventaId)->value('descuento');
+        } elseif ($membresiaId) {
+            $m = DB::table('membresias.membresias')->where('id', $membresiaId)->first();
+            $beneficioAplicado = $this->beneficios->resolver(
+                (int) $m->deportista_id, (int) $m->plan_id,
+                $m->modalidad_id ? (int) $m->modalidad_id : null,
+                DB::table('membresias.planes')->where('id', $m->plan_id)->value('tipo_producto') === 'PASE_DIARIO'
+                    ? substr((string) $m->fecha_inicio, 0, 10)
+                    : now('America/Guayaquil')->toDateString(),
+                $subtotal
+            );
+            // El descuento contractual procede únicamente del beneficio autorizado.
+            $descuento = (float) $beneficioAplicado['importe_descuento'];
+        }
         $impuesto = round((float) ($datos['impuesto'] ?? 0), 2);
 
         if ($descuento > $subtotal) {
@@ -307,7 +433,7 @@ class VentaPosServicio
             throw ValidationException::withMessages(['total' => 'El total de la venta debe ser mayor que cero.']);
         }
 
-        return DB::transaction(function () use ($datos, $detalles, $subtotal, $descuento, $impuesto, $total, $usuarioId, $turno, $ventaId, $membresiaId): object {
+        return DB::transaction(function () use ($datos, $detalles, $subtotal, $descuento, $impuesto, $total, $usuarioId, $turno, $ventaId, $membresiaId, $beneficioAplicado, $pases): object {
             $ventaExistente = $ventaId ? DB::table('ventas.ventas')->where('id', $ventaId)->lockForUpdate()->first() : null;
             if ($ventaId && ! $ventaExistente) {
                 throw ValidationException::withMessages(['venta_id' => 'La cuenta pendiente no existe.']);
@@ -324,7 +450,12 @@ class VentaPosServicio
                 'membresia_id' => $datos['membresia_id'] ?? $ventaExistente?->membresia_id,
                 'caja_id' => (int) $turno->caja_id,
                 'turno_caja_id' => (int) $turno->id,
-                'tipo_venta' => $ventaExistente?->tipo_venta ?? $this->tipoVentaGeneral($detalles->all()),
+                'tipo_venta' => $ventaExistente?->tipo_venta ?? (
+                    $pases->isNotEmpty() || ($membresiaId && DB::table('membresias.membresias as m')
+                        ->join('membresias.planes as pl', 'pl.id', '=', 'm.plan_id')
+                        ->where('m.id', $membresiaId)->where('pl.tipo_producto', 'PASE_DIARIO')->exists())
+                    ? 'SERVICIO' : $this->tipoVentaGeneral($detalles->all())
+                ),
                 'origen_tipo' => $ventaExistente?->origen_tipo ?? ($membresiaId ? 'MEMBRESIA_CAJA' : 'POS'),
                 'origen_id' => $ventaExistente?->origen_id ?? ($membresiaId ? (int) $membresiaId : null),
                 'generado_por_tipo' => $ventaExistente?->generado_por_tipo ?? 'USUARIO',
@@ -361,6 +492,17 @@ class VentaPosServicio
                 }
             }
 
+            if ($beneficioAplicado && $venta->membresia_id) {
+                DB::table('membresias.membresia_periodos')
+                    ->where('membresia_id', $venta->membresia_id)
+                    ->where('venta_id', $venta->id)
+                    ->update([
+                        'descuento_id' => $beneficioAplicado['descuento_id'],
+                        'descuento_importe' => $beneficioAplicado['importe_descuento'],
+                        'updated_at' => now(),
+                    ]);
+            }
+
             DB::table('ventas.venta_detalles')->where('venta_id', $venta->id)->delete();
             $ahora = now();
             DB::table('ventas.venta_detalles')->insert($detalles->map(fn ($item) => [
@@ -382,6 +524,7 @@ class VentaPosServicio
                 ->get();
 
             return $venta;
+        });
         });
     }
 
@@ -561,11 +704,16 @@ class VentaPosServicio
                     ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
                     ->leftJoin('membresias.plan_modalidades as pm', 'pm.id', '=', 'm.modalidad_id')
                     ->where('m.id', $membresiaId)
-                    ->where('m.sede_id', $sedeId)
+                    ->whereExists(function ($q) use ($sedeId): void {
+                        $q->selectRaw('1')->from('membresias.membresia_sedes as ms')
+                            ->whereColumn('ms.membresia_id', 'm.id')
+                            ->where('ms.sede_id', $sedeId)->where('ms.activo', true);
+                    })
                     ->whereNotIn('m.estado', ['CANCELADA', 'VENCIDA'])
                     ->first([
                         'm.id',
                         'm.plan_id',
+                        'm.modalidad_id',
                         'm.codigo_contrato',
                         'm.precio_aplicado',
                         'm.estado',
@@ -576,6 +724,19 @@ class VentaPosServicio
                 if (! $membresia) {
                     throw ValidationException::withMessages([
                         'detalles' => 'La membresía seleccionada no está disponible para esta sede.',
+                    ]);
+                }
+
+                $periodoFacturado = DB::table('membresias.membresia_periodos as mp')
+                    ->join('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
+                    ->where('mp.membresia_id', $membresia->id)
+                    ->whereRaw('mp.numero_periodo = (SELECT MAX(mp2.numero_periodo) FROM membresias.membresia_periodos mp2 WHERE mp2.membresia_id = mp.membresia_id)')
+                    ->where('v.estado', '!=', 'ANULADA')
+                    ->when($ventaId, fn ($q) => $q->where('v.id', '!=', $ventaId))
+                    ->exists();
+                if ($periodoFacturado) {
+                    throw ValidationException::withMessages([
+                        'detalles' => 'El período actual ya fue facturado. No se puede volver a cobrar el mismo pase.',
                     ]);
                 }
 
@@ -591,11 +752,28 @@ class VentaPosServicio
                     ]);
                 }
 
-                $precio = round((float) $membresia->precio_aplicado, 2);
+                $precio = $membresia->modalidad_id
+                    ? $this->precioModalidadSede((int) $membresia->modalidad_id, $sedeId)
+                    : (float) ($this->planesPorSede($sedeId)->firstWhere('id', $membresia->plan_id)?->precio ?? 0);
+                $precio = round($precio, 2);
                 if ($precio <= 0) {
                     throw ValidationException::withMessages([
                         'detalles' => 'La membresía seleccionada no tiene un precio aplicado válido.',
                     ]);
+                }
+
+                if (strtoupper((string) $membresia->estado) === 'PENDIENTE_PAGO'
+                    && DB::table('membresias.planes')->where('id', $membresia->plan_id)
+                        ->where('tipo_producto', 'PASE_DIARIO')->exists()) {
+                    $hoy = now('America/Guayaquil')->toDateString();
+                    $fechaInicio = substr((string) DB::table('membresias.membresias')
+                        ->where('id', $membresia->id)->value('fecha_inicio'), 0, 10);
+                    if ($fechaInicio < $hoy) {
+                        throw ValidationException::withMessages([
+                            'membresia_id' => 'El Pase Diario corresponde a una fecha anterior. Verifica su vigencia.',
+                        ]);
+                    }
+                    // El cobro puede ser anticipado; la fecha de acceso no cambia.
                 }
 
                 $descripcion = $membresia->plan_nombre
@@ -636,6 +814,15 @@ class VentaPosServicio
         })->values();
     }
 
+    private function precioModalidadSede(int $modalidadId, int $sedeId): float
+    {
+        $sede = DB::table('membresias.plan_modalidad_precios_sede')
+            ->where('modalidad_id', $modalidadId)->where('sede_id', $sedeId)
+            ->where('activo', true)->value('precio');
+        return (float) ($sede ?? DB::table('membresias.plan_modalidades')
+            ->where('id', $modalidadId)->value('precio_base'));
+    }
+
     private function planesPorSede(int $sedeId)
     {
         if (! Schema::connection('pgsql')->hasTable('membresias.planes')) {
@@ -661,6 +848,7 @@ class VentaPosServicio
             'p.descripcion',
             'p.tipo_duracion',
             'p.duracion',
+            'p.requiere_entrenador',
             $precio,
             'p.tarifa_inscripcion',
         ];

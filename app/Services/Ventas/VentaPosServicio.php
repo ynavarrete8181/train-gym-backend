@@ -237,7 +237,9 @@ class VentaPosServicio
                 ->where('activo', true)->value('precio');
         }
         if ($precio <= 0) throw ValidationException::withMessages(['plan_id' => 'Configura una tarifa positiva para esta sede.']);
-        return $this->beneficios->resolver($clienteId, $planId, $modalidadId, now('America/Guayaquil')->toDateString(), $precio);
+        $cotizacion = $this->beneficios->resolver($clienteId, $planId, $modalidadId, $fechaCotizacion, $precio);
+        $cotizacion['fecha_uso_pase'] = $plan->tipo_producto === 'PASE_DIARIO' ? $fechaCotizacion : null;
+        return $cotizacion;
     }
 
     public function cuentasAbiertas(int $usuarioId): array

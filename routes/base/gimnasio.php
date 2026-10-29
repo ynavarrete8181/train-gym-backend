@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Gimnasio\DeportistaControlador;
+use App\Http\Controllers\Api\Geografia\CatalogoGeograficoController;
 use App\Http\Controllers\Api\Gimnasio\FichaInicialControlador;
 use App\Http\Controllers\Api\Gimnasio\ValoracionDeportistaControlador;
 use App\Http\Controllers\Api\Gimnasio\FotografiaValoracionControlador;
@@ -18,6 +19,12 @@ use App\Http\Controllers\Api\Gimnasio\AgendaOperacionControlador;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
+    Route::middleware('base.permiso:GIMNASIO-DEPORTISTAS,GIMNASIO-ENTRENADORES')->group(function (): void {
+        Route::get('geografia/provincias', [CatalogoGeograficoController::class, 'provincias']);
+        Route::get('geografia/cantones', [CatalogoGeograficoController::class, 'cantones']);
+        Route::get('geografia/parroquias', [CatalogoGeograficoController::class, 'parroquias']);
+    });
+
 
     // Trabajo propio del entrenador: nunca recibe ids externos, siempre se resuelve desde el usuario autenticado.
     Route::get('mi-entrenamiento/deportistas', [MiTrabajoEntrenadorControlador::class, 'deportistas'])

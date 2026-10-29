@@ -354,6 +354,7 @@ class MembresiaControlador extends Controller
             'fecha_congelacion_inicio' => 'nullable|required_with:fecha_congelacion_fin|date',
             'fecha_congelacion_fin' => 'nullable|required_with:fecha_congelacion_inicio|date|after_or_equal:fecha_congelacion_inicio',
             'descuento' => 'nullable|array',
+            'descuento.id' => 'nullable|integer|exists:pgsql.membresias.descuentos_deportistas,id',
             'descuento.tipo' => 'required_with:descuento|in:PORCENTAJE,FIJO',
             'descuento.valor' => 'required_with:descuento|numeric|gt:0',
             'descuento.motivo' => 'required_with:descuento|string|max:500',
@@ -400,7 +401,22 @@ class MembresiaControlador extends Controller
             $actualizada = $this->membresiaServicio->actualizar($id, $validados);
             if (!empty($validados['descuento'])) {
                 $membresiaParaDescuento = DB::table('membresias.membresias')->where('id', $id)->first();
-                $this->registrarDescuentoMembresia($validados['descuento'], $membresiaParaDescuento, (int) $request->user()->id);
+                $descuentoDatos = $validados['descuento'];
+                $descuentoId = (int) ($descuentoDatos['id'] ?? 0);
+                unset($descuentoDatos['id']);
+                if ($descuentoId) {
+                    $anterior = DB::table('membresias.descuentos_deportistas')
+                        ->where('id', $descuentoId)
+                        ->where('deportista_id', $membresiaParaDescuento->deportista_id)
+                        ->where('plan_id', $membresiaParaDescuento->plan_id)
+                        ->first();
+                    if (! $anterior || (int) ($anterior->modalidad_id ?? 0) !== (int) ($membresiaParaDescuento->modalidad_id ?? 0)) {
+                        throw ValidationException::withMessages(['descuento.id' => 'El descuento seleccionado no corresponde a esta membresía.']);
+                    }
+                    $this->descuentos->actualizar($descuentoId, $descuentoDatos, (int) $request->user()->id);
+                } else {
+                    $this->registrarDescuentoMembresia($descuentoDatos, $membresiaParaDescuento, (int) $request->user()->id);
+                }
             }
 
             $this->sincronizarFacturacion((int) $id, $generarVenta, $request);

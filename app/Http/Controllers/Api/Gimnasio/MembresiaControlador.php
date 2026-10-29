@@ -355,6 +355,7 @@ class MembresiaControlador extends Controller
             'fecha_congelacion_fin' => 'nullable|required_with:fecha_congelacion_inicio|date|after_or_equal:fecha_congelacion_inicio',
             'descuento' => 'nullable|array',
             'descuento.id' => 'nullable|integer|exists:pgsql.membresias.descuentos_deportistas,id',
+            'descuento_desactivar_id' => 'nullable|integer|exists:pgsql.membresias.descuentos_deportistas,id',
             'descuento.tipo' => 'required_with:descuento|in:PORCENTAJE,FIJO',
             'descuento.valor' => 'required_with:descuento|numeric|gt:0',
             'descuento.motivo' => 'required_with:descuento|string|max:500',
@@ -417,6 +418,19 @@ class MembresiaControlador extends Controller
                 } else {
                     $this->registrarDescuentoMembresia($descuentoDatos, $membresiaParaDescuento, (int) $request->user()->id);
                 }
+            }
+
+            if (!empty($validados['descuento_desactivar_id'])) {
+                $beneficioId = (int) $validados['descuento_desactivar_id'];
+                $beneficio = DB::table('membresias.descuentos_deportistas')
+                    ->where('id', $beneficioId)
+                    ->where('deportista_id', $actualizada->deportista_id)
+                    ->where('plan_id', $actualizada->plan_id)
+                    ->first();
+                if (! $beneficio || (int) ($beneficio->modalidad_id ?? 0) !== (int) ($actualizada->modalidad_id ?? 0)) {
+                    throw ValidationException::withMessages(['descuento_desactivar_id' => 'El descuento no pertenece a esta membresía.']);
+                }
+                $this->descuentos->actualizar($beneficioId, ['activo' => false], (int) $request->user()->id);
             }
 
             $this->sincronizarFacturacion((int) $id, $generarVenta, $request);

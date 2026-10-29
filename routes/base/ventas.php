@@ -26,6 +26,7 @@ Route::middleware(['base.auth'])->prefix('ventas')->group(function (): void {
         Route::get('ventas/{id}/comprobante.pdf', [VentaControlador::class, 'comprobantePdf'])->name('ventas.ventas.comprobante-pdf');
         Route::get('pos/cuentas-abiertas', [VentaControlador::class, 'cuentasAbiertasPos'])->name('ventas.pos.cuentas-abiertas');
         Route::get('pos/contexto', [VentaControlador::class, 'contextoPos'])->name('ventas.pos.contexto');
+        Route::get('pos/cotizar-beneficio', [VentaControlador::class, 'cotizarBeneficioPos'])->name('ventas.pos.cotizar-beneficio');
         Route::post('pos', [VentaControlador::class, 'guardarVentaPos'])->name('ventas.pos.store');
         Route::put('pos/{id}', [VentaControlador::class, 'actualizarVentaPos'])->name('ventas.pos.update');
         Route::post('pos/cobrar', [VentaControlador::class, 'cobrarVentaPos'])->name('ventas.pos.cobrar');

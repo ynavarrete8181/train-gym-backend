@@ -267,7 +267,7 @@ class DeportistaControlador extends Controller
             'persona.parroquia_codigo' => ['nullable', 'regex:/^[0-9]{6}$/', 'exists:pgsql.geografia.parroquias,codigo_dpa'],
             'ubicacion' => 'nullable|array',
             'ubicacion.latitud' => 'required_with:ubicacion.longitud|nullable|numeric|between:-5.1,2',
-            'ubicacion.longitud' => 'required_with:ubicacion.latitud|nullable|numeric|between:-81.5,-74',
+            'ubicacion.longitud' => 'required_with:ubicacion.latitud|nullable|numeric|between:-92.1,-74',
             'ubicacion.referencia' => 'nullable|string|max:240',
 
 

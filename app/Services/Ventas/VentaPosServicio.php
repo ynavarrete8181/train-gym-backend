@@ -436,7 +436,12 @@ class VentaPosServicio
                 'membresia_id' => $datos['membresia_id'] ?? $ventaExistente?->membresia_id,
                 'caja_id' => (int) $turno->caja_id,
                 'turno_caja_id' => (int) $turno->id,
-                'tipo_venta' => $ventaExistente?->tipo_venta ?? ($pases->isNotEmpty() ? 'SERVICIO' : $this->tipoVentaGeneral($detalles->all())),
+                'tipo_venta' => $ventaExistente?->tipo_venta ?? (
+                    $pases->isNotEmpty() || ($membresiaId && DB::table('membresias.membresias as m')
+                        ->join('membresias.planes as pl', 'pl.id', '=', 'm.plan_id')
+                        ->where('m.id', $membresiaId)->where('pl.tipo_producto', 'PASE_DIARIO')->exists())
+                    ? 'SERVICIO' : $this->tipoVentaGeneral($detalles->all())
+                ),
                 'origen_tipo' => $ventaExistente?->origen_tipo ?? ($membresiaId ? 'MEMBRESIA_CAJA' : 'POS'),
                 'origen_id' => $ventaExistente?->origen_id ?? ($membresiaId ? (int) $membresiaId : null),
                 'generado_por_tipo' => $ventaExistente?->generado_por_tipo ?? 'USUARIO',
@@ -708,6 +713,19 @@ class VentaPosServicio
                     ]);
                 }
 
+                $periodoFacturado = DB::table('membresias.membresia_periodos as mp')
+                    ->join('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
+                    ->where('mp.membresia_id', $membresia->id)
+                    ->whereRaw('mp.numero_periodo = (SELECT MAX(mp2.numero_periodo) FROM membresias.membresia_periodos mp2 WHERE mp2.membresia_id = mp.membresia_id)')
+                    ->where('v.estado', '!=', 'ANULADA')
+                    ->when($ventaId, fn ($q) => $q->where('v.id', '!=', $ventaId))
+                    ->exists();
+                if ($periodoFacturado) {
+                    throw ValidationException::withMessages([
+                        'detalles' => 'El período actual ya fue facturado. No se puede volver a cobrar el mismo pase.',
+                    ]);
+                }
+
                 $ventaPendiente = DB::table('ventas.ventas')
                     ->where('membresia_id', $membresia->id)
                     ->whereIn('estado', ['PENDIENTE', 'PARCIAL'])
@@ -728,6 +746,19 @@ class VentaPosServicio
                     throw ValidationException::withMessages([
                         'detalles' => 'La membresía seleccionada no tiene un precio aplicado válido.',
                     ]);
+                }
+
+                if (strtoupper((string) $membresia->estado) === 'PENDIENTE_PAGO'
+                    && DB::table('membresias.planes')->where('id', $membresia->plan_id)
+                        ->where('tipo_producto', 'PASE_DIARIO')->exists()) {
+                    $hoy = now('America/Guayaquil')->toDateString();
+                    $fechaInicio = substr((string) DB::table('membresias.membresias')
+                        ->where('id', $membresia->id)->value('fecha_inicio'), 0, 10);
+                    if ($fechaInicio !== $hoy) {
+                        throw ValidationException::withMessages([
+                            'membresia_id' => 'El pase diario asignado corresponde a otra fecha. Verifica su vigencia.',
+                        ]);
+                    }
                 }
 
                 $descripcion = $membresia->plan_nombre

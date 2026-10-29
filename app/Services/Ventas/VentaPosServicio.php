@@ -757,6 +757,7 @@ class VentaPosServicio
             'p.descripcion',
             'p.tipo_duracion',
             'p.duracion',
+            'p.requiere_entrenador',
             $precio,
             'p.tarifa_inscripcion',
         ];

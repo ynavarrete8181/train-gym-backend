@@ -418,6 +418,18 @@ class MembresiaControlador extends Controller
             throw ValidationException::withMessages(['descuento.valor' => 'El porcentaje no puede superar el 100 %.']);
         }
 
+        // El beneficio no puede superar el importe realmente aplicado al contrato.
+        // Dejarlo pasar crearía descuentos comerciales imposibles de interpretar.
+        $precio = round((float) $membresia->precio_aplicado, 2);
+        $valor = round((float) $datos['valor'], 2);
+        if ($datos['tipo'] === 'FIJO' && $valor > $precio) {
+            throw ValidationException::withMessages([
+                'descuento.valor' => 'El descuento fijo de $' . number_format($valor, 2)
+                    . ' supera el precio del plan ($' . number_format($precio, 2)
+                    . '). Ingresa un valor menor o igual al precio.',
+            ]);
+        }
+
         $this->descuentos->crear([
             'deportista_id' => (int) $membresia->deportista_id,
             'plan_id' => (int) $membresia->plan_id,

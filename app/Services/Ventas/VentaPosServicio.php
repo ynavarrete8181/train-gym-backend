@@ -213,6 +213,14 @@ class VentaPosServicio
                 })->first();
             if (! $m) throw ValidationException::withMessages(['membresia_id' => 'Membresía no válida para esta sede.']);
             $modalidadId = $m->modalidad_id;
+            if ($plan->tipo_producto === 'PASE_DIARIO') {
+                $fechaCotizacion = substr((string) $m->fecha_inicio, 0, 10);
+                if ($fechaCotizacion < now('America/Guayaquil')->toDateString()) {
+                    throw ValidationException::withMessages([
+                        'membresia_id' => 'El Pase Diario corresponde a una fecha pasada. Revisa la vigencia.',
+                    ]);
+                }
+            }
             $precio = $modalidadId
                 ? $this->precioModalidadSede((int) $modalidadId, (int) $turno->sede_id)
                 : (float) ($this->planesPorSede((int) $turno->sede_id)

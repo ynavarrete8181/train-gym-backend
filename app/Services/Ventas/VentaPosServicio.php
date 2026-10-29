@@ -206,7 +206,7 @@ class VentaPosServicio
                 ->where('activo', true)->value('precio');
         }
         if ($precio <= 0) throw ValidationException::withMessages(['plan_id' => 'Configura una tarifa positiva para esta sede.']);
-        return $this->beneficios->resolver($clienteId, $planId, $modalidadId, now()->toDateString(), $precio);
+        return $this->beneficios->resolver($clienteId, $planId, $modalidadId, now('America/Guayaquil')->toDateString(), $precio);
     }
 
     public function cuentasAbiertas(int $usuarioId): array
@@ -288,7 +288,7 @@ class VentaPosServicio
             $planId = (int) ($pases->first()['referencia_id'] ?? 0);
             $cotizacion = $this->cotizarBeneficio($usuarioId, $clienteId, $planId);
             $turnoSede = $this->turnos->turnoAbiertoUsuario($usuarioId);
-            $hoy = now()->toDateString();
+            $hoy = now('America/Guayaquil')->toDateString();
             // Impide duplicar un acceso del mismo plan/sede/fecha, aun con varias cajas.
             DB::table('clientes.deportistas')->where('id', $clienteId)->lockForUpdate()->first();
             $yaExiste = DB::table('membresias.membresias')
@@ -370,12 +370,15 @@ class VentaPosServicio
         $subtotal = round((float) $detalles->sum('total_linea'), 2);
         $descuento = round((float) ($datos['descuento'] ?? 0), 2);
         $beneficioAplicado = null;
-        if ($membresiaId) {
+        if ($ventaId) {
+            // Una cuenta ya creada mantiene su descuento original, incluso si el beneficio cambia.
+            $descuento = (float) DB::table('ventas.ventas')->where('id', $ventaId)->value('descuento');
+        } elseif ($membresiaId) {
             $m = DB::table('membresias.membresias')->where('id', $membresiaId)->first();
             $beneficioAplicado = $this->beneficios->resolver(
                 (int) $m->deportista_id, (int) $m->plan_id,
                 $m->modalidad_id ? (int) $m->modalidad_id : null,
-                now()->toDateString(), (float) $m->precio_aplicado
+                now('America/Guayaquil')->toDateString(), (float) $m->precio_aplicado
             );
             // El descuento contractual procede únicamente del beneficio autorizado.
             $descuento = (float) $beneficioAplicado['importe_descuento'];
@@ -391,7 +394,7 @@ class VentaPosServicio
             throw ValidationException::withMessages(['total' => 'El total de la venta debe ser mayor que cero.']);
         }
 
-        return DB::transaction(function () use ($datos, $detalles, $subtotal, $descuento, $impuesto, $total, $usuarioId, $turno, $ventaId, $membresiaId, $beneficioAplicado): object {
+        return DB::transaction(function () use ($datos, $detalles, $subtotal, $descuento, $impuesto, $total, $usuarioId, $turno, $ventaId, $membresiaId, $beneficioAplicado, $pases): object {
             $ventaExistente = $ventaId ? DB::table('ventas.ventas')->where('id', $ventaId)->lockForUpdate()->first() : null;
             if ($ventaId && ! $ventaExistente) {
                 throw ValidationException::withMessages(['venta_id' => 'La cuenta pendiente no existe.']);
@@ -408,7 +411,7 @@ class VentaPosServicio
                 'membresia_id' => $datos['membresia_id'] ?? $ventaExistente?->membresia_id,
                 'caja_id' => (int) $turno->caja_id,
                 'turno_caja_id' => (int) $turno->id,
-                'tipo_venta' => $ventaExistente?->tipo_venta ?? $this->tipoVentaGeneral($detalles->all()),
+                'tipo_venta' => $ventaExistente?->tipo_venta ?? ($pases->isNotEmpty() ? 'SERVICIO' : $this->tipoVentaGeneral($detalles->all())),
                 'origen_tipo' => $ventaExistente?->origen_tipo ?? ($membresiaId ? 'MEMBRESIA_CAJA' : 'POS'),
                 'origen_id' => $ventaExistente?->origen_id ?? ($membresiaId ? (int) $membresiaId : null),
                 'generado_por_tipo' => $ventaExistente?->generado_por_tipo ?? 'USUARIO',

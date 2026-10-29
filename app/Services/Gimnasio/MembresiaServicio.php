@@ -21,7 +21,7 @@ class MembresiaServicio
     {
         $sedesHabilitadas = $datos['sedes_habilitadas'] ?? [];
         $asignacionesEntrenador = $datos['asignaciones_entrenador'] ?? [];
-        unset($datos['sedes_habilitadas'], $datos['asignaciones_entrenador'], $datos['entrenador_id'], $datos['descuento']);
+        unset($datos['sedes_habilitadas'], $datos['asignaciones_entrenador'], $datos['entrenador_id'], $datos['descuento'], $datos['descuento_desactivar_id']);
 
         $plan = DB::table('membresias.planes')->where('id', $datos['plan_id'])->first();
         $modalidad = ! empty($datos['modalidad_id'])
@@ -105,7 +105,7 @@ class MembresiaServicio
     {
         $sedesHabilitadas = array_key_exists('sedes_habilitadas', $datos) ? $datos['sedes_habilitadas'] : null;
         $asignacionesEntrenador = array_key_exists('asignaciones_entrenador', $datos) ? $datos['asignaciones_entrenador'] : null;
-        unset($datos['sedes_habilitadas'], $datos['asignaciones_entrenador'], $datos['entrenador_id'], $datos['descuento']);
+        unset($datos['sedes_habilitadas'], $datos['asignaciones_entrenador'], $datos['entrenador_id'], $datos['descuento'], $datos['descuento_desactivar_id']);
 
         $antes = DB::table('membresias.membresias')->where('id', $id)->first();
 

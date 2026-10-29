@@ -13,10 +13,12 @@ class DeportistaServicio
     {
         $representante = $datos['representante_legal'] ?? null;
         $persona = $datos['persona'] ?? null;
-        unset($datos['representante_legal'], $datos['persona']);
+        $ubicacion = $datos['ubicacion'] ?? null;
+        unset($datos['representante_legal'], $datos['persona'], $datos['ubicacion']);
 
-        return DB::transaction(function () use ($datos, $representante, $persona) {
+        return DB::transaction(function () use ($datos, $representante, $persona, $ubicacion) {
             $personaId = $this->resolverPersonaCliente($persona ?? []);
+            $this->guardarUbicacionPersona($personaId, $ubicacion);
             $datos['persona_id'] = $personaId;
             $datos['usuario_id'] = $datos['usuario_id'] ?? null;
             // Si la persona ya tiene cuenta DEPORTISTA, enlazarla sin crear otra.
@@ -49,11 +51,16 @@ class DeportistaServicio
     {
         $representante = $datos['representante_legal'] ?? null;
         $persona = $datos['persona'] ?? null;
-        unset($datos['representante_legal'], $datos['persona']);
+        $ubicacion = $datos['ubicacion'] ?? null;
+        unset($datos['representante_legal'], $datos['persona'], $datos['ubicacion']);
 
-        return DB::transaction(function () use ($id, $datos, $representante, $persona) {
+        return DB::transaction(function () use ($id, $datos, $representante, $persona, $ubicacion) {
             $antes = $this->obtenerDeportistaConRelaciones($id);
             $actual = DB::table('clientes.deportistas')->where('id', $id)->first();
+
+            if ($actual?->persona_id) {
+                $this->guardarUbicacionPersona((int) $actual->persona_id, $ubicacion);
+            }
 
             if ($persona && $actual?->persona_id) {
                 $this->actualizarPersonaCliente((int) $actual->persona_id, $persona);
@@ -102,6 +109,9 @@ class DeportistaServicio
                 'p.telefono as persona_telefono',
                 'p.email as persona_email',
                 'p.direccion as persona_direccion',
+                'p.provincia_codigo',
+                'p.canton_codigo',
+                'p.parroquia_codigo',
                 'u.name as usuario_nombre',
                 'u.email as usuario_email',
                 's.nombre as sede_nombre'
@@ -133,6 +143,10 @@ class DeportistaServicio
                 'p.email',
                 'p.direccion',
             ]);
+
+        $deportista->ubicacion = DB::table('personas.persona_ubicaciones')
+            ->where('persona_id', $deportista->persona_id)
+            ->first(['latitud', 'longitud', 'referencia']);
 
         $deportista->requiere_representante_legal = (bool) $deportista->requiere_representante_legal;
         $deportista->representante_legal = $representante;
@@ -219,6 +233,23 @@ class DeportistaServicio
         }
     }
 
+    private function guardarUbicacionPersona(int $personaId, ?array $ubicacion): void
+    {
+        if (! $ubicacion || ! isset($ubicacion['latitud'], $ubicacion['longitud'])) {
+            return;
+        }
+        DB::table('personas.persona_ubicaciones')->updateOrInsert(
+            ['persona_id' => $personaId],
+            [
+                'latitud' => $ubicacion['latitud'],
+                'longitud' => $ubicacion['longitud'],
+                'referencia' => $ubicacion['referencia'] ?? null,
+                'ubicacion_voluntaria' => true,
+                'updated_at' => now(),
+            ]
+        );
+    }
+
     private function resolverPersonaCliente(array $datos): int
     {
         $identificacion = trim((string) ($datos['identificacion'] ?? ''));
@@ -256,6 +287,9 @@ class DeportistaServicio
             'telefono' => trim((string) ($datos['telefono'] ?? '')) ?: null,
             'email' => $email !== '' ? mb_strtolower($email) : null,
             'direccion' => trim((string) ($datos['direccion'] ?? '')) ?: null,
+            'provincia_codigo' => $datos['provincia_codigo'] ?? null,
+            'canton_codigo' => $datos['canton_codigo'] ?? null,
+            'parroquia_codigo' => $datos['parroquia_codigo'] ?? null,
             'activo' => true,
             'created_at' => now(),
             'updated_at' => now(),
@@ -280,6 +314,9 @@ class DeportistaServicio
             'telefono' => trim((string) ($datos['telefono'] ?? '')) ?: null,
             'email' => trim((string) ($datos['email'] ?? '')) ?: null,
             'direccion' => trim((string) ($datos['direccion'] ?? '')) ?: null,
+            'provincia_codigo' => $datos['provincia_codigo'] ?? null,
+            'canton_codigo' => $datos['canton_codigo'] ?? null,
+            'parroquia_codigo' => $datos['parroquia_codigo'] ?? null,
             'updated_at' => now(),
         ]);
     }
@@ -308,6 +345,9 @@ class DeportistaServicio
             'telefono' => trim((string) ($datos['telefono'] ?? '')) ?: null,
             'email' => $email !== '' ? $email : null,
             'direccion' => trim((string) ($datos['direccion'] ?? '')) ?: null,
+            'provincia_codigo' => $datos['provincia_codigo'] ?? null,
+            'canton_codigo' => $datos['canton_codigo'] ?? null,
+            'parroquia_codigo' => $datos['parroquia_codigo'] ?? null,
             'activo' => true,
             'updated_at' => now(),
         ];

@@ -768,11 +768,12 @@ class VentaPosServicio
                     $hoy = now('America/Guayaquil')->toDateString();
                     $fechaInicio = substr((string) DB::table('membresias.membresias')
                         ->where('id', $membresia->id)->value('fecha_inicio'), 0, 10);
-                    if ($fechaInicio !== $hoy) {
+                    if ($fechaInicio < $hoy) {
                         throw ValidationException::withMessages([
-                            'membresia_id' => 'El pase diario asignado corresponde a otra fecha. Verifica su vigencia.',
+                            'membresia_id' => 'El Pase Diario corresponde a una fecha anterior. Verifica su vigencia.',
                         ]);
                     }
+                    // El cobro puede ser anticipado; la fecha de acceso no cambia.
                 }
 
                 $descripcion = $membresia->plan_nombre

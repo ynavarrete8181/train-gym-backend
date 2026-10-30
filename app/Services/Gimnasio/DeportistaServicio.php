@@ -171,7 +171,41 @@ class DeportistaServicio
             return;
         }
 
-        $personaId = $this->resolverPersonaRepresentante($datos);
+        // Si el representante ya está asociado a este cliente y conserva su
+        // documento, actualizar su ficha canónica en lugar de solo reutilizarla.
+        // Nunca modificar por accidente a una persona ajena al vínculo.
+        $actual = DB::table('clientes.deportista_representantes as dr')
+            ->join('personas.personas as p', 'p.id', '=', 'dr.representante_persona_id')
+            ->where('dr.deportista_id', $deportistaId)
+            ->where('dr.activo', true)
+            ->orderByDesc('dr.es_principal')
+            ->first(['p.id', 'p.identificacion']);
+
+        $documentoNuevo = trim((string) ($datos['identificacion'] ?? ''));
+        $documentoActual = trim((string) ($actual?->identificacion ?? ''));
+        $mismaPersona = $actual
+            && mb_strtolower($documentoNuevo) === mb_strtolower($documentoActual);
+
+        if ($mismaPersona) {
+            $personaId = (int) $actual->id;
+            $nombres = trim((string) ($datos['nombres'] ?? ''));
+            $apellidos = trim((string) ($datos['apellidos'] ?? ''));
+            DB::table('personas.personas')->where('id', $personaId)->update([
+                'tipo_identificacion' => $datos['tipo_identificacion'] ?? null,
+                'identificacion' => $documentoNuevo !== '' ? $documentoNuevo : null,
+                'nombres' => $nombres !== '' ? $nombres : null,
+                'apellidos' => $apellidos !== '' ? $apellidos : null,
+                'nombre_completo' => trim($nombres . ' ' . $apellidos),
+                'telefono' => trim((string) ($datos['telefono'] ?? '')) ?: null,
+                'email' => trim((string) ($datos['email'] ?? '')) ?: null,
+                'direccion' => trim((string) ($datos['direccion'] ?? '')) ?: null,
+                'updated_at' => now(),
+            ]);
+        } else {
+            // Cambio de documento o representante: resolver identidad sin
+            // sobrescribir los datos de otra persona registrada previamente.
+            $personaId = $this->resolverPersonaRepresentante($datos);
+        }
 
         DB::table('clientes.deportista_representantes')
             ->where('deportista_id', $deportistaId)

@@ -91,14 +91,6 @@ class VentaPosServicio
                     ->where('ms.sede_id', $sedeId)->where('ms.activo', true);
             })
             ->whereNotIn('m.estado', ['CANCELADA', 'VENCIDA'])
-            ->whereNotExists(function ($query): void {
-                $query->selectRaw('1')
-                    ->from('membresias.membresia_periodos as mp')
-                    ->join('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
-                    ->whereColumn('mp.membresia_id', 'm.id')
-                    ->whereRaw('mp.numero_periodo = (SELECT MAX(mp2.numero_periodo) FROM membresias.membresia_periodos mp2 WHERE mp2.membresia_id = m.id)')
-                    ->where('v.estado', '!=', 'ANULADA');
-            })
             ->orderBy('p.nombre')
             ->get([
                 'm.id',
@@ -114,10 +106,29 @@ class VentaPosServicio
                 'p.tipo_producto',
             ]);
 
+        // Mostrar también los pases diarios que tienen una cuenta abierta.
+        // El frontend puede consultar la membresía, pero no generar un cobro duplicado.
+        $cuentasMembresia = collect();
+        if ($membresias->isNotEmpty()) {
+            $cuentasMembresia = DB::table('membresias.membresia_periodos as mp')
+                ->join('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
+                ->whereIn('mp.membresia_id', $membresias->pluck('id')->all())
+                ->where('v.estado', '!=', 'ANULADA')
+                ->orderByDesc('mp.numero_periodo')
+                ->orderByDesc('mp.id')
+                ->get(['mp.membresia_id', 'v.id as venta_id', 'v.estado as venta_estado'])
+                ->unique('membresia_id')
+                ->keyBy('membresia_id');
+        }
+
         // La tarifa visible en el POS corresponde a la sede del turno, no
         // al precio histórico de contratación de la membresía.
         $tarifasSede = $this->planesPorSede($sedeId)->keyBy('id');
-        $membresias = $membresias->map(function ($m) use ($tarifasSede, $sedeId) {
+        $membresias = $membresias->map(function ($m) use ($tarifasSede, $sedeId, $cuentasMembresia) {
+            $cuenta = $cuentasMembresia->get($m->id);
+            $m->venta_id = $cuenta?->venta_id;
+            $m->venta_estado = $cuenta?->venta_estado;
+            $m->cobro_disponible = $cuenta === null;
             $m->precio = $m->modalidad_id
                 ? $this->precioModalidadSede((int) $m->modalidad_id, $sedeId)
                 : ($tarifasSede->get($m->plan_id)?->precio ?? $m->precio);
@@ -572,14 +583,47 @@ class VentaPosServicio
 
             $pagos = collect();
             foreach ($pagosEntrada as $pagoEntrada) {
+                $metodo = strtoupper((string) $pagoEntrada['metodo_pago']);
+                $monto = round((float) $pagoEntrada['monto'], 2);
+                $esEfectivo = $metodo === 'EFECTIVO';
+
+                // El monto es el ingreso neto de la venta. El dinero entregado y
+                // el cambio son datos de trazabilidad, no ingresos adicionales.
+                if ($esEfectivo) {
+                    $recibido = round((float) ($pagoEntrada['efectivo_recibido'] ?? $monto), 2);
+                    if ($recibido < $monto) {
+                        throw ValidationException::withMessages([
+                            'pagos' => 'El efectivo recibido no puede ser menor al importe cobrado.',
+                        ]);
+                    }
+                    $cambio = round($recibido - $monto, 2);
+                    if (array_key_exists('cambio_entregado', $pagoEntrada)
+                        && $pagoEntrada['cambio_entregado'] !== null
+                        && abs(round((float) $pagoEntrada['cambio_entregado'], 2) - $cambio) > 0.001) {
+                        throw ValidationException::withMessages([
+                            'pagos' => 'El cambio enviado no coincide con el efectivo recibido y el importe cobrado.',
+                        ]);
+                    }
+                } else {
+                    if ((! empty($pagoEntrada['efectivo_recibido'])) || (! empty($pagoEntrada['cambio_entregado']))) {
+                        throw ValidationException::withMessages([
+                            'pagos' => 'El efectivo recibido y el cambio solo corresponden a pagos en efectivo.',
+                        ]);
+                    }
+                    $recibido = null;
+                    $cambio = null;
+                }
+
                 $pagos->push($this->ventas->guardarPago([
                     'venta_id' => (int) $venta->id,
                     'caja_id' => (int) $turno->caja_id,
                     'turno_caja_id' => (int) $turno->id,
                     'operacion_cobro_id' => $operacionCobroId,
                     'codigo_cobro' => $codigoCobro,
-                    'metodo_pago' => strtoupper((string) $pagoEntrada['metodo_pago']),
-                    'monto' => round((float) $pagoEntrada['monto'], 2),
+                    'metodo_pago' => $metodo,
+                    'monto' => $monto,
+                    'efectivo_recibido' => $recibido,
+                    'cambio_entregado' => $cambio,
                     'estado' => 'CONFIRMADO',
                     'referencia' => $pagoEntrada['referencia'] ?? null,
                     'observaciones' => $pagoEntrada['observaciones'] ?? 'Cobro registrado desde POS.',

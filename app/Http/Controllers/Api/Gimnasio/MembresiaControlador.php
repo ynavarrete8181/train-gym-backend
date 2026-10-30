@@ -129,7 +129,8 @@ class MembresiaControlador extends Controller
             $validados['sedes_habilitadas'],
             $validados['asignaciones_entrenador'] ?? [],
             isset($validados['modalidad_id']) ? (int) $validados['modalidad_id'] : null,
-            true
+            true,
+            false // La ficha inicial se completa después; no bloquea la contratación.
         );
         $planConfigurado = DB::table('membresias.planes')->where('id', $validados['plan_id'])->first();
         $duplicada = DB::table('membresias.membresias')

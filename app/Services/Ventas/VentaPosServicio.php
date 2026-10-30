@@ -583,14 +583,47 @@ class VentaPosServicio
 
             $pagos = collect();
             foreach ($pagosEntrada as $pagoEntrada) {
+                $metodo = strtoupper((string) $pagoEntrada['metodo_pago']);
+                $monto = round((float) $pagoEntrada['monto'], 2);
+                $esEfectivo = $metodo === 'EFECTIVO';
+
+                // El monto es el ingreso neto de la venta. El dinero entregado y
+                // el cambio son datos de trazabilidad, no ingresos adicionales.
+                if ($esEfectivo) {
+                    $recibido = round((float) ($pagoEntrada['efectivo_recibido'] ?? $monto), 2);
+                    if ($recibido < $monto) {
+                        throw ValidationException::withMessages([
+                            'pagos' => 'El efectivo recibido no puede ser menor al importe cobrado.',
+                        ]);
+                    }
+                    $cambio = round($recibido - $monto, 2);
+                    if (array_key_exists('cambio_entregado', $pagoEntrada)
+                        && $pagoEntrada['cambio_entregado'] !== null
+                        && abs(round((float) $pagoEntrada['cambio_entregado'], 2) - $cambio) > 0.001) {
+                        throw ValidationException::withMessages([
+                            'pagos' => 'El cambio enviado no coincide con el efectivo recibido y el importe cobrado.',
+                        ]);
+                    }
+                } else {
+                    if ((! empty($pagoEntrada['efectivo_recibido'])) || (! empty($pagoEntrada['cambio_entregado']))) {
+                        throw ValidationException::withMessages([
+                            'pagos' => 'El efectivo recibido y el cambio solo corresponden a pagos en efectivo.',
+                        ]);
+                    }
+                    $recibido = null;
+                    $cambio = null;
+                }
+
                 $pagos->push($this->ventas->guardarPago([
                     'venta_id' => (int) $venta->id,
                     'caja_id' => (int) $turno->caja_id,
                     'turno_caja_id' => (int) $turno->id,
                     'operacion_cobro_id' => $operacionCobroId,
                     'codigo_cobro' => $codigoCobro,
-                    'metodo_pago' => strtoupper((string) $pagoEntrada['metodo_pago']),
-                    'monto' => round((float) $pagoEntrada['monto'], 2),
+                    'metodo_pago' => $metodo,
+                    'monto' => $monto,
+                    'efectivo_recibido' => $recibido,
+                    'cambio_entregado' => $cambio,
                     'estado' => 'CONFIRMADO',
                     'referencia' => $pagoEntrada['referencia'] ?? null,
                     'observaciones' => $pagoEntrada['observaciones'] ?? 'Cobro registrado desde POS.',

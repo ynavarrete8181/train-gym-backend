@@ -311,6 +311,8 @@ class VentaServicio
             ->selectRaw('MAX(caja_pago.codigo) as caja_codigo')
             ->selectRaw('MAX(p.turno_caja_id) as turno_caja_id')
             ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' AND p.metodo_pago = \'EFECTIVO\' THEN p.monto ELSE 0 END) as efectivo')
+            ->selectRaw("SUM(CASE WHEN p.estado = 'CONFIRMADO' AND p.metodo_pago = 'EFECTIVO' THEN COALESCE(p.efectivo_recibido, p.monto) ELSE 0 END) as efectivo_recibido")
+            ->selectRaw("SUM(CASE WHEN p.estado = 'CONFIRMADO' AND p.metodo_pago = 'EFECTIVO' THEN COALESCE(p.cambio_entregado, 0) ELSE 0 END) as cambio_entregado")
             ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' AND p.metodo_pago = \'TRANSFERENCIA\' THEN p.monto ELSE 0 END) as transferencia')
             ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' AND p.metodo_pago = \'TARJETA\' THEN p.monto ELSE 0 END) as tarjeta')
             ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' AND p.metodo_pago = \'DEPOSITO\' THEN p.monto ELSE 0 END) as deposito')

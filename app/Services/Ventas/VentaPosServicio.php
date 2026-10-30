@@ -91,14 +91,6 @@ class VentaPosServicio
                     ->where('ms.sede_id', $sedeId)->where('ms.activo', true);
             })
             ->whereNotIn('m.estado', ['CANCELADA', 'VENCIDA'])
-            ->whereNotExists(function ($query): void {
-                $query->selectRaw('1')
-                    ->from('membresias.membresia_periodos as mp')
-                    ->join('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
-                    ->whereColumn('mp.membresia_id', 'm.id')
-                    ->whereRaw('mp.numero_periodo = (SELECT MAX(mp2.numero_periodo) FROM membresias.membresia_periodos mp2 WHERE mp2.membresia_id = m.id)')
-                    ->where('v.estado', '!=', 'ANULADA');
-            })
             ->orderBy('p.nombre')
             ->get([
                 'm.id',
@@ -114,10 +106,29 @@ class VentaPosServicio
                 'p.tipo_producto',
             ]);
 
+        // Mostrar también los pases diarios que tienen una cuenta abierta.
+        // El frontend puede consultar la membresía, pero no generar un cobro duplicado.
+        $cuentasMembresia = collect();
+        if ($membresias->isNotEmpty()) {
+            $cuentasMembresia = DB::table('membresias.membresia_periodos as mp')
+                ->join('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
+                ->whereIn('mp.membresia_id', $membresias->pluck('id')->all())
+                ->where('v.estado', '!=', 'ANULADA')
+                ->orderByDesc('mp.numero_periodo')
+                ->orderByDesc('mp.id')
+                ->get(['mp.membresia_id', 'v.id as venta_id', 'v.estado as venta_estado'])
+                ->unique('membresia_id')
+                ->keyBy('membresia_id');
+        }
+
         // La tarifa visible en el POS corresponde a la sede del turno, no
         // al precio histórico de contratación de la membresía.
         $tarifasSede = $this->planesPorSede($sedeId)->keyBy('id');
-        $membresias = $membresias->map(function ($m) use ($tarifasSede, $sedeId) {
+        $membresias = $membresias->map(function ($m) use ($tarifasSede, $sedeId, $cuentasMembresia) {
+            $cuenta = $cuentasMembresia->get($m->id);
+            $m->venta_id = $cuenta?->venta_id;
+            $m->venta_estado = $cuenta?->venta_estado;
+            $m->cobro_disponible = $cuenta === null;
             $m->precio = $m->modalidad_id
                 ? $this->precioModalidadSede((int) $m->modalidad_id, $sedeId)
                 : ($tarifasSede->get($m->plan_id)?->precio ?? $m->precio);

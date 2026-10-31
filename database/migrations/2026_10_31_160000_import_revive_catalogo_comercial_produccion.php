@@ -94,7 +94,7 @@ return new class extends Migration
                 if (! isset($catalogo[$codigo], $sedesDestino[$sede]) ||
                     ! $sedesDestino[$sede]->activo || ! $sedesDestino[$sede]->maneja_inventario ||
                     ! is_numeric($monto) || $monto < 0 || $monto > 9999999999.99) {
-                    throw new RuntimeException('Precio o equivalencia de sede invalida; no se modifico produccion.');
+                    throw new RuntimeException('Sede o precio invalido para ' . ($precio['sede_nombre'] ?? 'SIN_SEDE') . '. Sedes destino: ' . implode('; ', array_map(fn ($s) => $s->nombre . ' (activa=' . (int) $s->activo . ', inventario=' . (int) $s->maneja_inventario . ')', array_values($sedesDestino))) . '. No se modifico produccion.');
                 }
                 $clave = $codigo . '|' . $sede;
                 if (isset($clavesPrecios[$clave])) {

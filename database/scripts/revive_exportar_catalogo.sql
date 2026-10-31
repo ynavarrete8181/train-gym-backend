@@ -1,9 +1,9 @@
 -- REVIVE SPORTS | Exportacion de catalogo comercial desde PostgreSQL de desarrollo
 -- Uso: psql -h 127.0.0.1 -p 5433 -U postgres -d db_gimnasio -X -A -t -v ON_ERROR_STOP=1 -f database/scripts/revive_exportar_catalogo.sql > revive_catalogo.json
--- SOLO LECTURA. No genera IDs, no inserta/actualiza registros y no mueve stock, lotes ni Kardex.
+-- SOLO LECTURA (SELECT unico). No genera IDs, no inserta/actualiza registros y no mueve stock, lotes ni Kardex.
+-- IMPORTANTE: un unico SELECT garantiza que la salida psql -A -t sea JSON puro (sin BEGIN/COMMIT).
 -- El archivo JSON es una fuente para validacion y conciliacion, NO un script de importacion automatica.
 -- Los identificadores locales son referencias de ORIGEN y nunca deben copiarse como claves a produccion.
-BEGIN TRANSACTION READ ONLY;
 SELECT jsonb_build_object(
   'formato', 'revive_catalogo_comercial_v1',
   'base_origen', current_database(),
@@ -43,4 +43,3 @@ SELECT jsonb_build_object(
     JOIN institucional.sedes AS s ON s.id_sede = ps.sede_id
   ), '[]'::jsonb)
 )::text;
-COMMIT;

@@ -32,6 +32,9 @@ return new class extends Migration
             DB::statement('LOCK TABLE inventario.categorias_producto, inventario.productos, inventario.producto_precios_sede IN SHARE ROW EXCLUSIVE MODE');
 
             $normalizar = fn (string $valor): string => mb_strtolower(trim($valor), 'UTF-8');
+            // Nombres comerciales de desarrollo frente a nombres reales de produccion.
+            $aliasSedes = ['revive home' => 'home', 'revive xpadel' => 'xpadel'];
+            $resolverSede = fn (string $nombre): string => $aliasSedes[$normalizar($nombre)] ?? $normalizar($nombre);
             $catalogo = [];
             $categoriasOrigen = [];
 
@@ -89,7 +92,7 @@ return new class extends Migration
             }
             foreach ($precios as $precio) {
                 $codigo = $normalizar((string) ($precio['producto_codigo'] ?? ''));
-                $sede = $normalizar((string) ($precio['sede_nombre'] ?? ''));
+                $sede = $resolverSede((string) ($precio['sede_nombre'] ?? ''));
                 $monto = $precio['precio'] ?? null;
                 if (! isset($catalogo[$codigo], $sedesDestino[$sede]) ||
                     ! $sedesDestino[$sede]->activo || ! $sedesDestino[$sede]->maneja_inventario ||
@@ -154,7 +157,7 @@ return new class extends Migration
             // No actualiza tarifas previamente configuradas en produccion.
             foreach ($precios as $precio) {
                 $idProducto = (int) $productosDestino[$normalizar($precio['producto_codigo'])]->id;
-                $idSede = (int) $sedesDestino[$normalizar($precio['sede_nombre'])]->id_sede;
+                $idSede = (int) $sedesDestino[$resolverSede($precio['sede_nombre'])]->id_sede;
                 $existe = DB::table('inventario.producto_precios_sede')
                     ->where('producto_id', $idProducto)->where('sede_id', $idSede)->exists();
                 if (! $existe) {
@@ -171,7 +174,7 @@ return new class extends Migration
 
             foreach ($precios as $precio) {
                 $idProducto = (int) $productosDestino[$normalizar($precio['producto_codigo'])]->id;
-                $idSede = (int) $sedesDestino[$normalizar($precio['sede_nombre'])]->id_sede;
+                $idSede = (int) $sedesDestino[$resolverSede($precio['sede_nombre'])]->id_sede;
                 if (! DB::table('inventario.producto_precios_sede')
                     ->where('producto_id', $idProducto)->where('sede_id', $idSede)->exists()) {
                     throw new RuntimeException('Fallo la verificacion posterior de precios; se revierte la transaccion.');

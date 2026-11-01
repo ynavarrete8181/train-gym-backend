@@ -464,6 +464,16 @@ class CarteraServicio
 
     private function resolverFechaVencimiento(int $ventaId, object $venta): string
     {
+        // El calendario de cuotas define el vencimiento financiero de contratos
+        // nuevos. Los días de gracia siguen siendo exclusivamente de acceso.
+        $fechaCuota = DB::table('membresias.membresia_cuotas')
+            ->where('venta_id', $ventaId)
+            ->where('estado', 'EMITIDA')
+            ->value('fecha_vencimiento');
+        if ($fechaCuota) {
+            return Carbon::parse($fechaCuota)->toDateString();
+        }
+
         if ($venta->membresia_id) {
             $datos = DB::table('membresias.membresias as m')
                 ->leftJoin('membresias.membresia_periodos as mp', function ($join) use ($ventaId): void {

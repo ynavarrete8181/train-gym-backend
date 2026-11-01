@@ -36,8 +36,7 @@ class TiendaProductosController extends Controller
             $query
                 ->leftJoin('inventario.producto_precios_sede as ps', function ($join) use ($sedeId): void {
                     $join->on('ps.producto_id', '=', 'p.id')
-                        ->where('ps.sede_id', '=', $sedeId)
-                        ->where('ps.activo', '=', true);
+                        ->where('ps.sede_id', '=', $sedeId);
                 })
                 ->leftJoin('inventario.producto_stock_sede as ss', function ($join) use ($sedeId): void {
                     $join->on('ss.producto_id', '=', 'p.id')
@@ -46,13 +45,14 @@ class TiendaProductosController extends Controller
                 ->selectRaw('COALESCE(ps.precio, p.precio_venta) as precio_venta')
                 ->selectRaw('COALESCE(ss.stock_actual, 0) as stock_actual')
                 ->where(function ($builder): void {
-                    $builder->whereNull('ps.id')->orWhereNotNull('ps.precio');
+                    $builder->whereNull('ps.id')->orWhere('ps.activo', true);
                 });
         } else {
             $query->addSelect('p.precio_venta', 'p.stock_actual');
         }
 
         $productos = $query
+            ->orderByRaw("CASE WHEN COALESCE(NULLIF(p.imagen_url, ''), NULLIF(p.imagen_path, '')) IS NULL THEN 1 ELSE 0 END")
             ->orderBy('p.nombre')
             ->limit(30)
             ->get()

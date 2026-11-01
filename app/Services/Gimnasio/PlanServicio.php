@@ -50,6 +50,11 @@ class PlanServicio
 
         return DB::transaction(function () use ($id, $datos, $preciosSede, $servicioIds, $modalidades) {
             $antes = DB::table('membresias.planes')->where('id', $id)->first();
+            if ($antes) {
+                $antes->precios_sede = DB::table('membresias.plan_precios_sede')->where('plan_id', $id)->get();
+                $antes->servicios = $this->serviciosDelPlan($id);
+                $antes->modalidades = $this->modalidadesDelPlan($id);
+            }
             DB::table('membresias.planes')->where('id', $id)->update($datos);
 
             $this->sincronizarPreciosSede($id, $preciosSede);
@@ -217,6 +222,12 @@ class PlanServicio
                 ? DB::table('membresias.plan_modalidades')->where('plan_id', $planId)->where('id', $modalidadId)->first()
                 : null;
 
+            if ($existente) {
+                // Snapshot de todos los precios por sede antes de reemplazarlos.
+                $existente->precios_sede = DB::table('membresias.plan_modalidad_precios_sede')
+                    ->where('modalidad_id', $modalidadId)->orderBy('sede_id')->get();
+            }
+
             if ($modalidadId && ! $existente) {
                 throw \Illuminate\Validation\ValidationException::withMessages([
                     'modalidad_id' => 'La modalidad no pertenece al plan.',
@@ -259,7 +270,11 @@ class PlanServicio
                 );
             }
 
-            return $this->modalidadesDelPlan($planId)->firstWhere('id', $id);
+            $guardada = $this->modalidadesDelPlan($planId)->firstWhere('id', $id);
+            $this->auditar('membresias', $modalidadId ? 'ACTUALIZAR' : 'CREAR',
+                'membresias.plan_modalidades', $id, $existente, $guardada,
+                'Modalidad y tarifas por sede: condiciones aplicables únicamente a nuevas contrataciones.');
+            return $guardada;
         });
     }
 

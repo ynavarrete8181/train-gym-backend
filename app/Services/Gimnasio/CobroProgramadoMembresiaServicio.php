@@ -2,6 +2,7 @@
 
 namespace App\Services\Gimnasio;
 
+use App\Services\CuentasCobrar\CarteraServicio;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 

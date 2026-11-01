@@ -55,10 +55,12 @@ class VentaServicio
             ->leftJoin('institucional.sedes as sede_operacion', DB::raw('COALESCE(ventas.cajas.sede_id, membresia_sede.sede_id)'), '=', 'sede_operacion.id_sede')
             ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'ventas.ventas.estado_id', '=', 'estado_cfg.id')
             ->leftJoin('seguridad.users as generado_por', 'ventas.ventas.usuario_id', '=', 'generado_por.id')
+            ->leftJoin('seguridad.cpu_userrole as rol_generador', 'generado_por.usr_tipo', '=', 'rol_generador.id_userrole')
             ->leftJoin('seguridad.users as responsable_comercial', 'ventas.ventas.responsable_comercial_id', '=', 'responsable_comercial.id')
             ->select(
                 'ventas.ventas.*',
                 'generado_por.name as generado_por_nombre',
+                'rol_generador.role as generado_por_rol',
                 'responsable_comercial.name as responsable_comercial_nombre',
                 'cliente_user.name as cliente_nombre',
                 'clientes.deportistas.codigo_deportista',
@@ -331,6 +333,9 @@ class VentaServicio
             ->leftJoin('personas.personas as persona', 'd.persona_id', '=', 'persona.id')
             ->leftJoin('seguridad.users as cliente_user', 'd.usuario_id', '=', 'cliente_user.id')
             ->leftJoin('seguridad.users as cobrador', 'p.usuario_id', '=', 'cobrador.id')
+            ->leftJoin('seguridad.users as creador_venta', 'v.usuario_id', '=', 'creador_venta.id')
+            ->leftJoin('seguridad.cpu_userrole as rol_creador', 'creador_venta.usr_tipo', '=', 'rol_creador.id_userrole')
+            ->leftJoin('seguridad.cpu_userrole as rol_cobrador', 'cobrador.usr_tipo', '=', 'rol_cobrador.id_userrole')
             ->selectRaw("MAX(p.id) as id")
             ->selectRaw("{$operacionExpr} as operacion_cobro_id")
             ->selectRaw('MAX(p.codigo_cobro) as codigo_cobro')
@@ -340,6 +345,9 @@ class VentaServicio
             ->selectRaw("COALESCE(MAX(NULLIF(TRIM(persona.nombre_completo), '')), MAX(NULLIF(TRIM(cliente_user.name), '')), 'Consumidor final') as cliente_nombre")
             ->selectRaw("COALESCE(MAX(NULLIF(TRIM(persona.identificacion), '')), MAX(NULLIF(TRIM(cliente_user.cedula), ''))) as cliente_identificacion")
             ->selectRaw("COALESCE(MAX(NULLIF(TRIM(cobrador.name), '')), 'Sin usuario') as cobrado_por_nombre")
+            ->selectRaw('MAX(rol_cobrador.role) as cobrado_por_rol')
+            ->selectRaw("CASE WHEN MAX(v.generado_por_tipo) = 'SISTEMA' THEN 'Sistema' ELSE COALESCE(MAX(NULLIF(TRIM(creador_venta.name), '')), 'Sin usuario') END as generado_por_nombre")
+            ->selectRaw('MAX(rol_creador.role) as generado_por_rol')
             ->selectRaw('MAX(caja_pago.nombre) as caja_nombre')
             ->selectRaw('MAX(caja_pago.codigo) as caja_codigo')
             ->selectRaw('MAX(p.turno_caja_id) as turno_caja_id')
@@ -372,6 +380,7 @@ class VentaServicio
                     ->orWhereRaw('LOWER(COALESCE(persona.nombre_completo, cliente_user.name, \'\')) LIKE ?', [$texto])
                     ->orWhereRaw('LOWER(COALESCE(persona.identificacion, cliente_user.cedula, \'\')) LIKE ?', [$texto])
                     ->orWhereRaw('LOWER(COALESCE(cobrador.name, \'\')) LIKE ?', [$texto])
+                    ->orWhereRaw('LOWER(COALESCE(creador_venta.name, \'\')) LIKE ?', [$texto])
                     ->orWhereRaw('LOWER(COALESCE(p.codigo_cobro, \'\')) LIKE ?', [$texto])
                     ->orWhereRaw('LOWER(COALESCE(p.operacion_cobro_id, \'\')) LIKE ?', [$texto]);
             });

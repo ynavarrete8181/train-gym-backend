@@ -307,6 +307,20 @@ class MembresiaServicio
         $membresia->periodos = $this->periodos($id);
         $membresia->periodo_actual = $membresia->periodos->first();
 
+        // El calendario contractual se expone separado de los períodos
+        // deportivos. La cartera es la fuente del saldo efectivamente pagado.
+        $membresia->cuotas = DB::table('membresias.membresia_cuotas as c')
+            ->leftJoin('ventas.ventas as v', 'v.id', '=', 'c.venta_id')
+            ->where('c.membresia_id', $id)
+            ->orderBy('c.numero_cuota')
+            ->get([
+                'c.id', 'c.periodo_id', 'c.numero_cuota', 'c.monto',
+                'c.fecha_programada_emision', 'c.fecha_vencimiento',
+                'c.estado', 'c.venta_id',
+                'v.numero as venta_numero', 'v.estado as venta_estado',
+                DB::raw("(SELECT COALESCE(SUM(pg.monto), 0) FROM ventas.pagos pg WHERE pg.venta_id = c.venta_id AND pg.estado = 'CONFIRMADO') as monto_pagado"),
+            ]);
+
         return $membresia;
     }
 

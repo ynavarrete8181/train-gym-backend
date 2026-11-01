@@ -267,10 +267,9 @@ class MembresiaControlador extends Controller
             ]);
         }
 
-        if ($membresia->cantidad_periodos_contratados !== null
-            && \Carbon\Carbon::parse($membresia->fecha_fin)->isFuture()) {
+        if ($membresia->cantidad_periodos_contratados !== null) {
             throw ValidationException::withMessages([
-                'membresia_id' => 'El contrato tiene períodos programados. No es posible renovarlo antes de finalizar su vigencia.',
+                'membresia_id' => 'Este contrato tiene un calendario fijo de cuotas. Para renovarlo debe crearse una nueva contratación; no se permite agregar períodos fuera del contrato.',
             ]);
         }
 

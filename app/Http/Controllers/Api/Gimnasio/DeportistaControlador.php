@@ -208,6 +208,35 @@ class DeportistaControlador extends Controller
             ->orderByDesc('m.fecha_inicio')
             ->get();
 
+        // El Perfil integral debe enseñar el contrato histórico, nunca
+        // reinterpretar el precio/duración con el catálogo actualizado.
+        $membresias = $membresias->map(function ($m): object {
+            $condiciones = $m->condiciones_contratadas
+                ? json_decode((string) $m->condiciones_contratadas, true)
+                : null;
+            $m->condiciones_contratadas = $condiciones;
+            if (is_array($condiciones)) {
+                $m->plan_nombre = $condiciones['plan_nombre'] ?? $m->plan_nombre;
+                $m->modalidad_nombre = $condiciones['modalidad_nombre'] ?? $m->modalidad_nombre;
+                $m->modalidad_tipo_duracion = $condiciones['tipo_duracion'] ?? $m->modalidad_tipo_duracion;
+                $m->modalidad_duracion = $condiciones['duracion'] ?? $m->modalidad_duracion;
+            }
+            return $m;
+        });
+        $cuotas = DB::table('membresias.membresia_cuotas as c')
+            ->leftJoin('ventas.ventas as v', 'v.id', '=', 'c.venta_id')
+            ->whereIn('c.membresia_id', $membresias->pluck('id')->all())
+            ->orderBy('c.numero_cuota')
+            ->get([
+                'c.id', 'c.membresia_id', 'c.numero_cuota', 'c.periodo_id',
+                'c.monto', 'c.fecha_vencimiento', 'c.fecha_programada_emision',
+                'c.estado', 'c.venta_id', 'v.estado as venta_estado',
+                DB::raw("(SELECT COALESCE(SUM(p.monto), 0) FROM ventas.pagos p WHERE p.venta_id = c.venta_id AND p.estado = 'CONFIRMADO') as monto_pagado"),
+            ])->groupBy('membresia_id');
+        foreach ($membresias as $membresia) {
+            $membresia->cuotas = $cuotas->get($membresia->id, collect())->values();
+        }
+
         $deportista->membresias = $membresias;
 
         return ApiResponse::exito('Cliente consultado.', (array) $deportista);

@@ -271,11 +271,39 @@ class PlanServicio
             }
 
             $guardada = $this->modalidadesDelPlan($planId)->firstWhere('id', $id);
+            $historial = app(HistorialComercialMembresiaServicio::class);
+            $antesComercial = $existente ? (array) $existente : null;
+            $despuesComercial = (array) $guardada;
+            // Guardar el historial en el mismo commit de la modificación.
+            // No generar versiones artificiales si no hubo cambios reales.
+            if ($antesComercial === null || $this->representacionComercial($antesComercial) !== $this->representacionComercial($despuesComercial)) {
+                $historial->registrarModalidad(
+                    $planId, $id, $modalidadId ? 'ACTUALIZAR' : 'CREAR',
+                    $antesComercial, $despuesComercial
+                );
+            }
             $this->auditar('membresias', $modalidadId ? 'ACTUALIZAR' : 'CREAR',
                 'membresias.plan_modalidades', $id, $existente, $guardada,
                 'Modalidad y tarifas por sede: condiciones aplicables únicamente a nuevas contrataciones.');
             return $guardada;
         });
+    }
+
+    private function representacionComercial(array $datos): string
+    {
+        unset($datos['created_at'], $datos['updated_at']);
+        // Los precios de la base usan created_at/updated_at que no son
+        // condiciones comerciales. Conservamos precio, sede y activo.
+        $datos['precios_sede'] = collect($datos['precios_sede'] ?? [])
+            ->map(fn ($p) => [
+                'sede_id' => (int) (is_object($p) ? $p->sede_id : $p['sede_id']),
+                'precio' => number_format((float) (is_object($p) ? $p->precio : $p['precio']), 2, '.', ''),
+                'activo' => (bool) (is_object($p) ? $p->activo : $p['activo']),
+            ])
+            ->sortBy('sede_id')->values()->all();
+
+        ksort($datos);
+        return json_encode($datos, JSON_THROW_ON_ERROR);
     }
 
     public function eliminarModalidad(int $planId, int $modalidadId): void

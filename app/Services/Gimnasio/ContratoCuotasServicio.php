@@ -19,14 +19,22 @@ class ContratoCuotasServicio
      * Vencimiento fijo: misma fecha base, desplazada por meses calendario.
      * El día 29/30/31 se ajusta solo en meses más cortos.
      */
-    public static function vencimientoMensual(string $primeraFechaPago, int $indiceCuota): string
+    public static function vencimientoMensual(string $primeraFechaPago, int $indiceCuota, ?int $diaFijo = null): string
     {
         if ($indiceCuota < 0) {
             throw new \InvalidArgumentException('El índice de cuota debe ser positivo.');
         }
 
-        return Carbon::parse($primeraFechaPago)->startOfDay()
-            ->addMonthsNoOverflow($indiceCuota)->toDateString();
+        $dia = $diaFijo ?? (int) Carbon::parse($primeraFechaPago)->day;
+        if ($dia < 1 || $dia > 31) {
+            throw new \InvalidArgumentException('El día de pago debe estar entre 1 y 31.');
+        }
+
+        // Avanzar desde el primer mes y restaurar el día original cada vez;
+        // 31/01 -> 28/02 -> 31/03, no 28/03.
+        $mes = Carbon::parse($primeraFechaPago)->startOfMonth()
+            ->addMonthsNoOverflow($indiceCuota);
+        return $mes->addDays(min($dia, $mes->daysInMonth) - 1)->toDateString();
     }
 
     public static function primeraFechaPagoPorDia(string $fechaInicio, int $diaPago): string
@@ -97,7 +105,7 @@ class ContratoCuotasServicio
         // La primera fecha de pago fija el día de vencimiento de cada mes.
         // Los meses cortos usan su último día (29/30/31); cada cuota se
         // calcula desde la fecha original para evitar deriva acumulada.
-        $diaPago = (int) $primerVencimiento->day;
+        $diaPago = (int) ($membresia->dia_pago ?: $primerVencimiento->day);
         $precio = round((float) $primerPeriodo->precio, 2);
 
         // Snapshot explícito de los atributos que afectan el servicio,
@@ -171,7 +179,7 @@ class ContratoCuotasServicio
                 $periodoId = (int) $primerPeriodo->id;
             }
 
-            $vence = Carbon::parse(self::vencimientoMensual($fechaPrimerPago, $numero - 1))->startOfDay();
+            $vence = Carbon::parse(self::vencimientoMensual($fechaPrimerPago, $numero - 1, $diaPago))->startOfDay();
             if ($vence->gt($fin)) {
                 throw ValidationException::withMessages([
                     'fecha_primer_pago' => 'El vencimiento de la cuota ' . $numero .

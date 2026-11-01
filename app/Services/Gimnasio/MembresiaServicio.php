@@ -109,6 +109,19 @@ class MembresiaServicio
 
         $antes = DB::table('membresias.membresias')->where('id', $id)->first();
 
+        // Un contrato con cuotas programadas no puede cambiar sus bases
+        // comerciales mediante la edición heredada: desalinearía períodos,
+        // ventas emitidas y obligaciones futuras.
+        if ($antes && $antes->cantidad_periodos_contratados !== null) {
+            foreach (['fecha_inicio', 'dia_pago', 'generar_venta_automatica', 'modalidad_id', 'plan_id', 'precio_aplicado'] as $campo) {
+                if (array_key_exists($campo, $datos)) {
+                    throw ValidationException::withMessages([
+                        $campo => 'Los contratos con cuotas programadas requieren un proceso de modificación contractual auditado.',
+                    ]);
+                }
+            }
+        }
+
         $planActual = DB::table('membresias.planes')->where('id', $antes->plan_id)->first();
         $generarAutomatico = array_key_exists('generar_venta_automatica', $datos)
             ? (bool) $datos['generar_venta_automatica']
@@ -241,6 +254,20 @@ class MembresiaServicio
             return null;
         }
 
+        // Mostrar las condiciones históricas acordadas, no los valores
+        // editables actuales del catálogo. Los contratos antiguos sin
+        // snapshot conservan el comportamiento anterior.
+        $condiciones = $membresia->condiciones_contratadas
+            ? json_decode((string) $membresia->condiciones_contratadas, true)
+            : null;
+        $membresia->condiciones_contratadas = $condiciones;
+        if (is_array($condiciones)) {
+            $membresia->plan_nombre = $condiciones['plan_nombre'] ?? $membresia->plan_nombre;
+            $membresia->modalidad_nombre = $condiciones['modalidad_nombre'] ?? $membresia->modalidad_nombre;
+            $membresia->modalidad_tipo_duracion = $condiciones['tipo_duracion'] ?? $membresia->modalidad_tipo_duracion;
+            $membresia->modalidad_duracion = $condiciones['duracion'] ?? $membresia->modalidad_duracion;
+        }
+
         // Datos de descuento vigente para precargar correctamente la edición.
         $membresia->descuento_vigente = DB::table('membresias.descuentos_deportistas')
             ->where('deportista_id', (int) $membresia->deportista_id)
@@ -306,6 +333,20 @@ class MembresiaServicio
         $membresia->venta_total = $venta?->total;
         $membresia->periodos = $this->periodos($id);
         $membresia->periodo_actual = $membresia->periodos->first();
+
+        // El calendario contractual se expone separado de los períodos
+        // deportivos. La cartera es la fuente del saldo efectivamente pagado.
+        $membresia->cuotas = DB::table('membresias.membresia_cuotas as c')
+            ->leftJoin('ventas.ventas as v', 'v.id', '=', 'c.venta_id')
+            ->where('c.membresia_id', $id)
+            ->orderBy('c.numero_cuota')
+            ->get([
+                'c.id', 'c.periodo_id', 'c.numero_cuota', 'c.monto',
+                'c.fecha_programada_emision', 'c.fecha_vencimiento',
+                'c.estado', 'c.venta_id',
+                'v.numero as venta_numero', 'v.estado as venta_estado',
+                DB::raw("(SELECT COALESCE(SUM(pg.monto), 0) FROM ventas.pagos pg WHERE pg.venta_id = c.venta_id AND pg.estado = 'CONFIRMADO') as monto_pagado"),
+            ]);
 
         return $membresia;
     }

@@ -18,12 +18,17 @@ class LoginController extends Controller
 
     public function __invoke(Request $request): JsonResponse
     {
-        $datos = $request->validate([
-            'email' => ['required', 'email'],
+        // Compatibilidad: integraciones web pueden seguir enviando "email".
+        $identificador = $request->input('identificador', $request->input('email'));
+        $datos = validator([
+            'identificador' => $identificador,
+            'password' => $request->input('password'),
+        ], [
+            'identificador' => ['required', 'string', 'max:160', 'regex:/^(?:[0-9]{8,20}|[^\\s@]+@[^\\s@]+\\.[^\\s@]+)$/'],
             'password' => ['required', 'string'],
-        ]);
+        ])->validate();
 
-        $login = $this->authService->intentarLogin($datos['email'], $datos['password']);
+        $login = $this->authService->intentarLogin($datos['identificador'], $datos['password']);
 
         if (! $login) {
             return ApiResponse::error('Credenciales incorrectas o usuario inactivo.', codigo: 401);

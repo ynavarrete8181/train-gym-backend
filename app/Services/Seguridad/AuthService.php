@@ -13,13 +13,23 @@ class AuthService
 {
     public function __construct(private readonly AuditoriaServicio $auditoria) {}
 
-    public function intentarLogin(string $email, string $password): ?array
+    public function intentarLogin(string $identificador, string $password): ?array
     {
-        $emailNormalizado = mb_strtolower(trim($email));
-        $usuario = User::query()->where('email', $emailNormalizado)->first();
+        $valor = mb_strtolower(trim($identificador));
+        $usuarios = str_contains($valor, '@')
+            ? User::query()->whereRaw('LOWER(TRIM(email)) = ?', [$valor])->limit(2)->get()
+            : User::query()->where(function ($query) use ($valor): void {
+                $query->where('cedula', $valor)
+                    ->orWhereIn('persona_id', DB::table('personas.personas')
+                        ->select('id')
+                        ->where('identificacion', $valor));
+            })->limit(2)->get();
+
+        // Rechazar identificaciones duplicadas en vez de autenticar una cuenta arbitraria.
+        $usuario = $usuarios->count() === 1 ? $usuarios->first() : null;
 
         if (! $usuario || ! Hash::check($password, $usuario->password) || ! $this->usuarioHabilitado($usuario)) {
-            $this->auditoria->registrarAcceso($usuario?->id, $emailNormalizado, 'LOGIN_FALLIDO', ! $usuario ? 'Usuario no encontrado.' : 'Credenciales inválidas o usuario deshabilitado.');
+            $this->auditoria->registrarAcceso($usuario?->id, $valor, 'LOGIN_FALLIDO', ! $usuario ? 'Usuario no encontrado o identificador ambiguo.' : 'Credenciales inválidas o usuario deshabilitado.');
             return null;
         }
 

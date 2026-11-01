@@ -27,6 +27,26 @@ Route::get('health', function () {
     }
 });
 
+// Dashboard personal: únicamente datos del usuario autenticado.
+Route::middleware('base.auth')
+    ->get('app/dashboard', \App\Http\Controllers\Api\App\DashboardDeportistaController::class)
+    ->name('app.dashboard');
+
+// Asignaciones propias del deportista autenticado: incluye detalle contractual.
+Route::middleware('base.auth')
+    ->get('app/mis-membresias', \App\Http\Controllers\Api\App\MisMembresiasController::class)
+    ->name('app.mis-membresias');
+
+// Planes activos visibles para el deportista; separado del catálogo administrativo.
+Route::middleware('base.auth')
+    ->get('app/planes', \App\Http\Controllers\Api\App\PlanesDisponiblesController::class)
+    ->name('app.planes');
+
+// Catálogo de lectura para deportistas autenticados: no expone gestión administrativa.
+Route::middleware('base.auth')
+    ->get('app/tienda/productos', \App\Http\Controllers\Api\App\TiendaProductosController::class)
+    ->name('app.tienda.productos');
+
 Route::prefix('base')->group(function (): void {
     require __DIR__.'/base/base.php';
     require __DIR__.'/base/dashboard.php';

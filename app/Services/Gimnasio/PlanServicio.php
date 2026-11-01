@@ -50,6 +50,11 @@ class PlanServicio
 
         return DB::transaction(function () use ($id, $datos, $preciosSede, $servicioIds, $modalidades) {
             $antes = DB::table('membresias.planes')->where('id', $id)->first();
+            if ($antes) {
+                $antes->precios_sede = DB::table('membresias.plan_precios_sede')->where('plan_id', $id)->get();
+                $antes->servicios = $this->serviciosDelPlan($id);
+                $antes->modalidades = $this->modalidadesDelPlan($id);
+            }
             DB::table('membresias.planes')->where('id', $id)->update($datos);
 
             $this->sincronizarPreciosSede($id, $preciosSede);
@@ -217,6 +222,12 @@ class PlanServicio
                 ? DB::table('membresias.plan_modalidades')->where('plan_id', $planId)->where('id', $modalidadId)->first()
                 : null;
 
+            if ($existente) {
+                // Snapshot de todos los precios por sede antes de reemplazarlos.
+                $existente->precios_sede = DB::table('membresias.plan_modalidad_precios_sede')
+                    ->where('modalidad_id', $modalidadId)->orderBy('sede_id')->get();
+            }
+
             if ($modalidadId && ! $existente) {
                 throw \Illuminate\Validation\ValidationException::withMessages([
                     'modalidad_id' => 'La modalidad no pertenece al plan.',
@@ -259,8 +270,40 @@ class PlanServicio
                 );
             }
 
-            return $this->modalidadesDelPlan($planId)->firstWhere('id', $id);
+            $guardada = $this->modalidadesDelPlan($planId)->firstWhere('id', $id);
+            $historial = app(HistorialComercialMembresiaServicio::class);
+            $antesComercial = $existente ? (array) $existente : null;
+            $despuesComercial = (array) $guardada;
+            // Guardar el historial en el mismo commit de la modificación.
+            // No generar versiones artificiales si no hubo cambios reales.
+            if ($antesComercial === null || $this->representacionComercial($antesComercial) !== $this->representacionComercial($despuesComercial)) {
+                $historial->registrarModalidad(
+                    $planId, $id, $modalidadId ? 'ACTUALIZAR' : 'CREAR',
+                    $antesComercial, $despuesComercial
+                );
+            }
+            $this->auditar('membresias', $modalidadId ? 'ACTUALIZAR' : 'CREAR',
+                'membresias.plan_modalidades', $id, $existente, $guardada,
+                'Modalidad y tarifas por sede: condiciones aplicables únicamente a nuevas contrataciones.');
+            return $guardada;
         });
+    }
+
+    private function representacionComercial(array $datos): string
+    {
+        unset($datos['created_at'], $datos['updated_at']);
+        // Los precios de la base usan created_at/updated_at que no son
+        // condiciones comerciales. Conservamos precio, sede y activo.
+        $datos['precios_sede'] = collect($datos['precios_sede'] ?? [])
+            ->map(fn ($p) => [
+                'sede_id' => (int) (is_object($p) ? $p->sede_id : $p['sede_id']),
+                'precio' => number_format((float) (is_object($p) ? $p->precio : $p['precio']), 2, '.', ''),
+                'activo' => (bool) (is_object($p) ? $p->activo : $p['activo']),
+            ])
+            ->sortBy('sede_id')->values()->all();
+
+        ksort($datos);
+        return json_encode($datos, JSON_THROW_ON_ERROR);
     }
 
     public function eliminarModalidad(int $planId, int $modalidadId): void
@@ -273,6 +316,30 @@ class PlanServicio
             throw \Illuminate\Validation\ValidationException::withMessages([
                 'modalidad_id' => 'La modalidad no se puede eliminar porque ya tiene membresías asociadas. Inactívala para conservar el historial.',
             ]);
+        }
+
+        // Una modalidad con versiones históricas no se destruye: se
+        // desactiva para nuevas contrataciones y conserva su trazabilidad.
+        $tieneHistorial = DB::table('membresias.plan_modalidad_versiones')
+            ->where('modalidad_id', $modalidadId)->exists();
+        if ($tieneHistorial) {
+            $modalidad = DB::table('membresias.plan_modalidades')
+                ->where('plan_id', $planId)->where('id', $modalidadId)->first();
+            if ($modalidad && $modalidad->activo) {
+                DB::table('membresias.plan_modalidades')
+                    ->where('id', $modalidadId)->update(['activo' => false, 'updated_at' => now()]);
+                $antes = (array) $modalidad;
+                $antes['precios_sede'] = DB::table('membresias.plan_modalidad_precios_sede')
+                    ->where('modalidad_id', $modalidadId)->orderBy('sede_id')->get()->all();
+                $despues = $antes;
+                $despues['activo'] = false;
+                app(HistorialComercialMembresiaServicio::class)->registrarModalidad(
+                    $planId, $modalidadId, 'DESACTIVAR', $antes, $despues
+                );
+                $this->auditar('membresias', 'DESACTIVAR', 'membresias.plan_modalidades',
+                    $modalidadId, $antes, $despues);
+            }
+            return;
         }
 
         DB::table('membresias.plan_modalidades')

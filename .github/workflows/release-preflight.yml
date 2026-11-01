@@ -1,0 +1,23 @@
+name: Validacion previa a produccion - Backend
+on:
+  push:
+    branches: [dev-revive]
+  pull_request:
+    branches: [main]
+jobs:
+  syntax-and-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo_pgsql, gd, zip, pcntl, intl
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Validar sintaxis de PHP modificado
+        run: |
+          find app database/migrations tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Prueba vencimientos mensuales
+        run: php artisan test tests/Unit/Gimnasio/VencimientoMensualTest.php

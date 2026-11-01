@@ -8,6 +8,7 @@ use App\Services\CuentasCobrar\CarteraServicio;
 use App\Services\Inventario\InventarioServicio;
 use App\Services\Seguridad\AlcanceOperativoService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class VentaServicio
@@ -54,10 +55,12 @@ class VentaServicio
             ->leftJoin('institucional.sedes as sede_operacion', DB::raw('COALESCE(ventas.cajas.sede_id, membresia_sede.sede_id)'), '=', 'sede_operacion.id_sede')
             ->leftJoin('configuracion.estados_catalogo as estado_cfg', 'ventas.ventas.estado_id', '=', 'estado_cfg.id')
             ->leftJoin('seguridad.users as generado_por', 'ventas.ventas.usuario_id', '=', 'generado_por.id')
+            ->leftJoin('seguridad.cpu_userrole as rol_generador', 'generado_por.usr_tipo', '=', 'rol_generador.id_userrole')
             ->leftJoin('seguridad.users as responsable_comercial', 'ventas.ventas.responsable_comercial_id', '=', 'responsable_comercial.id')
             ->select(
                 'ventas.ventas.*',
                 'generado_por.name as generado_por_nombre',
+                'rol_generador.role as generado_por_rol',
                 'responsable_comercial.name as responsable_comercial_nombre',
                 'cliente_user.name as cliente_nombre',
                 'clientes.deportistas.codigo_deportista',
@@ -98,9 +101,10 @@ class VentaServicio
             $sedeMembresia = $this->alcance->sedeDeMembresia($membresiaId ? (int) $membresiaId : null);
 
             if ($sedeCaja && $sedeMembresia && $sedeCaja !== $sedeMembresia) {
-                throw ValidationException::withMessages([
-                    'caja_id' => 'La caja y la membresía pertenecen a sedes diferentes.',
-                ]);
+                $this->validarSedeCobroMembresia(
+                    (int) $membresiaId,
+                    (int) $sedeCaja
+                );
             }
 
             $sedeOperacion = $sedeCaja ?: $sedeMembresia;
@@ -166,6 +170,31 @@ class VentaServicio
     public function detalleVenta(int $ventaId, ?int $usuarioId = null): object
     {
         $sedeId = $this->alcance->sedeDeVenta($ventaId);
+        $cuenta = DB::table('ventas.ventas')
+            ->where('id', $ventaId)
+            ->first(['membresia_id', 'estado']);
+
+        // El detalle de una cuenta pendiente puede atenderse en el turno
+        // abierto de cualquier sede autorizada de la membresía.
+        if ($cuenta?->membresia_id
+            && in_array(strtoupper((string) $cuenta->estado), ['PENDIENTE', 'PARCIAL'], true)) {
+            $turno = DB::table('ventas.turnos_caja')
+                ->where('usuario_id', $usuarioId)
+                ->where('estado', 'ABIERTA')
+                ->first(['sede_id']);
+            if ($turno) {
+                $sedeTurno = (int) $turno->sede_id;
+                $autorizada = DB::table('membresias.membresia_sedes')
+                    ->where('membresia_id', (int) $cuenta->membresia_id)
+                    ->where('sede_id', $sedeTurno)
+                    ->where('activo', true)
+                    ->exists();
+                if ($autorizada) {
+                    $sedeId = $sedeTurno;
+                }
+            }
+        }
+
         $this->alcance->validarSede($usuarioId, $sedeId, 'maneja_caja');
         $this->validarVisibilidadDetalleVenta($ventaId, $usuarioId, $sedeId);
 
@@ -286,6 +315,12 @@ class VentaServicio
 
     public function listarPagos(array $filtros, ?int $usuarioId = null)
     {
+        // Compatibilidad entre bases locales que aún no han aplicado la
+        // migración del desglose de efectivo y las que ya la incluyen.
+        $esquemaPagos = Schema::connection('pgsql');
+        $tieneEfectivoRecibido = $esquemaPagos->hasColumn('ventas.pagos', 'efectivo_recibido');
+        $tieneCambioEntregado = $esquemaPagos->hasColumn('ventas.pagos', 'cambio_entregado');
+
         $operacionExpr = "COALESCE(p.operacion_cobro_id, 'PAGO-' || p.id::text)";
 
         $query = DB::table('ventas.pagos as p')
@@ -298,6 +333,9 @@ class VentaServicio
             ->leftJoin('personas.personas as persona', 'd.persona_id', '=', 'persona.id')
             ->leftJoin('seguridad.users as cliente_user', 'd.usuario_id', '=', 'cliente_user.id')
             ->leftJoin('seguridad.users as cobrador', 'p.usuario_id', '=', 'cobrador.id')
+            ->leftJoin('seguridad.users as creador_venta', 'v.usuario_id', '=', 'creador_venta.id')
+            ->leftJoin('seguridad.cpu_userrole as rol_creador', 'creador_venta.usr_tipo', '=', 'rol_creador.id_userrole')
+            ->leftJoin('seguridad.cpu_userrole as rol_cobrador', 'cobrador.usr_tipo', '=', 'rol_cobrador.id_userrole')
             ->selectRaw("MAX(p.id) as id")
             ->selectRaw("{$operacionExpr} as operacion_cobro_id")
             ->selectRaw('MAX(p.codigo_cobro) as codigo_cobro')
@@ -307,12 +345,19 @@ class VentaServicio
             ->selectRaw("COALESCE(MAX(NULLIF(TRIM(persona.nombre_completo), '')), MAX(NULLIF(TRIM(cliente_user.name), '')), 'Consumidor final') as cliente_nombre")
             ->selectRaw("COALESCE(MAX(NULLIF(TRIM(persona.identificacion), '')), MAX(NULLIF(TRIM(cliente_user.cedula), ''))) as cliente_identificacion")
             ->selectRaw("COALESCE(MAX(NULLIF(TRIM(cobrador.name), '')), 'Sin usuario') as cobrado_por_nombre")
+            ->selectRaw('MAX(rol_cobrador.role) as cobrado_por_rol')
+            ->selectRaw("CASE WHEN MAX(v.generado_por_tipo) = 'SISTEMA' THEN 'Sistema' ELSE COALESCE(MAX(NULLIF(TRIM(creador_venta.name), '')), 'Sin usuario') END as generado_por_nombre")
+            ->selectRaw('MAX(rol_creador.role) as generado_por_rol')
             ->selectRaw('MAX(caja_pago.nombre) as caja_nombre')
             ->selectRaw('MAX(caja_pago.codigo) as caja_codigo')
             ->selectRaw('MAX(p.turno_caja_id) as turno_caja_id')
             ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' AND p.metodo_pago = \'EFECTIVO\' THEN p.monto ELSE 0 END) as efectivo')
-            ->selectRaw("SUM(CASE WHEN p.estado = 'CONFIRMADO' AND p.metodo_pago = 'EFECTIVO' THEN COALESCE(p.efectivo_recibido, p.monto) ELSE 0 END) as efectivo_recibido")
-            ->selectRaw("SUM(CASE WHEN p.estado = 'CONFIRMADO' AND p.metodo_pago = 'EFECTIVO' THEN COALESCE(p.cambio_entregado, 0) ELSE 0 END) as cambio_entregado")
+            ->selectRaw($tieneEfectivoRecibido
+                ? "SUM(CASE WHEN p.estado = 'CONFIRMADO' AND p.metodo_pago = 'EFECTIVO' THEN COALESCE(p.efectivo_recibido, p.monto) ELSE 0 END) as efectivo_recibido"
+                : "SUM(CASE WHEN p.estado = 'CONFIRMADO' AND p.metodo_pago = 'EFECTIVO' THEN p.monto ELSE 0 END) as efectivo_recibido")
+            ->selectRaw($tieneCambioEntregado
+                ? "SUM(CASE WHEN p.estado = 'CONFIRMADO' AND p.metodo_pago = 'EFECTIVO' THEN COALESCE(p.cambio_entregado, 0) ELSE 0 END) as cambio_entregado"
+                : "0::numeric as cambio_entregado")
             ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' AND p.metodo_pago = \'TRANSFERENCIA\' THEN p.monto ELSE 0 END) as transferencia')
             ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' AND p.metodo_pago = \'TARJETA\' THEN p.monto ELSE 0 END) as tarjeta')
             ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' AND p.metodo_pago = \'DEPOSITO\' THEN p.monto ELSE 0 END) as deposito')
@@ -335,6 +380,7 @@ class VentaServicio
                     ->orWhereRaw('LOWER(COALESCE(persona.nombre_completo, cliente_user.name, \'\')) LIKE ?', [$texto])
                     ->orWhereRaw('LOWER(COALESCE(persona.identificacion, cliente_user.cedula, \'\')) LIKE ?', [$texto])
                     ->orWhereRaw('LOWER(COALESCE(cobrador.name, \'\')) LIKE ?', [$texto])
+                    ->orWhereRaw('LOWER(COALESCE(creador_venta.name, \'\')) LIKE ?', [$texto])
                     ->orWhereRaw('LOWER(COALESCE(p.codigo_cobro, \'\')) LIKE ?', [$texto])
                     ->orWhereRaw('LOWER(COALESCE(p.operacion_cobro_id, \'\')) LIKE ?', [$texto]);
             });
@@ -342,9 +388,30 @@ class VentaServicio
 
         $this->filtrarTexto($query, 'p.estado', $filtros['estado'] ?? null);
 
+        // Un cobro se filtra por su fecha real, no por la fecha de creación
+        // de la venta ni la vigencia contractual de la membresía.
+        if (! empty($filtros['fecha_pago'])) {
+            $query->whereDate('p.fecha_pago', $filtros['fecha_pago']);
+        }
+
         return $query
             ->orderByDesc(DB::raw('MAX(p.fecha_pago)'))
             ->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
+    }
+
+    private function validarSedeCobroMembresia(int $membresiaId, int $sedeId): void
+    {
+        $autorizada = DB::table('membresias.membresia_sedes')
+            ->where('membresia_id', $membresiaId)
+            ->where('sede_id', $sedeId)
+            ->where('activo', true)
+            ->exists();
+
+        if (! $autorizada) {
+            throw ValidationException::withMessages([
+                'caja_id' => 'Esta membresía no permite cobrar en la sede seleccionada.',
+            ]);
+        }
     }
 
     public function guardarPago(array $datos, ?int $usuarioId = null): object
@@ -368,18 +435,45 @@ class VentaServicio
                 }
             }
 
-            $sedeVenta = $this->alcance->sedeDeVenta((int) $datos['venta_id']);
-            $this->alcance->validarSede($usuarioId, $sedeVenta, 'maneja_caja');
+            // Validación de seguridad en la capa de servicio: aplica tanto
+            // al endpoint de pagos como a los cobros realizados desde POS.
+            $turno = DB::table('ventas.turnos_caja as t')
+                ->join('ventas.cajas as c', 'c.id', '=', 't.caja_id')
+                ->where('t.usuario_id', $usuarioId)
+                ->where('t.estado', 'ABIERTA')
+                ->where('c.activa', true)
+                ->lockForUpdate()
+                ->select('t.*')
+                ->first();
 
-            $sedeCajaPago = $this->alcance->sedeDeCaja(! empty($datos['caja_id']) ? (int) $datos['caja_id'] : null);
-            if ($sedeCajaPago && $sedeVenta && $sedeCajaPago !== $sedeVenta) {
+            if (! $turno) {
                 throw ValidationException::withMessages([
-                    'caja_id' => 'El pago debe registrarse en una caja de la misma sede de la venta.',
+                    'turno_caja_id' => 'Debes abrir una caja propia antes de registrar un cobro.',
                 ]);
             }
-            if ($sedeCajaPago) {
-                $this->alcance->validarSede($usuarioId, $sedeCajaPago, 'maneja_caja');
+            if ((! empty($datos['caja_id']) && (int) $datos['caja_id'] !== (int) $turno->caja_id)
+                || (! empty($datos['turno_caja_id']) && (int) $datos['turno_caja_id'] !== (int) $turno->id)) {
+                throw ValidationException::withMessages([
+                    'caja_id' => 'Solo puedes cobrar desde tu caja actualmente abierta.',
+                ]);
             }
+
+            $sedeCobro = $this->alcance->validarSede(
+                $usuarioId, (int) $turno->sede_id, 'maneja_caja'
+            );
+            if ($venta->membresia_id) {
+                $this->validarSedeCobroMembresia((int) $venta->membresia_id, $sedeCobro);
+            } else {
+                $sedeVenta = $this->alcance->sedeDeVenta((int) $venta->id);
+                if ($sedeVenta && $sedeVenta !== $sedeCobro) {
+                    throw ValidationException::withMessages([
+                        'caja_id' => 'La venta no pertenece a la sede de tu caja.',
+                    ]);
+                }
+            }
+
+            $datos['caja_id'] = (int) $turno->caja_id;
+            $datos['turno_caja_id'] = (int) $turno->id;
 
             $datos = $this->estados->aplicar($datos, 'PAGO');
             $datos['usuario_id'] = $usuarioId;

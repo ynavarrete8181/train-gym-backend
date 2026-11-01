@@ -7,7 +7,9 @@ use App\Http\Controllers\Api\Auth\LogoutController;
 use App\Http\Controllers\Api\Auth\UsuarioActualController;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/auth/login', LoginController::class)->name('base.auth.login');
+Route::post('/auth/login', LoginController::class)
+    ->middleware('throttle:10,1')
+    ->name('base.auth.login');
 Route::get('/auth/microsoft/configuracion', [LoginMicrosoftController::class, 'configuracion'])
     ->name('base.auth.microsoft.configuracion');
 Route::post('/auth/microsoft', [LoginMicrosoftController::class, 'login'])

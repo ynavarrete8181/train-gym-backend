@@ -276,7 +276,16 @@ class VentaPosServicio
                 return [];
             }
 
-            $query->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes);
+            $query->where(function ($permitidas) use ($sedes): void {
+                $permitidas->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes)
+                    ->orWhereExists(function ($membresias) use ($sedes): void {
+                        $membresias->selectRaw('1')
+                            ->from('membresias.membresia_sedes as ms')
+                            ->whereColumn('ms.membresia_id', 'v.membresia_id')
+                            ->where('ms.activo', true)
+                            ->whereIn('ms.sede_id', $sedes);
+                    });
+            });
         } else {
             if (! $turno) {
                 return [];
@@ -284,10 +293,18 @@ class VentaPosServicio
 
             $sedeId = (int) $turno->sede_id;
 
-            // El cajero con turno propio activo puede cobrar cualquier cuenta
-            // pendiente/parcial de su sede, sin importar quién la generó.
-            // La responsabilidad de caja queda en el pago/turno, no en el origen de la venta.
-            $query->whereRaw('COALESCE(c.sede_id, m.sede_id) = ?', [$sedeId]);
+            // Una sola venta pendiente visible desde las sedes autorizadas
+            // de su membresía; el pago queda ligado al turno real del cajero.
+            $query->where(function ($alcance) use ($sedeId): void {
+                $alcance->whereRaw('COALESCE(c.sede_id, m.sede_id) = ?', [$sedeId])
+                    ->orWhereExists(function ($membresias) use ($sedeId): void {
+                        $membresias->selectRaw('1')
+                            ->from('membresias.membresia_sedes as ms')
+                            ->whereColumn('ms.membresia_id', 'v.membresia_id')
+                            ->where('ms.activo', true)
+                            ->where('ms.sede_id', $sedeId);
+                    });
+            });
         }
 
         return $query

@@ -2,6 +2,7 @@
 
 namespace App\Services\Gimnasio;
 
+use App\Services\CuentasCobrar\CarteraServicio;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -11,6 +12,7 @@ class CobroProgramadoMembresiaServicio
         private readonly MembresiaServicio $membresias,
         private readonly CarteraServicio $cartera,
         private readonly DescuentoDeportistaServicio $descuentos,
+        private readonly EmisionCuotasServicio $emisionCuotas,
     ) {
     }
 
@@ -21,6 +23,7 @@ class CobroProgramadoMembresiaServicio
         $omitidas = 0;
 
         $ids = DB::table('membresias.membresias')
+            ->whereNull('cantidad_periodos_contratados')
             ->where('generar_venta_automatica', true)
             ->whereNotNull('dia_pago')
             ->whereNotNull('proxima_fecha_cobro')
@@ -175,7 +178,10 @@ class CobroProgramadoMembresiaServicio
             });
         }
 
+        $cuotas = $this->emisionCuotas->procesar($hoy->toDateString());
+
         return [
+            ...$cuotas,
             'procesadas' => $ids->count(),
             'ventas_creadas' => $creadas,
             'omitidas' => $omitidas,

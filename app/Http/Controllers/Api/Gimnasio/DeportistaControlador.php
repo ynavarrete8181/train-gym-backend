@@ -233,8 +233,30 @@ class DeportistaControlador extends Controller
                 'c.estado', 'c.venta_id', 'v.estado as venta_estado',
                 DB::raw("(SELECT COALESCE(SUM(p.monto), 0) FROM ventas.pagos p WHERE p.venta_id = c.venta_id AND p.estado = 'CONFIRMADO') as monto_pagado"),
             ])->groupBy('membresia_id');
+        // Períodos y cuotas reales: la edición nunca recalcula un contrato
+        // histórico a partir de las modalidades/precios actuales.
+        $periodos = DB::table('membresias.membresia_periodos')
+            ->whereIn('membresia_id', $membresias->pluck('id')->all())
+            ->orderBy('numero_periodo')
+            ->get(['id', 'membresia_id', 'numero_periodo', 'fecha_inicio', 'fecha_fin', 'precio', 'estado'])
+            ->groupBy('membresia_id');
+
+        $historial = DB::table('membresias.membresia_condiciones_historial as h')
+            ->leftJoin('seguridad.users as autor', 'autor.id', '=', 'h.usuario_id')
+            ->whereIn('h.membresia_id', $membresias->pluck('id')->all())
+            ->orderBy('h.version')
+            ->get(['h.id', 'h.membresia_id', 'h.version', 'h.accion',
+                'h.condiciones', 'h.motivo', 'h.registrado_at', 'autor.name as autor_nombre'])
+            ->groupBy('membresia_id');
+
         foreach ($membresias as $membresia) {
             $membresia->cuotas = $cuotas->get($membresia->id, collect())->values();
+            $membresia->periodos = $periodos->get($membresia->id, collect())->values();
+            $membresia->historial_condiciones = $historial->get($membresia->id, collect())
+                ->map(function ($registro) {
+                    $registro->condiciones = json_decode((string) $registro->condiciones, true);
+                    return $registro;
+                })->values();
         }
 
         $deportista->membresias = $membresias;

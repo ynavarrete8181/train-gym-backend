@@ -3,7 +3,6 @@
 namespace App\Services\Gimnasio;
 
 use App\Services\CuentasCobrar\CarteraServicio;
-use App\Services\Ventas\VentaServicio;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -14,7 +13,6 @@ use Illuminate\Support\Facades\DB;
 class EmisionCuotasServicio
 {
     public function __construct(
-        private readonly VentaServicio $ventas,
         private readonly CarteraServicio $cartera,
     ) {
     }
@@ -58,10 +56,19 @@ class EmisionCuotasServicio
                     return;
                 }
 
-                $venta = $this->ventas->guardarVenta([
+                // Scheduler sin usuario interactivo: inserción de SISTEMA
+                // (igual que el cobro programado heredado), sin suplantar un cajero.
+                $estadoId = DB::table('configuracion.estados_catalogo')
+                    ->where('entidad', 'VENTA')->where('valor_interno', 'PENDIENTE')
+                    ->where('activo', true)->value('id');
+                $numeroVenta = 'VENTA-CUOTA-' . $cuota->id;
+                $ventaId = DB::table('ventas.ventas')->insertGetId([
                     'cliente_id' => $membresia->deportista_id,
                     'membresia_id' => $membresia->id,
                     'caja_id' => null,
+                    'usuario_id' => null,
+                    'responsable_comercial_id' => null,
+                    'numero' => $numeroVenta,
                     'origen_tipo' => 'MEMBRESIA_CUOTA_PROGRAMADA',
                     'origen_id' => $cuota->id,
                     'generado_por_tipo' => 'SISTEMA',
@@ -73,34 +80,57 @@ class EmisionCuotasServicio
                     'impuesto' => 0,
                     'total' => $cuota->monto,
                     'estado' => 'PENDIENTE',
-                    'observaciones' => 'Venta generada a partir del calendario contractual de cuotas.',
-                    'detalle' => [
-                        'tipo_item' => 'MEMBRESIA',
-                        'referencia_id' => $plan->id,
-                        'descripcion' => $plan->nombre . ' - Cuota ' . $cuota->numero_cuota,
-                        'cantidad' => 1,
-                        'precio_unitario' => $cuota->monto,
-                        'total_linea' => $cuota->monto,
-                    ],
+                    'estado_id' => $estadoId,
+                    'fecha_venta' => now(),
+                    'observaciones' => 'Venta automática del calendario contractual.',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                DB::table('ventas.venta_detalles')->insert([
+                    'venta_id' => $ventaId,
+                    'producto_id' => null,
+                    'tipo_item' => 'MEMBRESIA',
+                    'referencia_id' => $plan->id,
+                    'descripcion' => $plan->nombre . ' - Cuota ' . $cuota->numero_cuota,
+                    'cantidad' => 1,
+                    'precio_unitario' => $cuota->monto,
+                    'total_linea' => $cuota->monto,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                DB::table('ventas.comprobantes')->insert([
+                    'venta_id' => $ventaId,
+                    'pago_id' => null,
+                    'tipo_comprobante' => 'RECIBO',
+                    'numero' => 'COMP-CUOTA-' . $cuota->id,
+                    'estado' => 'BORRADOR',
+                    'subtotal' => $cuota->monto,
+                    'impuesto' => 0,
+                    'total' => $cuota->monto,
+                    'emitido_at' => null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ]);
 
                 DB::table('membresias.membresia_cuotas')->where('id', $cuota->id)->update([
-                    'venta_id' => $venta->id,
+                    'venta_id' => $ventaId,
                     'estado' => 'EMITIDA',
                     'emitida_at' => now(),
                     'updated_at' => now(),
                 ]);
 
                 DB::table('membresias.membresia_periodos')->where('id', $periodo->id)->update([
-                    'venta_id' => $venta->id,
+                    'venta_id' => $ventaId,
                     'estado' => 'PENDIENTE_PAGO',
                     'updated_at' => now(),
                 ]);
 
                 // guardarVenta crea la cuenta; reemplazamos su fecha provisional
                 // por el vencimiento contractual independiente de dias_gracia.
-                $this->cartera->sincronizarVenta((int) $venta->id);
-                DB::table('cuentas_cobrar.cuentas')->where('venta_id', $venta->id)
+                $this->cartera->sincronizarVenta((int) $ventaId);
+                DB::table('cuentas_cobrar.cuentas')->where('venta_id', $ventaId)
                     ->update(['fecha_vencimiento' => $cuota->fecha_vencimiento, 'updated_at' => now()]);
 
                 $emitidas++;

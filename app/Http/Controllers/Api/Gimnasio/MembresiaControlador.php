@@ -404,7 +404,7 @@ class MembresiaControlador extends Controller
             'asignaciones_entrenador.*.sede_id' => 'required|integer|exists:pgsql.institucional.sedes,id_sede',
             'asignaciones_entrenador.*.entrenador_id' => 'required|integer|exists:pgsql.entrenamiento.entrenadores,id',
             'asignaciones_entrenador.*.horario_bloque_id' => 'required|integer|exists:pgsql.agenda.horario_bloques,id',
-            'fecha_inicio' => 'required|date',
+            'fecha_inicio' => $membresia->cantidad_periodos_contratados !== null ? 'prohibited' : 'required|date',
             'estado' => [
                 'required',
                 'string',
@@ -466,7 +466,7 @@ class MembresiaControlador extends Controller
             false // La ficha inicial se exige al contratar, no al editar el contrato existente.
         );
 
-        $membresiaActualizada = DB::transaction(function () use ($id, $validados, $generarVenta, $request) {
+        $membresiaActualizada = DB::transaction(function () use ($id, $validados, $generarVenta, $request, $membresia) {
             $camposSeguimiento = [
                 'estado', 'dias_gracia', 'sede_id', 'fecha_inicio', 'fecha_fin',
                 'dia_pago', 'renovacion_automatica', 'modalidad_id', 'precio_aplicado',
@@ -528,7 +528,9 @@ class MembresiaControlador extends Controller
                 $this->descuentos->actualizar($beneficioId, ['activo' => false], (int) $request->user()->id);
             }
 
-            $this->sincronizarFacturacion((int) $id, $generarVenta, $request);
+            if ($membresia->cantidad_periodos_contratados === null) {
+                $this->sincronizarFacturacion((int) $id, $generarVenta, $request);
+            }
             $estadoPosterior = $cargarEstado();
             $cambios = [];
             foreach ($estadoAnterior as $campo => $valorAnterior) {

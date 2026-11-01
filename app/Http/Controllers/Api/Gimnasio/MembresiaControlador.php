@@ -108,7 +108,9 @@ class MembresiaControlador extends Controller
             'asignaciones_entrenador.*.horario_bloque_id' => 'required|integer|exists:pgsql.agenda.horario_bloques,id',
             'fecha_inicio' => 'required|date',
             'cantidad_periodos_contratados' => 'sometimes|integer|min:1|max:36',
-            'fecha_primer_pago' => 'required_with:cantidad_periodos_contratados|date',
+            'fecha_primer_pago' => 'nullable|date',
+            // Contratos nuevos pueden enviar solo dia_pago. Las integraciones
+            // anteriores que envían fecha_primer_pago siguen siendo compatibles.
             'dias_gracia' => 'integer|min:0',
             'dia_pago' => 'nullable|integer|min:1|max:31|required_if:generar_venta_automatica,true',
             'generar_venta_automatica' => 'boolean',
@@ -148,15 +150,28 @@ class MembresiaControlador extends Controller
         }
         $contratoProgramado = array_key_exists('cantidad_periodos_contratados', $validados);
         if ($contratoProgramado) {
-            // La fecha elegida fija el día mensual (incluidos meses cortos).
-            // No se usa la programación heredada por desfase de días.
-            $diaFijo = (int) \Carbon\Carbon::parse($validados['fecha_primer_pago'])->day;
-            if (isset($validados['dia_pago']) && (int) $validados['dia_pago'] !== $diaFijo) {
+            $diaFijo = isset($validados['dia_pago']) ? (int) $validados['dia_pago'] : null;
+            if ($diaFijo === null && ! empty($validados['fecha_primer_pago'])) {
+                $diaFijo = (int) \Carbon\Carbon::parse($validados['fecha_primer_pago'])->day;
+            }
+            if (! $diaFijo) {
                 throw ValidationException::withMessages([
-                    'dia_pago' => 'El día de pago debe coincidir con la primera fecha de pago.',
+                    'dia_pago' => 'Ingresa el día de pago entre 1 y 31.',
+                ]);
+            }
+
+            $fechaDerivada = \App\Services\Gimnasio\ContratoCuotasServicio::primeraFechaPagoPorDia(
+                $validados['fecha_inicio'],
+                $diaFijo
+            );
+            // Si se envían ambos datos, no admitir condiciones contradictorias.
+            if (! empty($validados['fecha_primer_pago']) && $validados['fecha_primer_pago'] !== $fechaDerivada) {
+                throw ValidationException::withMessages([
+                    'fecha_primer_pago' => 'La primera fecha de pago debe coincidir con el día mensual elegido.',
                 ]);
             }
             $validados['dia_pago'] = $diaFijo;
+            $validados['fecha_primer_pago'] = $fechaDerivada;
         }
         if ($contratoProgramado && ($validados['generar_venta_automatica'] ?? false)) {
             throw ValidationException::withMessages([

@@ -32,6 +32,11 @@ Route::middleware('base.auth')
     ->get('app/dashboard', \App\Http\Controllers\Api\App\DashboardDeportistaController::class)
     ->name('app.dashboard');
 
+// Planes activos visibles para el deportista; separado del catálogo administrativo.
+Route::middleware('base.auth')
+    ->get('app/planes', \App\Http\Controllers\Api\App\PlanesDisponiblesController::class)
+    ->name('app.planes');
+
 // Catálogo de lectura para deportistas autenticados: no expone gestión administrativa.
 Route::middleware('base.auth')
     ->get('app/tienda/productos', \App\Http\Controllers\Api\App\TiendaProductosController::class)

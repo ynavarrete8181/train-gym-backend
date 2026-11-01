@@ -98,9 +98,10 @@ class VentaServicio
             $sedeMembresia = $this->alcance->sedeDeMembresia($membresiaId ? (int) $membresiaId : null);
 
             if ($sedeCaja && $sedeMembresia && $sedeCaja !== $sedeMembresia) {
-                throw ValidationException::withMessages([
-                    'caja_id' => 'La caja y la membresía pertenecen a sedes diferentes.',
-                ]);
+                $this->validarSedeCobroMembresia(
+                    (int) $membresiaId,
+                    (int) $sedeCaja
+                );
             }
 
             $sedeOperacion = $sedeCaja ?: $sedeMembresia;
@@ -347,6 +348,21 @@ class VentaServicio
             ->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
     }
 
+    private function validarSedeCobroMembresia(int $membresiaId, int $sedeId): void
+    {
+        $autorizada = DB::table('membresias.membresia_sedes')
+            ->where('membresia_id', $membresiaId)
+            ->where('sede_id', $sedeId)
+            ->where('activo', true)
+            ->exists();
+
+        if (! $autorizada) {
+            throw ValidationException::withMessages([
+                'caja_id' => 'Esta membresía no permite cobrar en la sede seleccionada.',
+            ]);
+        }
+    }
+
     public function guardarPago(array $datos, ?int $usuarioId = null): object
     {
         return DB::transaction(function () use ($datos, $usuarioId): object {
@@ -368,18 +384,45 @@ class VentaServicio
                 }
             }
 
-            $sedeVenta = $this->alcance->sedeDeVenta((int) $datos['venta_id']);
-            $this->alcance->validarSede($usuarioId, $sedeVenta, 'maneja_caja');
+            // Validación de seguridad en la capa de servicio: aplica tanto
+            // al endpoint de pagos como a los cobros realizados desde POS.
+            $turno = DB::table('ventas.turnos_caja as t')
+                ->join('ventas.cajas as c', 'c.id', '=', 't.caja_id')
+                ->where('t.usuario_id', $usuarioId)
+                ->where('t.estado', 'ABIERTA')
+                ->where('c.activa', true)
+                ->lockForUpdate()
+                ->select('t.*')
+                ->first();
 
-            $sedeCajaPago = $this->alcance->sedeDeCaja(! empty($datos['caja_id']) ? (int) $datos['caja_id'] : null);
-            if ($sedeCajaPago && $sedeVenta && $sedeCajaPago !== $sedeVenta) {
+            if (! $turno) {
                 throw ValidationException::withMessages([
-                    'caja_id' => 'El pago debe registrarse en una caja de la misma sede de la venta.',
+                    'turno_caja_id' => 'Debes abrir una caja propia antes de registrar un cobro.',
                 ]);
             }
-            if ($sedeCajaPago) {
-                $this->alcance->validarSede($usuarioId, $sedeCajaPago, 'maneja_caja');
+            if ((! empty($datos['caja_id']) && (int) $datos['caja_id'] !== (int) $turno->caja_id)
+                || (! empty($datos['turno_caja_id']) && (int) $datos['turno_caja_id'] !== (int) $turno->id)) {
+                throw ValidationException::withMessages([
+                    'caja_id' => 'Solo puedes cobrar desde tu caja actualmente abierta.',
+                ]);
             }
+
+            $sedeCobro = $this->alcance->validarSede(
+                $usuarioId, (int) $turno->sede_id, 'maneja_caja'
+            );
+            if ($venta->membresia_id) {
+                $this->validarSedeCobroMembresia((int) $venta->membresia_id, $sedeCobro);
+            } else {
+                $sedeVenta = $this->alcance->sedeDeVenta((int) $venta->id);
+                if ($sedeVenta && $sedeVenta !== $sedeCobro) {
+                    throw ValidationException::withMessages([
+                        'caja_id' => 'La venta no pertenece a la sede de tu caja.',
+                    ]);
+                }
+            }
+
+            $datos['caja_id'] = (int) $turno->caja_id;
+            $datos['turno_caja_id'] = (int) $turno->id;
 
             $datos = $this->estados->aplicar($datos, 'PAGO');
             $datos['usuario_id'] = $usuarioId;

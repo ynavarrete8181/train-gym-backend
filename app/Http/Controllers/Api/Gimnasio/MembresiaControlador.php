@@ -15,6 +15,7 @@ class MembresiaControlador extends Controller
 {
     public function __construct(
         protected MembresiaServicio $membresiaServicio,
+        protected \App\Services\Gimnasio\ContratoCuotasServicio $contratoCuotas,
         protected VentaServicio $ventaServicio,
         protected \App\Services\Gimnasio\DescuentoDeportistaServicio $descuentos,
     ) {
@@ -106,6 +107,8 @@ class MembresiaControlador extends Controller
             'asignaciones_entrenador.*.entrenador_id' => 'required|integer|exists:pgsql.entrenamiento.entrenadores,id',
             'asignaciones_entrenador.*.horario_bloque_id' => 'required|integer|exists:pgsql.agenda.horario_bloques,id',
             'fecha_inicio' => 'required|date',
+            'cantidad_periodos_contratados' => 'sometimes|integer|min:1|max:36',
+            'fecha_primer_pago' => 'required_with:cantidad_periodos_contratados|date',
             'dias_gracia' => 'integer|min:0',
             'dia_pago' => 'nullable|integer|min:1|max:31|required_if:generar_venta_automatica,true',
             'generar_venta_automatica' => 'boolean',
@@ -143,10 +146,28 @@ class MembresiaControlador extends Controller
                 'plan_id' => 'El cliente ya tiene una membresía vigente o pendiente para este plan.',
             ]);
         }
-        $generarVenta = $this->debeGenerarVentaAlAsignar($planConfigurado);
+        $contratoProgramado = array_key_exists('cantidad_periodos_contratados', $validados);
+        if ($contratoProgramado && ($validados['generar_venta_automatica'] ?? false)) {
+            throw ValidationException::withMessages([
+                'generar_venta_automatica' => 'El calendario contractual reemplaza el cobro automático heredado.',
+            ]);
+        }
+        $generarVenta = $contratoProgramado
+            ? true
+            : $this->debeGenerarVentaAlAsignar($planConfigurado);
 
         [$membresia, $venta] = DB::transaction(function () use ($validados, $generarVenta, $request): array {
-            $membresia = $this->membresiaServicio->crear($validados);
+            // Estos parámetros pertenecen al contrato, no al INSERT básico de membresías.
+            $datosMembresia = $validados;
+            unset($datosMembresia['cantidad_periodos_contratados'], $datosMembresia['fecha_primer_pago']);
+            $membresia = $this->membresiaServicio->crear($datosMembresia);
+            if (isset($validados['cantidad_periodos_contratados'])) {
+                $this->contratoCuotas->programar(
+                    (int) $membresia->id,
+                    (int) $validados['cantidad_periodos_contratados'],
+                    $validados['fecha_primer_pago']
+                );
+            }
             if (!empty($validados['descuento'])) {
                 $this->registrarDescuentoMembresia($validados['descuento'], $membresia, (int) $request->user()->id);
             }
@@ -196,6 +217,16 @@ class MembresiaControlador extends Controller
                         'updated_at' => now(),
                     ]);
                     $this->membresiaServicio->vincularVentaPeriodo((int) $periodoId, (int) $venta->id);
+                    if (isset($validados['cantidad_periodos_contratados'])) {
+                        $this->contratoCuotas->vincularPrimeraVenta(
+                            (int) $membresia->id,
+                            (int) $venta->id,
+                            (float) $venta->total
+                        );
+                        DB::table('cuentas_cobrar.cuentas')
+                            ->where('venta_id', $venta->id)
+                            ->update(['fecha_vencimiento' => $validados['fecha_primer_pago'], 'updated_at' => now()]);
+                    }
                 }
             }
 

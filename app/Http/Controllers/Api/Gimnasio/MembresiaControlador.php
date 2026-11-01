@@ -467,6 +467,33 @@ class MembresiaControlador extends Controller
         );
 
         $membresiaActualizada = DB::transaction(function () use ($id, $validados, $generarVenta, $request) {
+            $camposSeguimiento = [
+                'estado', 'dias_gracia', 'sede_id', 'fecha_inicio', 'fecha_fin',
+                'dia_pago', 'renovacion_automatica', 'modalidad_id', 'precio_aplicado',
+                'fecha_congelacion_inicio', 'fecha_congelacion_fin',
+            ];
+            $cargarEstado = function () use ($id, $camposSeguimiento): array {
+                $registro = DB::table('membresias.membresias')->where('id', $id)->first();
+                $campos = [];
+                foreach ($camposSeguimiento as $campo) {
+                    $campos[$campo] = $registro->{$campo} ?? null;
+                }
+                $campos['sedes_autorizadas'] = DB::table('membresias.membresia_sedes')
+                    ->where('membresia_id', $id)
+                    ->where('activo', true)
+                    ->orderBy('sede_id')
+                    ->pluck('sede_id')->map(fn ($sede) => (int) $sede)->all();
+
+                $campos['descuentos'] = DB::table('membresias.descuentos_deportistas')
+                    ->where('deportista_id', $registro->deportista_id)
+                    ->where('plan_id', $registro->plan_id)
+                    ->where('modalidad_id', $registro->modalidad_id)
+                    ->orderBy('id')
+                    ->get(['id', 'tipo', 'valor', 'motivo', 'fecha_inicio', 'fecha_fin', 'activo'])
+                    ->map(fn ($d) => (array) $d)->all();
+                return $campos;
+            };
+            $estadoAnterior = $cargarEstado();
             $actualizada = $this->membresiaServicio->actualizar($id, $validados);
             if (!empty($validados['descuento'])) {
                 $membresiaParaDescuento = DB::table('membresias.membresias')->where('id', $id)->first();
@@ -502,6 +529,21 @@ class MembresiaControlador extends Controller
             }
 
             $this->sincronizarFacturacion((int) $id, $generarVenta, $request);
+            $estadoPosterior = $cargarEstado();
+            $cambios = [];
+            foreach ($estadoAnterior as $campo => $valorAnterior) {
+                $valorNuevo = $estadoPosterior[$campo];
+                if (json_encode($valorAnterior) !== json_encode($valorNuevo)) {
+                    $cambios[$campo] = ['antes' => $valorAnterior, 'despues' => $valorNuevo];
+                }
+            }
+            if ($cambios !== []) {
+                app(\App\Services\Gimnasio\HistorialComercialMembresiaServicio::class)
+                    ->registrarContrato((int) $id, 'EDICION_ADMINISTRATIVA', [
+                        'cambios' => $cambios,
+                        'contrato_original_conservado' => true,
+                    ]);
+            }
             $actualizada = $this->membresiaServicio->obtenerMembresiaConRelaciones((int) $id);
 
             return $actualizada;

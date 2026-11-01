@@ -147,6 +147,17 @@ class MembresiaControlador extends Controller
             ]);
         }
         $contratoProgramado = array_key_exists('cantidad_periodos_contratados', $validados);
+        if ($contratoProgramado) {
+            // La fecha elegida fija el día mensual (incluidos meses cortos).
+            // No se usa la programación heredada por desfase de días.
+            $diaFijo = (int) \Carbon\Carbon::parse($validados['fecha_primer_pago'])->day;
+            if (isset($validados['dia_pago']) && (int) $validados['dia_pago'] !== $diaFijo) {
+                throw ValidationException::withMessages([
+                    'dia_pago' => 'El día de pago debe coincidir con la primera fecha de pago.',
+                ]);
+            }
+            $validados['dia_pago'] = $diaFijo;
+        }
         if ($contratoProgramado && ($validados['generar_venta_automatica'] ?? false)) {
             throw ValidationException::withMessages([
                 'generar_venta_automatica' => 'El calendario contractual reemplaza el cobro automático heredado.',

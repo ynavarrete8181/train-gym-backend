@@ -151,13 +151,21 @@ class ContratoCuotasServicio
                 $periodoId = (int) $primerPeriodo->id;
             }
 
+            $vence = Carbon::parse(self::vencimientoMensual($fechaPrimerPago, $numero - 1))->startOfDay();
+            if ($vence->gt($fin)) {
+                throw ValidationException::withMessages([
+                    'fecha_primer_pago' => 'El vencimiento de la cuota ' . $numero .
+                        ' queda después de su período. Ajusta el día de pago o utiliza una modalidad mensual.',
+                ]);
+            }
+
             DB::table('membresias.membresia_cuotas')->insert([
                 'membresia_id' => $membresiaId,
                 'periodo_id' => $periodoId,
                 'numero_cuota' => $numero,
                 'monto' => $precio,
                 'fecha_programada_emision' => $inicio->toDateString(),
-                'fecha_vencimiento' => self::vencimientoMensual($fechaPrimerPago, $numero - 1),
+                'fecha_vencimiento' => $vence->toDateString(),
                 'estado' => 'PROGRAMADA',
                 'created_at' => now(),
                 'updated_at' => now(),

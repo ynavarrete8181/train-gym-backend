@@ -62,8 +62,20 @@ class ContratoCuotasServicio
 
         // Snapshot explícito de los atributos que afectan el servicio,
         // la vigencia y el importe. No se reconstruye desde el catálogo.
+        $servicios = DB::table('membresias.plan_servicios as ps')
+            ->join('servicios.servicios as s', 's.id', '=', 'ps.servicio_id')
+            ->where('ps.plan_id', $membresia->plan_id)
+            ->where('ps.activo', true)
+            ->orderBy('s.id')
+            ->get(['s.id', 's.nombre'])
+            ->map(fn ($servicio) => [
+                'id' => (int) $servicio->id,
+                'nombre' => (string) $servicio->nombre,
+            ])->all();
+
         $condiciones = [
             'version' => 1,
+            'servicios_incluidos' => $servicios,
             'capturado_at' => now()->toIso8601String(),
             'plan_id' => (int) $membresia->plan_id,
             'plan_nombre' => (string) ($plan?->nombre ?? ''),
@@ -77,7 +89,7 @@ class ContratoCuotasServicio
             'uso_ilimitado' => $modalidad?->uso_ilimitado,
             'precio_periodo' => number_format($precio, 2, '.', ''),
             'cantidad_periodos' => $cantidad,
-            'total_contractual' => number_format(round($precio * $cantidad, 2), 2, '.', ''),
+            'total_bruto_referencial' => number_format(round($precio * $cantidad, 2), 2, '.', ''),
             'fecha_inicio' => $fechaInicio->toDateString(),
             'fecha_primer_pago' => $primerVencimiento->toDateString(),
         ];

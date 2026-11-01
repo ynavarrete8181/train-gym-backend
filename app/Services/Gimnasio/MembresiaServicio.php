@@ -254,6 +254,20 @@ class MembresiaServicio
             return null;
         }
 
+        // Mostrar las condiciones históricas acordadas, no los valores
+        // editables actuales del catálogo. Los contratos antiguos sin
+        // snapshot conservan el comportamiento anterior.
+        $condiciones = $membresia->condiciones_contratadas
+            ? json_decode((string) $membresia->condiciones_contratadas, true)
+            : null;
+        $membresia->condiciones_contratadas = $condiciones;
+        if (is_array($condiciones)) {
+            $membresia->plan_nombre = $condiciones['plan_nombre'] ?? $membresia->plan_nombre;
+            $membresia->modalidad_nombre = $condiciones['modalidad_nombre'] ?? $membresia->modalidad_nombre;
+            $membresia->modalidad_tipo_duracion = $condiciones['tipo_duracion'] ?? $membresia->modalidad_tipo_duracion;
+            $membresia->modalidad_duracion = $condiciones['duracion'] ?? $membresia->modalidad_duracion;
+        }
+
         // Datos de descuento vigente para precargar correctamente la edición.
         $membresia->descuento_vigente = DB::table('membresias.descuentos_deportistas')
             ->where('deportista_id', (int) $membresia->deportista_id)

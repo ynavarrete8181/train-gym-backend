@@ -455,6 +455,8 @@ class CarteraServicio
             ->leftJoin('membresias.plan_modalidades as pm', 'pm.id', '=', 'm.modalidad_id')
             ->leftJoin('institucional.sedes as s', 's.id_sede', '=', DB::raw('COALESCE(caja.sede_id, m.sede_id)'))
             ->leftJoin('seguridad.users as resp', 'resp.id', '=', 'cc.responsable_id')
+            ->leftJoin('seguridad.users as creador_venta', 'creador_venta.id', '=', 'v.usuario_id')
+            ->leftJoin('seguridad.cpu_userrole as rol_creador', 'rol_creador.id_userrole', '=', 'creador_venta.usr_tipo')
             ->select(
                 'cc.*',
                 'v.numero as venta_numero',
@@ -470,6 +472,9 @@ class CarteraServicio
                 'pl.nombre as plan_nombre',
                 'pm.nombre as modalidad_nombre',
                 'resp.name as responsable_nombre',
+                'v.generado_por_tipo',
+                'creador_venta.name as generado_por_nombre',
+                'rol_creador.role as generado_por_rol',
                 DB::raw("COALESCE(NULLIF(TRIM(p.nombre_completo), ''), NULLIF(TRIM(u.name), ''), 'Consumidor final') as cliente_nombre"),
                 DB::raw("COALESCE(NULLIF(TRIM(p.identificacion), ''), NULLIF(TRIM(u.cedula), '')) as cliente_identificacion"),
                 DB::raw("COALESCE(NULLIF(TRIM(p.email), ''), NULLIF(TRIM(u.email), '')) as cliente_email"),

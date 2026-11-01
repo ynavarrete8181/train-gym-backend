@@ -27,6 +27,11 @@ Route::get('health', function () {
     }
 });
 
+// Catálogo de lectura para deportistas autenticados: no expone gestión administrativa.
+Route::middleware('base.auth')
+    ->get('app/tienda/productos', \App\Http\Controllers\Api\App\TiendaProductosController::class)
+    ->name('app.tienda.productos');
+
 Route::prefix('base')->group(function (): void {
     require __DIR__.'/base/base.php';
     require __DIR__.'/base/dashboard.php';

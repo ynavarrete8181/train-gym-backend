@@ -141,9 +141,9 @@ class CarteraServicio
             ->join('seguridad.cpu_userrole as r', 'r.id_userrole', '=', 'u.usr_tipo')
             ->where('u.usr_estado', 1)
             ->where('r.activo', true)
-            ->whereIn('r.role', ['SUPERADMINISTRADOR', 'ADMINISTRADOR', 'SUPERVISOR DE VENTAS'])
+            ->whereIn('r.role', ['ROOT', 'SUPERADMINISTRADOR', 'ADMINISTRADOR', 'SUPERVISOR DE VENTAS'])
             ->where(function ($q) use ($sedes): void {
-                $q->whereIn('r.role', ['SUPERADMINISTRADOR'])
+                $q->whereIn('r.role', ['ROOT', 'SUPERADMINISTRADOR'])
                     ->orWhereExists(function ($sub) use ($sedes): void {
                         $sub->selectRaw('1')
                             ->from('institucional.usuario_contexto as uc')
@@ -228,7 +228,11 @@ class CarteraServicio
             $actualizar['prioridad'] = mb_strtoupper((string) $datos['prioridad']);
         }
         if (array_key_exists('responsable_id', $datos)) {
-            $actualizar['responsable_id'] = $datos['responsable_id'] ?: null;
+            $responsableId = $datos['responsable_id'] ? (int) $datos['responsable_id'] : null;
+            if ($responsableId !== null) {
+                $this->validarResponsableParaCuenta($responsableId, $cuenta);
+            }
+            $actualizar['responsable_id'] = $responsableId;
         }
         if (array_key_exists('proxima_gestion_at', $datos)) {
             $actualizar['proxima_gestion_at'] = $datos['proxima_gestion_at'] ?: null;
@@ -375,11 +379,16 @@ class CarteraServicio
         }
 
         if ($existente) {
-            DB::table('cuentas_cobrar.cuentas')->where('id', $existente->id)->update([
+            // Conservamos asignaciones manuales. Solo completamos antiguas sin responsable.
+            $cambios = [
                 'estado' => 'ABIERTA',
                 'cerrada_at' => null,
                 'updated_at' => now(),
-            ]);
+            ];
+            if (! $existente->responsable_id) {
+                $cambios['responsable_id'] = $this->resolverResponsableInicial($venta);
+            }
+            DB::table('cuentas_cobrar.cuentas')->where('id', $existente->id)->update($cambios);
             return;
         }
 
@@ -388,10 +397,45 @@ class CarteraServicio
             'fecha_vencimiento' => $this->resolverFechaVencimiento($ventaId, $venta),
             'estado' => 'ABIERTA',
             'prioridad' => 'NORMAL',
-            'responsable_id' => null,
+            'responsable_id' => $this->resolverResponsableInicial($venta),
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+    }
+
+    /**
+     * El responsable de cartera es quien puede gestionar el seguimiento;
+     * no necesariamente quien recibió el dinero en caja.
+     */
+    private function resolverResponsableInicial(object $venta): ?int
+    {
+        $sedeId = $this->alcance->sedeDeCaja($venta->caja_id ? (int) $venta->caja_id : null)
+            ?: $this->alcance->sedeDeMembresia($venta->membresia_id ? (int) $venta->membresia_id : null);
+
+        if (! $sedeId) {
+            return null;
+        }
+
+        foreach ([$venta->responsable_comercial_id ?? null, $venta->usuario_id ?? null] as $candidato) {
+            if ($candidato && $this->alcance->puedeGestionarCartera((int) $candidato)
+                && in_array($sedeId, $this->alcance->sedesPermitidas((int) $candidato, 'maneja_caja'), true)) {
+                return (int) $candidato;
+            }
+        }
+
+        // Sin personal autorizado, dejar sin asignar para gestión explícita.
+        return null;
+    }
+
+    private function validarResponsableParaCuenta(int $responsableId, object $cuenta): void
+    {
+        $sedeId = (int) ($cuenta->sede_id ?? 0);
+        if (! $this->alcance->puedeGestionarCartera($responsableId)
+            || ! in_array($sedeId, $this->alcance->sedesPermitidas($responsableId, 'maneja_caja'), true)) {
+            throw ValidationException::withMessages([
+                'responsable_id' => 'Selecciona un responsable activo y autorizado para gestionar cartera en esta sede.',
+            ]);
+        }
     }
 
     private function consultaBase(?int $usuarioId)

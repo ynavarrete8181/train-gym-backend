@@ -207,7 +207,7 @@ class MembresiaControlador extends Controller
 
                 $periodoId = DB::table('membresias.membresia_periodos')
                     ->where('membresia_id', $membresia->id)
-                    ->orderByDesc('numero_periodo')
+                    ->where('numero_periodo', 1)
                     ->value('id');
 
                 if ($periodoId) {

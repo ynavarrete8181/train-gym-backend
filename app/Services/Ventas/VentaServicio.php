@@ -167,6 +167,31 @@ class VentaServicio
     public function detalleVenta(int $ventaId, ?int $usuarioId = null): object
     {
         $sedeId = $this->alcance->sedeDeVenta($ventaId);
+        $cuenta = DB::table('ventas.ventas')
+            ->where('id', $ventaId)
+            ->first(['membresia_id', 'estado']);
+
+        // El detalle de una cuenta pendiente puede atenderse en el turno
+        // abierto de cualquier sede autorizada de la membresía.
+        if ($cuenta?->membresia_id
+            && in_array(strtoupper((string) $cuenta->estado), ['PENDIENTE', 'PARCIAL'], true)) {
+            $turno = DB::table('ventas.turnos_caja')
+                ->where('usuario_id', $usuarioId)
+                ->where('estado', 'ABIERTA')
+                ->first(['sede_id']);
+            if ($turno) {
+                $sedeTurno = (int) $turno->sede_id;
+                $autorizada = DB::table('membresias.membresia_sedes')
+                    ->where('membresia_id', (int) $cuenta->membresia_id)
+                    ->where('sede_id', $sedeTurno)
+                    ->where('activo', true)
+                    ->exists();
+                if ($autorizada) {
+                    $sedeId = $sedeTurno;
+                }
+            }
+        }
+
         $this->alcance->validarSede($usuarioId, $sedeId, 'maneja_caja');
         $this->validarVisibilidadDetalleVenta($ventaId, $usuarioId, $sedeId);
 

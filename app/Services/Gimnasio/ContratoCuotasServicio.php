@@ -155,6 +155,13 @@ class ContratoCuotasServicio
             'updated_at' => now(),
         ]);
 
+        app(HistorialComercialMembresiaServicio::class)->registrarContrato(
+            $membresiaId,
+            'CONTRATACION',
+            array_merge($condiciones, ['fecha_fin' => $fin->toDateString()]),
+            'Condiciones originales de la contratación.'
+        );
+
         $this->auditar(
             'membresias',
             'FIJAR_CONDICIONES_CONTRATADAS',

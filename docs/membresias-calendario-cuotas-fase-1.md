@@ -37,3 +37,16 @@ Migración: `2026_10_31_230000_create_membresia_cuotas_and_contract_period_count
 
 ## Nota
 La migración de fase 1 **no se ha ejecutado** en una base de datos. La aplicación actual no usa todavía `membresia_cuotas`.
+
+## Avance fase 2 — backend (sin pruebas locales todavía)
+
+Se incorporaron `ContratoCuotasServicio` y `EmisionCuotasServicio`. El endpoint existente de asignación acepta opcionalmente `cantidad_periodos_contratados` (1–36) y `fecha_primer_pago` junto con los campos habituales. En ese modo, dentro de la transacción:
+
+1. Crea los períodos deportivos consecutivos usando la duración configurada del plan/modalidad y fija el fin total del contrato.
+2. Registra una cuota por período; el vencimiento de cada cuota conserva el desplazamiento en días respecto al inicio del primer período (no equivale necesariamente a día fijo del mes).
+3. Crea la venta inicial existente de Membresías, la enlaza con cuota 1 y período 1, y ajusta la fecha de vencimiento de Cartera.
+4. El scheduler de cobro heredado omite contratos con cantidad de períodos y delega las cuotas programadas a `EmisionCuotasServicio`, que usa transacción y bloqueo para evitar doble venta.
+5. El detalle de membresía devuelve `cuotas` y el monto pagado calculado a partir de `ventas.pagos` confirmados.
+6. La renovación manual heredada se bloquea para contratos a plazo fijo: se debe tramitar una nueva contratación, no ampliar silenciosamente el contrato.
+
+**Pendientes explícitos**: pruebas con PostgreSQL local, control de mora y suspensión deportiva, operaciones de caja con pago anticipado de varias cuotas en un solo cobro, descuentos futuros, ajustes/cancelaciones, UI de asignación. Los cambios de backend aún no se han desplegado ni probado en producción.

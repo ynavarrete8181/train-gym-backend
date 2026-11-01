@@ -29,6 +29,26 @@ class ContratoCuotasServicio
             ->addMonthsNoOverflow($indiceCuota)->toDateString();
     }
 
+    public static function primeraFechaPagoPorDia(string $fechaInicio, int $diaPago): string
+    {
+        if ($diaPago < 1 || $diaPago > 31) {
+            throw ValidationException::withMessages(['dia_pago' => 'Selecciona un día entre 1 y 31.']);
+        }
+        $inicio = Carbon::parse($fechaInicio)->startOfDay();
+        $primerPago = $inicio->copy()->startOfMonth()->addDays(
+            min($diaPago, $inicio->daysInMonth) - 1
+        );
+
+        if ($primerPago->lt($inicio)) {
+            $siguienteMes = $inicio->copy()->startOfMonth()->addMonth();
+            $primerPago = $siguienteMes->copy()->addDays(
+                min($diaPago, $siguienteMes->daysInMonth) - 1
+            );
+        }
+
+        return $primerPago->toDateString();
+    }
+
     public function programar(int $membresiaId, int $cantidad, string $fechaPrimerPago): void
     {
         if ($cantidad < 1 || $cantidad > 36) {

@@ -8,6 +8,7 @@ use App\Services\CuentasCobrar\CarteraServicio;
 use App\Services\Inventario\InventarioServicio;
 use App\Services\Seguridad\AlcanceOperativoService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class VentaServicio
@@ -312,6 +313,12 @@ class VentaServicio
 
     public function listarPagos(array $filtros, ?int $usuarioId = null)
     {
+        // Compatibilidad entre bases locales que aún no han aplicado la
+        // migración del desglose de efectivo y las que ya la incluyen.
+        $esquemaPagos = Schema::connection('pgsql');
+        $tieneEfectivoRecibido = $esquemaPagos->hasColumn('ventas.pagos', 'efectivo_recibido');
+        $tieneCambioEntregado = $esquemaPagos->hasColumn('ventas.pagos', 'cambio_entregado');
+
         $operacionExpr = "COALESCE(p.operacion_cobro_id, 'PAGO-' || p.id::text)";
 
         $query = DB::table('ventas.pagos as p')
@@ -337,8 +344,12 @@ class VentaServicio
             ->selectRaw('MAX(caja_pago.codigo) as caja_codigo')
             ->selectRaw('MAX(p.turno_caja_id) as turno_caja_id')
             ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' AND p.metodo_pago = \'EFECTIVO\' THEN p.monto ELSE 0 END) as efectivo')
-            ->selectRaw("SUM(CASE WHEN p.estado = 'CONFIRMADO' AND p.metodo_pago = 'EFECTIVO' THEN COALESCE(p.efectivo_recibido, p.monto) ELSE 0 END) as efectivo_recibido")
-            ->selectRaw("SUM(CASE WHEN p.estado = 'CONFIRMADO' AND p.metodo_pago = 'EFECTIVO' THEN COALESCE(p.cambio_entregado, 0) ELSE 0 END) as cambio_entregado")
+            ->selectRaw($tieneEfectivoRecibido
+                ? "SUM(CASE WHEN p.estado = 'CONFIRMADO' AND p.metodo_pago = 'EFECTIVO' THEN COALESCE(p.efectivo_recibido, p.monto) ELSE 0 END) as efectivo_recibido"
+                : "SUM(CASE WHEN p.estado = 'CONFIRMADO' AND p.metodo_pago = 'EFECTIVO' THEN p.monto ELSE 0 END) as efectivo_recibido")
+            ->selectRaw($tieneCambioEntregado
+                ? "SUM(CASE WHEN p.estado = 'CONFIRMADO' AND p.metodo_pago = 'EFECTIVO' THEN COALESCE(p.cambio_entregado, 0) ELSE 0 END) as cambio_entregado"
+                : "0::numeric as cambio_entregado")
             ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' AND p.metodo_pago = \'TRANSFERENCIA\' THEN p.monto ELSE 0 END) as transferencia')
             ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' AND p.metodo_pago = \'TARJETA\' THEN p.monto ELSE 0 END) as tarjeta')
             ->selectRaw('SUM(CASE WHEN p.estado = \'CONFIRMADO\' AND p.metodo_pago = \'DEPOSITO\' THEN p.monto ELSE 0 END) as deposito')
@@ -367,6 +378,12 @@ class VentaServicio
         }
 
         $this->filtrarTexto($query, 'p.estado', $filtros['estado'] ?? null);
+
+        // Un cobro se filtra por su fecha real, no por la fecha de creación
+        // de la venta ni la vigencia contractual de la membresía.
+        if (! empty($filtros['fecha_pago'])) {
+            $query->whereDate('p.fecha_pago', $filtros['fecha_pago']);
+        }
 
         return $query
             ->orderByDesc(DB::raw('MAX(p.fecha_pago)'))

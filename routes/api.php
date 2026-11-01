@@ -32,6 +32,11 @@ Route::middleware('base.auth')
     ->get('app/dashboard', \App\Http\Controllers\Api\App\DashboardDeportistaController::class)
     ->name('app.dashboard');
 
+// Asignaciones propias del deportista autenticado: incluye detalle contractual.
+Route::middleware('base.auth')
+    ->get('app/mis-membresias', \App\Http\Controllers\Api\App\MisMembresiasController::class)
+    ->name('app.mis-membresias');
+
 // Planes activos visibles para el deportista; separado del catálogo administrativo.
 Route::middleware('base.auth')
     ->get('app/planes', \App\Http\Controllers\Api\App\PlanesDisponiblesController::class)

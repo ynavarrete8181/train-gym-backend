@@ -267,6 +267,13 @@ class MembresiaControlador extends Controller
             ]);
         }
 
+        if ($membresia->cantidad_periodos_contratados !== null
+            && \Carbon\Carbon::parse($membresia->fecha_fin)->isFuture()) {
+            throw ValidationException::withMessages([
+                'membresia_id' => 'El contrato tiene períodos programados. No es posible renovarlo antes de finalizar su vigencia.',
+            ]);
+        }
+
         $periodoActual = DB::table('membresias.membresia_periodos')
             ->where('membresia_id', $id)
             ->orderByDesc('numero_periodo')

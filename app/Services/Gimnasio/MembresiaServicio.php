@@ -109,6 +109,19 @@ class MembresiaServicio
 
         $antes = DB::table('membresias.membresias')->where('id', $id)->first();
 
+        // Un contrato con cuotas programadas no puede cambiar sus bases
+        // comerciales mediante la edición heredada: desalinearía períodos,
+        // ventas emitidas y obligaciones futuras.
+        if ($antes && $antes->cantidad_periodos_contratados !== null) {
+            foreach (['fecha_inicio', 'dia_pago', 'generar_venta_automatica', 'modalidad_id', 'plan_id', 'precio_aplicado'] as $campo) {
+                if (array_key_exists($campo, $datos)) {
+                    throw ValidationException::withMessages([
+                        $campo => 'Los contratos con cuotas programadas requieren un proceso de modificación contractual auditado.',
+                    ]);
+                }
+            }
+        }
+
         $planActual = DB::table('membresias.planes')->where('id', $antes->plan_id)->first();
         $generarAutomatico = array_key_exists('generar_venta_automatica', $datos)
             ? (bool) $datos['generar_venta_automatica']

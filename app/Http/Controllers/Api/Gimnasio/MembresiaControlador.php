@@ -233,7 +233,7 @@ class MembresiaControlador extends Controller
             return [$membresia, $venta];
         });
 
-        $respuesta = (array) $membresia;
+        $respuesta = (array) $this->membresiaServicio->obtenerMembresiaConRelaciones((int) $membresia->id);
         if ($venta) {
             $respuesta['venta_id'] = $venta->id;
             $respuesta['venta_numero'] = $venta->numero;

@@ -33,6 +33,8 @@ class ContratoCuotasServicio
         $modalidad = $membresia->modalidad_id
             ? DB::table('membresias.plan_modalidades')->where('id', $membresia->modalidad_id)->first()
             : null;
+        // Captura de las condiciones vigentes al contratar: los cambios
+        // posteriores al catálogo no modifican los compromisos del deportista.
         $tipo = $modalidad?->tipo_duracion ?? $plan?->tipo_duracion;
         $duracion = (int) ($modalidad?->duracion ?? $plan?->duracion ?? 0);
 
@@ -57,6 +59,29 @@ class ContratoCuotasServicio
 
         $desfasePago = $fechaInicio->diffInDays($primerVencimiento);
         $precio = round((float) $primerPeriodo->precio, 2);
+
+        // Snapshot explícito de los atributos que afectan el servicio,
+        // la vigencia y el importe. No se reconstruye desde el catálogo.
+        $condiciones = [
+            'version' => 1,
+            'capturado_at' => now()->toIso8601String(),
+            'plan_id' => (int) $membresia->plan_id,
+            'plan_nombre' => (string) ($plan?->nombre ?? ''),
+            'modalidad_id' => $modalidad?->id ? (int) $modalidad->id : null,
+            'modalidad_nombre' => $modalidad?->nombre,
+            'sede_id' => (int) $membresia->sede_id,
+            'tipo_duracion' => $tipo,
+            'duracion' => $duracion,
+            'dias_por_semana' => $modalidad?->dias_por_semana,
+            'usos_por_semana' => $modalidad?->usos_por_semana,
+            'uso_ilimitado' => $modalidad?->uso_ilimitado,
+            'precio_periodo' => number_format($precio, 2, '.', ''),
+            'cantidad_periodos' => $cantidad,
+            'total_contractual' => number_format(round($precio * $cantidad, 2), 2, '.', ''),
+            'fecha_inicio' => $fechaInicio->toDateString(),
+            'fecha_primer_pago' => $primerVencimiento->toDateString(),
+        ];
+
         $inicio = $fechaInicio->copy();
         $fin = Carbon::parse($primerPeriodo->fecha_fin)->startOfDay();
 
@@ -101,6 +126,7 @@ class ContratoCuotasServicio
 
         DB::table('membresias.membresias')->where('id', $membresiaId)->update([
             'cantidad_periodos_contratados' => $cantidad,
+            'condiciones_contratadas' => json_encode($condiciones, JSON_THROW_ON_ERROR),
             'fecha_fin' => $fin->toDateString(),
             // El nuevo modelo se emite por cuota, nunca por el scheduler heredado.
             'generar_venta_automatica' => false,

@@ -15,6 +15,20 @@ class ContratoCuotasServicio
 {
     use RegistraAuditoria;
 
+    /**
+     * Vencimiento fijo: misma fecha base, desplazada por meses calendario.
+     * El día 29/30/31 se ajusta solo en meses más cortos.
+     */
+    public static function vencimientoMensual(string $primeraFechaPago, int $indiceCuota): string
+    {
+        if ($indiceCuota < 0) {
+            throw new \InvalidArgumentException('El índice de cuota debe ser positivo.');
+        }
+
+        return Carbon::parse($primeraFechaPago)->startOfDay()
+            ->addMonthsNoOverflow($indiceCuota)->toDateString();
+    }
+
     public function programar(int $membresiaId, int $cantidad, string $fechaPrimerPago): void
     {
         if ($cantidad < 1 || $cantidad > 36) {
@@ -143,7 +157,7 @@ class ContratoCuotasServicio
                 'numero_cuota' => $numero,
                 'monto' => $precio,
                 'fecha_programada_emision' => $inicio->toDateString(),
-                'fecha_vencimiento' => $primerVencimiento->copy()->addMonthsNoOverflow($numero - 1)->toDateString(),
+                'fecha_vencimiento' => self::vencimientoMensual($fechaPrimerPago, $numero - 1),
                 'estado' => 'PROGRAMADA',
                 'created_at' => now(),
                 'updated_at' => now(),

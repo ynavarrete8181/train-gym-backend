@@ -2,6 +2,7 @@
 
 namespace App\Services\Gimnasio;
 
+use App\Services\Concerns\RegistraAuditoria;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -12,6 +13,8 @@ use Illuminate\Validation\ValidationException;
  */
 class ContratoCuotasServicio
 {
+    use RegistraAuditoria;
+
     public function programar(int $membresiaId, int $cantidad, string $fechaPrimerPago): void
     {
         if ($cantidad < 1 || $cantidad > 36) {
@@ -145,6 +148,20 @@ class ContratoCuotasServicio
             'proxima_fecha_cobro' => null,
             'updated_at' => now(),
         ]);
+
+        $this->auditar(
+            'membresias',
+            'FIJAR_CONDICIONES_CONTRATADAS',
+            'membresias.membresias',
+            $membresiaId,
+            null,
+            [
+                'condiciones_contratadas' => $condiciones,
+                'fecha_fin' => $fin->toDateString(),
+                'cantidad_periodos_contratados' => $cantidad,
+            ],
+            'Condiciones comerciales y deportivas congeladas al momento de contratar.'
+        );
     }
 
     public function vincularPrimeraVenta(int $membresiaId, int $ventaId, float $importeNeto): void

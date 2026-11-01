@@ -60,7 +60,10 @@ class ContratoCuotasServicio
             ]);
         }
 
-        $desfasePago = $fechaInicio->diffInDays($primerVencimiento);
+        // La primera fecha de pago fija el día de vencimiento de cada mes.
+        // Los meses cortos usan su último día (29/30/31); cada cuota se
+        // calcula desde la fecha original para evitar deriva acumulada.
+        $diaPago = (int) $primerVencimiento->day;
         $precio = round((float) $primerPeriodo->precio, 2);
 
         // Snapshot explícito de los atributos que afectan el servicio,
@@ -101,6 +104,8 @@ class ContratoCuotasServicio
             'total_bruto_referencial' => number_format(round($precio * $cantidad, 2), 2, '.', ''),
             'fecha_inicio' => $fechaInicio->toDateString(),
             'fecha_primer_pago' => $primerVencimiento->toDateString(),
+            'dia_pago' => $diaPago,
+            'programacion_vencimientos' => 'DIA_FIJO_MENSUAL',
         ];
 
         $inicio = $fechaInicio->copy();
@@ -138,7 +143,7 @@ class ContratoCuotasServicio
                 'numero_cuota' => $numero,
                 'monto' => $precio,
                 'fecha_programada_emision' => $inicio->toDateString(),
-                'fecha_vencimiento' => $inicio->copy()->addDays($desfasePago)->toDateString(),
+                'fecha_vencimiento' => $primerVencimiento->copy()->addMonthsNoOverflow($numero - 1)->toDateString(),
                 'estado' => 'PROGRAMADA',
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -147,6 +152,7 @@ class ContratoCuotasServicio
 
         DB::table('membresias.membresias')->where('id', $membresiaId)->update([
             'cantidad_periodos_contratados' => $cantidad,
+            'dia_pago' => $diaPago,
             'condiciones_contratadas' => json_encode($condiciones, JSON_THROW_ON_ERROR),
             'fecha_fin' => $fin->toDateString(),
             // El nuevo modelo se emite por cuota, nunca por el scheduler heredado.

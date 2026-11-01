@@ -127,8 +127,8 @@ class EmisionCuotasServicio
                     'updated_at' => now(),
                 ]);
 
-                // guardarVenta crea la cuenta; reemplazamos su fecha provisional
-                // por el vencimiento contractual independiente de dias_gracia.
+                // Sincronizar Cartera después de enlazar la cuota a la venta:
+                // así el vencimiento proviene de la cuota, no de dias_gracia.
                 $this->cartera->sincronizarVenta((int) $ventaId);
                 DB::table('cuentas_cobrar.cuentas')->where('venta_id', $ventaId)
                     ->update(['fecha_vencimiento' => $cuota->fecha_vencimiento, 'updated_at' => now()]);

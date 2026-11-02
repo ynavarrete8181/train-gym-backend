@@ -92,3 +92,22 @@ en la base de desarrollo antes de invocar endpoints del ciclo de vida.
   deportiva, revocación de reservas ni política de ingreso.
 - La migración comercial `2026_10_31_160000_import_revive_catalogo_comercial_produccion`
   sigue pendiente/errores en desarrollo y se evalúa por separado.
+
+## Refuerzo de concurrencia y emisión — 2 noviembre 2026
+
+- `CobroProgramadoMembresiaServicio` revalida, después de `lockForUpdate`, si el contrato sigue siendo recurrente, si conserva `proxima_fecha_cobro` y si esa fecha todavía está vencida. Una segunda ejecución con una selección de IDs obsoleta no puede emitir la cuota del mes siguiente.
+- El proceso de cobro recurrente también comprueba una suspensión financiera `VIGENTE` aunque el estado contractual no haya quedado sincronizado.
+- `EmisionCuotasServicio` verifica la suspensión financiera `VIGENTE` para cualquier estado contractual y conserva la excepción de `TIEMPO` únicamente con suspensión trazable.
+- Pruebas de regresión agregadas en `tests/Unit/Gimnasio/EmisionCongelacionConcurrenciaTest.php`, para selección obsoleta y suspensión de facturación con membresía aparentemente activa.
+
+Comandos para validar en el backend local, sobre `dev-revive`:
+
+```bash
+php -l app/Services/Gimnasio/CobroProgramadoMembresiaServicio.php
+php -l app/Services/Gimnasio/EmisionCuotasServicio.php
+php -l tests/Unit/Gimnasio/EmisionCongelacionConcurrenciaTest.php
+php artisan test tests/Unit/Gimnasio/EmisionCongelacionConcurrenciaTest.php
+php artisan test tests/Unit/Gimnasio/ImpactoFinancieroCongelacionServicioTest.php
+```
+
+**Estado de verificación:** commits y lectura posterior confirmados en GitHub. Pendientes: ejecución de PHPUnit contra el proyecto instalado, pruebas PostgreSQL de integración y pruebas de dos workers reales; no se ha migrado ni desplegado a producción.

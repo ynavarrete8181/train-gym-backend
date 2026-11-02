@@ -30,6 +30,16 @@ class EmisionCuotasServicio
 
         foreach ($ids as $id) {
             DB::transaction(function () use ($id, &$emitidas, &$omitidas): void {
+                // Bloquear siempre contrato ANTES de cuota, igual que el servicio
+                // de congelación. Evita carreras y bloqueos inversos con finanzas.
+                $referencia = DB::table('membresias.membresia_cuotas')->where('id', $id)
+                    ->first(['membresia_id']);
+                if (! $referencia) {
+                    $omitidas++;
+                    return;
+                }
+                $membresia = DB::table('membresias.membresias')
+                    ->where('id', $referencia->membresia_id)->lockForUpdate()->first();
                 $cuota = DB::table('membresias.membresia_cuotas')
                     ->where('id', $id)->lockForUpdate()->first();
 
@@ -38,12 +48,29 @@ class EmisionCuotasServicio
                     return;
                 }
 
-                $membresia = DB::table('membresias.membresias')
-                    ->where('id', $cuota->membresia_id)->first();
-
-                if (! $membresia || $membresia->estado === 'CANCELADA') {
+                if (! $membresia || (int) $cuota->membresia_id !== (int) $membresia->id
+                    || in_array($membresia->estado, ['CANCELADA', 'VENCIDA'], true)) {
                     $omitidas++;
                     return;
+                }
+
+                // En congelación de FACTURACION no se genera deuda nueva.
+                // En TIEMPO se conserva el calendario de pago pactado.
+                if ($membresia->estado === 'CONGELADA') {
+                    $suspensionFinanciera = DB::table('membresias.membresia_suspensiones')
+                        ->where('membresia_id', $membresia->id)
+                        ->where('tipo', 'FACTURACION')->where('estado', 'VIGENTE')->exists();
+                    if ($suspensionFinanciera) {
+                        $omitidas++;
+                        return;
+                    }
+                    // Estado heredado sin suspensión auditada: no arriesgar emisión.
+                    if (! DB::table('membresias.membresia_suspensiones')
+                        ->where('membresia_id', $membresia->id)
+                        ->where('tipo', 'TIEMPO')->where('estado', 'VIGENTE')->exists()) {
+                        $omitidas++;
+                        return;
+                    }
                 }
 
                 $plan = DB::table('membresias.planes')->where('id', $membresia->plan_id)->first();

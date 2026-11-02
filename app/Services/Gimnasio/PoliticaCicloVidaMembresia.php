@@ -34,7 +34,7 @@ final class PoliticaCicloVidaMembresia
         try {
             $desde = CarbonImmutable::createFromFormat('!Y-m-d', $inicio);
             $hasta = CarbonImmutable::createFromFormat('!Y-m-d', $fin);
-            $fechaHoy = CarbonImmutable::createFromFormat('!Y-m-d', $hoy ?? now()->toDateString());
+            $fechaHoy = CarbonImmutable::createFromFormat('!Y-m-d', $hoy ?? now('America/Guayaquil')->toDateString());
         } catch (\Throwable) {
             throw ValidationException::withMessages(['fecha_inicio' => 'Las fechas deben tener formato AAAA-MM-DD.']);
         }

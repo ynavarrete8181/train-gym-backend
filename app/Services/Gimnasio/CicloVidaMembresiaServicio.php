@@ -113,7 +113,7 @@ final class CicloVidaMembresiaServicio
             'fecha_fin_ajustada' => $this->politica->calcularFinAjustado((string) $m->fecha_fin, $intervalo['dias']),
             'genera_venta' => false,
             'modifica_pagos' => false,
-            'requiere_reprogramacion_financiera' => false,
+            'requiere_reprogramacion_financiera' => $bloqueo !== null,
         ];
     }
 

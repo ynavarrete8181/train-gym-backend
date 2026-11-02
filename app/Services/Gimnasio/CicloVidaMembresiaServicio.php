@@ -17,6 +17,7 @@ final class CicloVidaMembresiaServicio
     public function __construct(
         private readonly PoliticaCicloVidaMembresia $politica,
         private readonly EstadoCatalogoServicio $estados,
+        private readonly ImpactoFinancieroCongelacionServicio $impactoFinanciero,
     ) {}
 
     public function resumen(int $id): array
@@ -82,8 +83,8 @@ final class CicloVidaMembresiaServicio
             throw ValidationException::withMessages(['membresia_id' => 'Membresía no encontrada.']);
         }
         $tipo = strtoupper((string) $datos['tipo']);
-        if ($tipo === PoliticaCicloVidaMembresia::FACTURACION) {
-            throw ValidationException::withMessages(['tipo' => 'La congelación de facturación estará disponible en Fase 3.']);
+        if (! in_array($tipo, [PoliticaCicloVidaMembresia::TIEMPO, PoliticaCicloVidaMembresia::FACTURACION], true)) {
+            throw ValidationException::withMessages(['tipo' => 'Tipo de congelación no reconocido.']);
         }
         $existe = DB::table('membresias.membresia_suspensiones')
             ->where('membresia_id', $id)->whereIn('estado', ['PROGRAMADA', 'VIGENTE'])->exists();
@@ -95,7 +96,29 @@ final class CicloVidaMembresiaServicio
         if ($intervalo['fecha_fin'] > substr((string) $m->fecha_fin, 0, 10)) {
             throw ValidationException::withMessages(['fecha_fin' => 'La ausencia no puede superar la vigencia restante del contrato.']);
         }
+        $financiero = $this->impactoFinanciero->previsualizar(
+            $id, $intervalo['fecha_inicio'], $intervalo['fecha_fin'], $tipo
+        );
         $bloqueo = $this->motivoBloqueoFinanciero($id, $m);
+        // En FACTURACION se acepta un contrato a cuotas solo si no hay deudas
+        // emitidas, ni ventas periódicas recurrentes, ni cuotas vencidas sin emitir.
+        // TIEMPO conserva la política conservadora de la Fase 2.
+        if ($tipo === PoliticaCicloVidaMembresia::FACTURACION) {
+            $bloqueo = null;
+            if ((bool) ($m->generar_venta_automatica ?? false)
+                || (bool) ($m->renovacion_automatica ?? false)
+                || $m->cantidad_periodos_contratados === null) {
+                $bloqueo = 'Este contrato utiliza cobros recurrentes sin calendario de cuotas fijo.';
+            } elseif ($financiero['requiere_revision_cartera']) {
+                $bloqueo = 'El contrato tiene una venta emitida con saldo pendiente; requiere conciliación de Cartera.';
+            } elseif (collect($financiero['cuotas'])->contains(fn ($c) =>
+                $c['estado'] === 'PROGRAMADA'
+                && $c['emision_anterior'] < $intervalo['fecha_inicio'])) {
+                $bloqueo = 'Existen cuotas no emitidas cuyo plazo de emisión ya comenzó; deben regularizarse antes.';
+            } elseif ($financiero['cuotas_reprogramables'] === 0) {
+                $bloqueo = 'No existen cuotas futuras sin emitir que puedan reprogramarse.';
+            }
+        }
         $inicioFuturo = $intervalo['fecha_inicio'] !== $hoy;
         $motivosBloqueo = array_values(array_filter([
             $inicioFuturo ? 'La congelación futura solo puede simularse en Fase 2; todavía no puede programarse.' : null,
@@ -117,7 +140,8 @@ final class CicloVidaMembresiaServicio
             'fecha_fin_ajustada' => $this->politica->calcularFinAjustado((string) $m->fecha_fin, $intervalo['dias']),
             'genera_venta' => false,
             'modifica_pagos' => false,
-            'requiere_reprogramacion_financiera' => $bloqueo !== null,
+            'requiere_reprogramacion_financiera' => $tipo === PoliticaCicloVidaMembresia::FACTURACION,
+            'impacto_financiero' => $financiero,
         ];
     }
 

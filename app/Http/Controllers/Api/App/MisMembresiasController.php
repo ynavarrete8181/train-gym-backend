@@ -41,6 +41,7 @@ class MisMembresiasController extends Controller
                 'modalidad_nombre' => $m->modalidad_nombre,
                 'tipo_producto' => $m->tipo_producto,
                 'tipo_cobro' => $m->tipo_cobro,
+                'cantidad_periodos_contratados' => $m->cantidad_periodos_contratados ?? null,
                 'estado' => $m->estado,
                 'estado_nombre' => $m->estado_nombre,
                 'fecha_inicio' => $m->fecha_inicio,

@@ -395,6 +395,22 @@ class MembresiaControlador extends Controller
             $request->merge(['estado' => strtoupper((string) $request->input('estado'))]);
         }
 
+        // La edición administrativa nunca debe simular una congelación o reactivación.
+        // Ambas operaciones requieren movimiento, suspensión y trazabilidad transaccional.
+        $estadoSolicitado = strtoupper((string) $request->input('estado', $membresia->estado));
+        $estadoActual = strtoupper((string) $membresia->estado);
+        if ($estadoSolicitado !== $estadoActual &&
+            ($estadoSolicitado === 'CONGELADA' || $estadoActual === 'CONGELADA')) {
+            throw ValidationException::withMessages([
+                'estado' => 'Utiliza Gestión del ciclo de vida para congelar o reactivar la membresía.',
+            ]);
+        }
+        if ($request->filled('fecha_congelacion_inicio') || $request->filled('fecha_congelacion_fin')) {
+            throw ValidationException::withMessages([
+                'fecha_congelacion_inicio' => 'La congelación se realiza en Gestión del ciclo de vida, no mediante edición administrativa.',
+            ]);
+        }
+
         $validados = $request->validate([
             'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
             'modalidad_id' => 'nullable|integer|exists:pgsql.membresias.plan_modalidades,id',

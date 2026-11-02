@@ -85,10 +85,40 @@ final class ImpactoFinancieroCongelacionServicio
             ];
         }
 
+        // Otros cargos ligados directamente al contrato no siempre están
+        // vinculados a membresia_cuotas (p. ej. ventas manuales heredadas).
+        // También forman parte de Cartera y deben figurar en la conciliación.
+        $ventasDeCuotas = $cuotas->pluck('venta_id')->filter()->map(fn ($v) => (int) $v)->all();
+        $otrasVentasConsulta = DB::table('ventas.ventas')
+            ->where('membresia_id', $membresiaId)->where('estado', '!=', 'ANULADA');
+        if ($ventasDeCuotas) {
+            $otrasVentasConsulta->whereNotIn('id', $ventasDeCuotas);
+        }
+        $ventasAdicionales = [];
+        foreach ($otrasVentasConsulta->get(['id', 'numero', 'estado', 'total']) as $venta) {
+            $abonado = (float) DB::table('ventas.pagos')
+                ->where('venta_id', $venta->id)->where('estado', 'CONFIRMADO')->sum('monto');
+            $saldo = max(0, round((float) $venta->total - $abonado, 2));
+            $pagosConfirmados += $abonado;
+            $deudaEmitida += $saldo;
+            if ($saldo > 0) {
+                $requiereRevision = true;
+            }
+            $ventasAdicionales[] = [
+                'id' => (int) $venta->id,
+                'numero' => $venta->numero,
+                'estado' => $venta->estado,
+                'total' => round((float) $venta->total, 2),
+                'pagado_confirmado' => round($abonado, 2),
+                'saldo_emitido' => $saldo,
+            ];
+        }
+
         return [
             'tipo' => $tipo,
             'dias' => $dias,
             'cuotas' => $filas,
+            'ventas_adicionales' => $ventasAdicionales,
             'cuotas_reprogramables' => $cuotasReprogramables,
             'pagos_confirmados' => round($pagosConfirmados, 2),
             'deuda_emitida' => round($deudaEmitida, 2),

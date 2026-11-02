@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Gimnasio\FichaInicialControlador;
 use App\Http\Controllers\Api\Gimnasio\ValoracionDeportistaControlador;
 use App\Http\Controllers\Api\Gimnasio\FotografiaValoracionControlador;
 use App\Http\Controllers\Api\Gimnasio\MembresiaControlador;
+use App\Http\Controllers\Api\Gimnasio\CicloVidaMembresiaControlador;
 use App\Http\Controllers\Api\Gimnasio\DescuentoDeportistaControlador;
 use App\Http\Controllers\Api\Gimnasio\PlanControlador;
 use App\Http\Controllers\Api\Gimnasio\EntrenadorControlador;
@@ -107,6 +108,10 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::post('membresias', [MembresiaControlador::class, 'store'])->name('gimnasio.membresias.store');
         Route::get('membresias/{id}', [MembresiaControlador::class, 'show'])->name('gimnasio.membresias.show');
         Route::put('membresias/{id}', [MembresiaControlador::class, 'update'])->name('gimnasio.membresias.update');
+        Route::get('membresias/{id}/ciclo-vida', [CicloVidaMembresiaControlador::class, 'mostrar'])->whereNumber('id')->name('gimnasio.membresias.ciclo-vida');
+        Route::post('membresias/{id}/congelacion/preview', [CicloVidaMembresiaControlador::class, 'previsualizar'])->whereNumber('id')->name('gimnasio.membresias.congelacion.preview');
+        Route::post('membresias/{id}/congelacion', [CicloVidaMembresiaControlador::class, 'congelar'])->whereNumber('id')->name('gimnasio.membresias.congelacion');
+        Route::post('membresias/{id}/reactivacion', [CicloVidaMembresiaControlador::class, 'reactivar'])->whereNumber('id')->name('gimnasio.membresias.reactivacion');
         Route::post('membresias/{id}/renovar', [MembresiaControlador::class, 'renovar'])->name('gimnasio.membresias.renovar');
         Route::delete('membresias/{id}', [MembresiaControlador::class, 'destroy'])->name('gimnasio.membresias.destroy');
     });

@@ -19,5 +19,5 @@ jobs:
       - name: Validar sintaxis de PHP modificado
         run: |
           find app database/migrations tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
-      - name: Prueba vencimientos mensuales
-        run: php artisan test tests/Unit/Gimnasio/VencimientoMensualTest.php
+      - name: Probar vencimientos y reglas de ciclo de vida
+        run: php artisan test tests/Unit/Gimnasio/VencimientoMensualTest.php tests/Unit/Gimnasio/PoliticaCicloVidaMembresiaTest.php

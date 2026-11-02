@@ -19,7 +19,7 @@ class EmisionCuotasServicio
 
     public function procesar(?string $fecha = null): array
     {
-        $hoy = Carbon::parse($fecha ?: now()->toDateString())->toDateString();
+        $hoy = Carbon::parse($fecha ?: now('America/Guayaquil')->toDateString())->toDateString();
         $ids = DB::table('membresias.membresia_cuotas')
             ->where('estado', 'PROGRAMADA')
             ->where('fecha_programada_emision', '<=', $hoy)

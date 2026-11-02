@@ -88,7 +88,9 @@ final class CicloVidaMembresiaServicio
         }
         $existe = DB::table('membresias.membresia_suspensiones')
             ->where('membresia_id', $id)->whereIn('estado', ['PROGRAMADA', 'VIGENTE'])->exists();
-        $this->politica->validarCongelacion((string) $m->estado, $tipo, $existe, false);
+        $hayCuotas = DB::table('membresias.membresia_cuotas')
+            ->where('membresia_id', $id)->where('estado', 'PROGRAMADA')->exists();
+        $this->politica->validarCongelacion((string) $m->estado, $tipo, $existe, $hayCuotas);
         $intervalo = $this->politica->validarIntervalo($datos['fecha_inicio'], $datos['fecha_fin']);
         $hoy = now()->toDateString();
         // Una vista previa puede planificarse a futuro, sin registrar operaciones.
@@ -180,7 +182,7 @@ final class CicloVidaMembresiaServicio
             $suspensionId = DB::table('membresias.membresia_suspensiones')->insertGetId([
                 'membresia_id' => $id,
                 'movimiento_inicio_id' => $movimientoId,
-                'tipo' => 'TIEMPO',
+                'tipo' => $previa['tipo'],
                 'estado' => 'VIGENTE',
                 'fecha_inicio' => $previa['inicio'],
                 'fecha_fin_prevista' => $previa['fin_previsto'],
@@ -222,6 +224,14 @@ final class CicloVidaMembresiaServicio
             }
             $dias = (int) $inicio->diffInDays($finReal) + 1;
             $finNuevo = $this->politica->calcularFinAjustado((string) $s->fecha_fin_original, $dias);
+            $impacto = $this->impactoFinanciero->previsualizar(
+                $id, $s->fecha_inicio, $finReal->toDateString(), (string) $s->tipo
+            );
+            if ($s->tipo === 'FACTURACION' && $impacto['requiere_revision_cartera']) {
+                throw ValidationException::withMessages([
+                    'membresia_id' => 'La conciliación financiera detectó deuda emitida durante la suspensión. Revisa Ventas y Cartera.',
+                ]);
+            }
             $movimientoId = DB::table('membresias.membresia_movimientos')->insertGetId([
                 'membresia_id' => $id,
                 'tipo' => PoliticaCicloVidaMembresia::REACTIVAR,
@@ -246,9 +256,61 @@ final class CicloVidaMembresiaServicio
                 'fecha_fin' => $finNuevo,
                 'updated_at' => now(),
             ]);
-            DB::table('membresias.membresia_periodos')->where('membresia_id', $id)->update([
-                'fecha_fin' => $finNuevo, 'updated_at' => now(),
-            ]);
+            // Desplazar cada tramo pendiente de servicio, sin sobreescribir
+            // todas las fechas finales con una misma fecha.
+            $periodos = DB::table('membresias.membresia_periodos')
+                ->where('membresia_id', $id)->orderBy('numero_periodo')
+                ->lockForUpdate()->get();
+            foreach ($periodos as $periodo) {
+                $cambios = [];
+                if (substr((string) $periodo->fecha_inicio, 0, 10) >= $s->fecha_inicio) {
+                    $cambios['fecha_inicio'] = CarbonImmutable::parse($periodo->fecha_inicio)->addDays($dias)->toDateString();
+                }
+                if (substr((string) $periodo->fecha_fin, 0, 10) >= $s->fecha_inicio) {
+                    $cambios['fecha_fin'] = CarbonImmutable::parse($periodo->fecha_fin)->addDays($dias)->toDateString();
+                }
+                if ($cambios) {
+                    DB::table('membresias.membresia_periodos')->where('id', $periodo->id)
+                        ->update($cambios + ['updated_at' => now()]);
+                }
+            }
+            // Únicamente cuotas no emitidas pueden moverse; una venta con
+            // pago parcial o completo queda INTACTA y permanece en Cartera.
+            if ($s->tipo === 'FACTURACION') {
+                foreach ($impacto['cuotas'] as $cuota) {
+                    if ($cuota['accion'] !== 'REPROGRAMACION_PROPUESTA') {
+                        continue;
+                    }
+                    $cuotaActual = DB::table('membresias.membresia_cuotas')
+                        ->where('id', $cuota['cuota_id'])->lockForUpdate()->first();
+                    if (! $cuotaActual || $cuotaActual->estado !== 'PROGRAMADA'
+                        || $cuotaActual->venta_id !== null
+                        || substr((string) $cuotaActual->fecha_programada_emision, 0, 10) !== $cuota['emision_anterior']
+                        || substr((string) $cuotaActual->fecha_vencimiento, 0, 10) !== $cuota['vencimiento_anterior']) {
+                        throw ValidationException::withMessages([
+                            'cuotas' => 'El calendario cambió durante la suspensión; es necesario conciliarlo antes de reactivar.',
+                        ]);
+                    }
+                    DB::table('membresias.membresia_cuotas')->where('id', $cuota['cuota_id'])->update([
+                        'fecha_programada_emision' => $cuota['emision_propuesta'],
+                        'fecha_vencimiento' => $cuota['vencimiento_propuesto'],
+                        'updated_at' => now(),
+                    ]);
+                    DB::table('membresias.membresia_reprogramaciones')->insert([
+                        'membresia_id' => $id,
+                        'movimiento_id' => $movimientoId,
+                        'cuota_id' => $cuota['cuota_id'],
+                        'emision_anterior' => $cuota['emision_anterior'],
+                        'emision_nueva' => $cuota['emision_propuesta'],
+                        'vencimiento_anterior' => $cuota['vencimiento_anterior'],
+                        'vencimiento_nuevo' => $cuota['vencimiento_propuesto'],
+                        'estado' => 'APLICADA',
+                        'motivo' => trim($motivo),
+                        'impacto_financiero' => json_encode($cuota, JSON_THROW_ON_ERROR),
+                        'created_at' => now(), 'updated_at' => now(),
+                    ]);
+                }
+            }
             DB::table('membresias.membresia_reprogramaciones')->insert([
                 'membresia_id' => $id, 'movimiento_id' => $movimientoId,
                 'vigencia_fin_anterior' => $s->fecha_fin_original,

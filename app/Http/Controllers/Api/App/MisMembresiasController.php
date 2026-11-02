@@ -65,6 +65,12 @@ class MisMembresiasController extends Controller
                 'venta_total' => $m->venta_total,
                 'periodos' => $m->periodos,
                 'cuotas' => $m->cuotas,
+                'suspensiones' => DB::table('membresias.membresia_suspensiones')
+                    ->where('membresia_id', $m->id)
+                    ->orderByDesc('id')->limit(10)->get([
+                        'id', 'tipo', 'estado', 'fecha_inicio', 'fecha_fin_prevista',
+                        'fecha_fin_real', 'dias_reconocidos', 'fecha_fin_original', 'fecha_fin_ajustada',
+                    ]),
             ];
         })->filter()->values()->all();
 

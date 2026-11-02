@@ -29,7 +29,7 @@ class EmisionCuotasServicio
         $omitidas = 0;
 
         foreach ($ids as $id) {
-            DB::transaction(function () use ($id, &$emitidas, &$omitidas): void {
+            DB::transaction(function () use ($id, $hoy, &$emitidas, &$omitidas): void {
                 // Bloquear siempre contrato ANTES de cuota, igual que el servicio
                 // de congelación. Evita carreras y bloqueos inversos con finanzas.
                 $referencia = DB::table('membresias.membresia_cuotas')->where('id', $id)
@@ -43,7 +43,10 @@ class EmisionCuotasServicio
                 $cuota = DB::table('membresias.membresia_cuotas')
                     ->where('id', $id)->lockForUpdate()->first();
 
-                if (! $cuota || $cuota->estado !== 'PROGRAMADA' || $cuota->venta_id) {
+                // Un freeze/reactivación puede haber movido fechas después de
+                // seleccionar IDs; nunca emitir por la fecha antigua.
+                if (! $cuota || $cuota->estado !== 'PROGRAMADA' || $cuota->venta_id
+                    || $cuota->fecha_programada_emision > $hoy) {
                     $omitidas++;
                     return;
                 }

@@ -91,8 +91,8 @@ final class CicloVidaMembresiaServicio
         $hayCuotas = DB::table('membresias.membresia_cuotas')
             ->where('membresia_id', $id)->where('estado', 'PROGRAMADA')->exists();
         $this->politica->validarCongelacion((string) $m->estado, $tipo, $existe, $hayCuotas);
-        $intervalo = $this->politica->validarIntervalo($datos['fecha_inicio'], $datos['fecha_fin']);
-        $hoy = now()->toDateString();
+        $intervalo = $this->politica->validarIntervalo($datos['fecha_inicio'], $datos['fecha_fin'], now('America/Guayaquil')->toDateString());
+        $hoy = now('America/Guayaquil')->toDateString();
         // Una vista previa puede planificarse a futuro, sin registrar operaciones.
         // Solo la ejecución real exige inicio hoy y ausencia de bloqueos financieros.
         if ($intervalo['fecha_fin'] > substr((string) $m->fecha_fin, 0, 10)) {
@@ -158,7 +158,7 @@ final class CicloVidaMembresiaServicio
             $previa = $this->previsualizar($id, $datos);
             // Revalidación obligatoria bajo bloqueo: no puede programarse una
             // congelación futura ni sortearse la prohibición financiera por API.
-            if ($previa['inicio'] !== now()->toDateString()) {
+            if ($previa['inicio'] !== now('America/Guayaquil')->toDateString()) {
                 throw ValidationException::withMessages([
                     'fecha_inicio' => 'Solo es posible confirmar una congelación que inicia hoy.',
                 ]);
@@ -172,7 +172,7 @@ final class CicloVidaMembresiaServicio
                 'membresia_id' => $id,
                 'tipo' => PoliticaCicloVidaMembresia::CONGELAR,
                 'estado' => 'CONFIRMADO',
-                'fecha_efectiva' => now()->toDateString(),
+                'fecha_efectiva' => now('America/Guayaquil')->toDateString(),
                 'motivo' => trim($datos['motivo']),
                 'usuario_id' => $usuarioId,
                 'autorizado_por' => $usuarioId,
@@ -212,7 +212,7 @@ final class CicloVidaMembresiaServicio
             $s = DB::table('membresias.membresia_suspensiones')
                 ->where('membresia_id', $id)->where('estado', 'VIGENTE')->lockForUpdate()->first();
             $this->politica->validarReactivacion((string) $m->estado, $s !== null);
-            $hoy = CarbonImmutable::today();
+            $hoy = CarbonImmutable::today('America/Guayaquil');
             $inicio = CarbonImmutable::parse($s->fecha_inicio);
             if ($hoy->lessThanOrEqualTo($inicio)) {
                 throw ValidationException::withMessages(['fecha' => 'La reactivación exige al menos un día completo de suspensión.']);

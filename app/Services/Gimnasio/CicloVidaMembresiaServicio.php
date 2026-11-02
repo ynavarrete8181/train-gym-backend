@@ -97,10 +97,13 @@ final class CicloVidaMembresiaServicio
             throw ValidationException::withMessages(['fecha_fin' => 'La ausencia no puede superar la vigencia restante del contrato.']);
         }
         $bloqueo = $this->motivoBloqueoFinanciero($id, $m);
-        if ($bloqueo) {
-            throw ValidationException::withMessages(['membresia_id' => $bloqueo]);
-        }
+        // Vista previa informativa para contratos con varias cuotas:
+        // simular es seguro, confirmar NO, hasta que la Fase 3 trate Ventas/Cartera.
         return [
+            'confirmable' => $bloqueo === null,
+            'motivo_bloqueo' => $bloqueo,
+            'cuotas_programadas' => DB::table('membresias.membresia_cuotas')
+                ->where('membresia_id', $id)->where('estado', 'PROGRAMADA')->count(),
             'membresia_id' => $id,
             'tipo' => $tipo,
             'inicio' => $intervalo['fecha_inicio'],
@@ -123,6 +126,11 @@ final class CicloVidaMembresiaServicio
                 throw ValidationException::withMessages(['membresia_id' => 'Membresía no encontrada.']);
             }
             $previa = $this->previsualizar($id, $datos);
+            if (! $previa['confirmable']) {
+                throw ValidationException::withMessages([
+                    'membresia_id' => $previa['motivo_bloqueo'] ?? 'La congelación requiere revisión financiera.',
+                ]);
+            }
             $movimientoId = DB::table('membresias.membresia_movimientos')->insertGetId([
                 'membresia_id' => $id,
                 'tipo' => PoliticaCicloVidaMembresia::CONGELAR,

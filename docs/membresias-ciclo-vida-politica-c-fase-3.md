@@ -15,7 +15,13 @@ en la base de desarrollo antes de invocar endpoints del ciclo de vida.
 4. La simulación muestra pagos confirmados, saldo de ventas emitidas y cuotas
    proyectadas con fechas originales y nuevas. Solicitudes futuras pueden simularse,
    pero **no confirmarse** hasta la fecha de inicio.
-5. Si FACTURACION tiene calendario contractual de cuotas fijas, sin cobros
+5. La fecha operativa (inicio/fin y scheduler) se interpreta en la zona
+   **America/Guayaquil**, independientemente de la zona UTC general del backend.
+   La fecha efectiva no se calcula usando la fecha UTC del servidor.
+6. La revisión financiera también incluye ventas adicionales vinculadas al
+   contrato que no estén enlazadas a `membresia_cuotas`. Sus saldos pendientes
+   bloquean la aprobación y siempre permanecen en Cartera.
+7. Si FACTURACION tiene calendario contractual de cuotas fijas, sin cobros
    automáticos/recurrentes, sin saldos de ventas emitidas, y al menos una
    cuota futura PROGRAMADA sin venta cuyo período de emisión no ha comenzado,
    se puede confirmar **únicamente el día de inicio de la congelación**.

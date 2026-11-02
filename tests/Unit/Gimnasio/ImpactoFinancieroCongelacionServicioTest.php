@@ -41,6 +41,11 @@ class ImpactoFinancieroCongelacionServicioTest extends TestCase
 
         DB::shouldReceive('table')->once()->with('membresias.membresia_cuotas as c')->andReturn($consulta);
         DB::shouldReceive('table')->once()->with('ventas.pagos')->andReturn($pagos);
+        $otrasVentas = Mockery::mock();
+        $otrasVentas->shouldReceive('where')->twice()->andReturnSelf();
+        $otrasVentas->shouldReceive('whereNotIn')->once()->andReturnSelf();
+        $otrasVentas->shouldReceive('get')->once()->andReturn(collect());
+        DB::shouldReceive('table')->once()->with('ventas.ventas')->andReturn($otrasVentas);
 
         $resultado = (new ImpactoFinancieroCongelacionServicio())->previsualizar(
             8, '2026-11-15', '2026-12-31', 'FACTURACION'
@@ -79,6 +84,11 @@ class ImpactoFinancieroCongelacionServicioTest extends TestCase
         $pagos->shouldReceive('sum')->once()->with('monto')->andReturn(20);
         DB::shouldReceive('table')->once()->with('membresias.membresia_cuotas as c')->andReturn($consulta);
         DB::shouldReceive('table')->once()->with('ventas.pagos')->andReturn($pagos);
+        $otrasVentas = Mockery::mock();
+        $otrasVentas->shouldReceive('where')->twice()->andReturnSelf();
+        $otrasVentas->shouldReceive('whereNotIn')->once()->andReturnSelf();
+        $otrasVentas->shouldReceive('get')->once()->andReturn(collect());
+        DB::shouldReceive('table')->once()->with('ventas.ventas')->andReturn($otrasVentas);
 
         $resultado = (new ImpactoFinancieroCongelacionServicio())->previsualizar(
             8, '2026-11-15', '2026-11-29', 'FACTURACION'

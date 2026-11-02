@@ -39,8 +39,25 @@ class CobroProgramadoMembresiaServicio
                     ->lockForUpdate()
                     ->first();
 
-                if (! $membresia || ! $membresia->generar_venta_automatica || ! $membresia->dia_pago
+                // La selección de IDs ocurre fuera de la transacción. Tras adquirir
+                // el bloqueo, otra ejecución pudo cobrar y avanzar esta fecha.
+                // Revalidar evita emitir una venta futura o duplicar obligaciones.
+                if (! $membresia || $membresia->cantidad_periodos_contratados !== null
+                    || ! $membresia->generar_venta_automatica || ! $membresia->dia_pago
+                    || ! $membresia->proxima_fecha_cobro
+                    || substr((string) $membresia->proxima_fecha_cobro, 0, 10) > $hoy->toDateString()
                     || in_array($membresia->estado, ['CANCELADA', 'VENCIDA', 'CONGELADA'], true)) {
+                    $omitidas++;
+                    return;
+                }
+
+                // Defensa adicional: una suspensión financiera vigente tiene
+                // prioridad aunque un proceso externo haya desincronizado el estado.
+                if (DB::table('membresias.membresia_suspensiones')
+                    ->where('membresia_id', $id)
+                    ->where('tipo', 'FACTURACION')
+                    ->where('estado', 'VIGENTE')
+                    ->exists()) {
                     $omitidas++;
                     return;
                 }

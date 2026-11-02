@@ -28,7 +28,7 @@ class CobroProgramadoMembresiaServicio
             ->whereNotNull('dia_pago')
             ->whereNotNull('proxima_fecha_cobro')
             ->whereDate('proxima_fecha_cobro', '<=', $hoy->toDateString())
-            ->whereNotIn('estado', ['CANCELADA'])
+            ->whereNotIn('estado', ['CANCELADA', 'VENCIDA', 'CONGELADA'])
             ->orderBy('id')
             ->pluck('id');
 
@@ -39,7 +39,8 @@ class CobroProgramadoMembresiaServicio
                     ->lockForUpdate()
                     ->first();
 
-                if (! $membresia || ! $membresia->generar_venta_automatica || ! $membresia->dia_pago) {
+                if (! $membresia || ! $membresia->generar_venta_automatica || ! $membresia->dia_pago
+                    || in_array($membresia->estado, ['CANCELADA', 'VENCIDA', 'CONGELADA'], true)) {
                     $omitidas++;
                     return;
                 }

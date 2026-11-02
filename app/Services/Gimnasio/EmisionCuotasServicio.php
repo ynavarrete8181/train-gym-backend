@@ -57,23 +57,28 @@ class EmisionCuotasServicio
                     return;
                 }
 
-                // En congelación de FACTURACION no se genera deuda nueva.
-                // En TIEMPO se conserva el calendario de pago pactado.
-                if ($membresia->estado === 'CONGELADA') {
-                    $suspensionFinanciera = DB::table('membresias.membresia_suspensiones')
+                // Una suspensión financiera VIGENTE bloquea la emisión incluso
+                // cuando el estado del contrato todavía figure como ACTIVA.
+                $suspensionFinanciera = DB::table('membresias.membresia_suspensiones')
+                    ->where('membresia_id', $membresia->id)
+                    ->where('tipo', 'FACTURACION')
+                    ->where('estado', 'VIGENTE')
+                    ->exists();
+                if ($suspensionFinanciera) {
+                    $omitidas++;
+                    return;
+                }
+
+                // TIEMPO conserva el calendario pactado. No emitir contra una
+                // congelación heredada sin suspensión VIGENTE trazable.
+                if ($membresia->estado === 'CONGELADA'
+                    && ! DB::table('membresias.membresia_suspensiones')
                         ->where('membresia_id', $membresia->id)
-                        ->where('tipo', 'FACTURACION')->where('estado', 'VIGENTE')->exists();
-                    if ($suspensionFinanciera) {
-                        $omitidas++;
-                        return;
-                    }
-                    // Estado heredado sin suspensión auditada: no arriesgar emisión.
-                    if (! DB::table('membresias.membresia_suspensiones')
-                        ->where('membresia_id', $membresia->id)
-                        ->where('tipo', 'TIEMPO')->where('estado', 'VIGENTE')->exists()) {
-                        $omitidas++;
-                        return;
-                    }
+                        ->where('tipo', 'TIEMPO')
+                        ->where('estado', 'VIGENTE')
+                        ->exists()) {
+                    $omitidas++;
+                    return;
                 }
 
                 $plan = DB::table('membresias.planes')->where('id', $membresia->plan_id)->first();

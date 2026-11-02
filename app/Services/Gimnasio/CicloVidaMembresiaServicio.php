@@ -90,18 +90,22 @@ final class CicloVidaMembresiaServicio
         $this->politica->validarCongelacion((string) $m->estado, $tipo, $existe, false);
         $intervalo = $this->politica->validarIntervalo($datos['fecha_inicio'], $datos['fecha_fin']);
         $hoy = now()->toDateString();
-        if ($intervalo['fecha_inicio'] !== $hoy) {
-            throw ValidationException::withMessages(['fecha_inicio' => 'En Fase 2 la congelación se activa el día de la solicitud; la programación futura se habilitará después.']);
-        }
+        // Una vista previa puede planificarse a futuro, sin registrar operaciones.
+        // Solo la ejecución real exige inicio hoy y ausencia de bloqueos financieros.
         if ($intervalo['fecha_fin'] > substr((string) $m->fecha_fin, 0, 10)) {
             throw ValidationException::withMessages(['fecha_fin' => 'La ausencia no puede superar la vigencia restante del contrato.']);
         }
         $bloqueo = $this->motivoBloqueoFinanciero($id, $m);
-        // Vista previa informativa para contratos con varias cuotas:
-        // simular es seguro, confirmar NO, hasta que la Fase 3 trate Ventas/Cartera.
+        $inicioFuturo = $intervalo['fecha_inicio'] !== $hoy;
+        $motivosBloqueo = array_values(array_filter([
+            $inicioFuturo ? 'La congelación futura solo puede simularse en Fase 2; todavía no puede programarse.' : null,
+            $bloqueo,
+        ]));
+        // La simulación no cambia datos. Un contrato puede ser simulable sin ser confirmable.
         return [
-            'confirmable' => $bloqueo === null,
-            'motivo_bloqueo' => $bloqueo,
+            'confirmable' => ! $inicioFuturo && $bloqueo === null,
+            'motivo_bloqueo' => $motivosBloqueo ? implode(' ', $motivosBloqueo) : null,
+            'programacion_futura' => $inicioFuturo,
             'cuotas_programadas' => DB::table('membresias.membresia_cuotas')
                 ->where('membresia_id', $id)->where('estado', 'PROGRAMADA')->count(),
             'membresia_id' => $id,
@@ -126,6 +130,13 @@ final class CicloVidaMembresiaServicio
                 throw ValidationException::withMessages(['membresia_id' => 'Membresía no encontrada.']);
             }
             $previa = $this->previsualizar($id, $datos);
+            // Revalidación obligatoria bajo bloqueo: no puede programarse una
+            // congelación futura ni sortearse la prohibición financiera por API.
+            if ($previa['inicio'] !== now()->toDateString()) {
+                throw ValidationException::withMessages([
+                    'fecha_inicio' => 'Solo es posible confirmar una congelación que inicia hoy.',
+                ]);
+            }
             if (! $previa['confirmable']) {
                 throw ValidationException::withMessages([
                     'membresia_id' => $previa['motivo_bloqueo'] ?? 'La congelación requiere revisión financiera.',

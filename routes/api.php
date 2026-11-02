@@ -27,6 +27,11 @@ Route::get('health', function () {
     }
 });
 
+// Rutina personal: acceso condicionado a membresía activa y vigente.
+Route::middleware('base.auth')
+    ->get('app/rutinas', \App\Http\Controllers\Api\App\MiRutinaController::class)
+    ->name('app.rutinas');
+
 // Dashboard personal: únicamente datos del usuario autenticado.
 Route::middleware('base.auth')
     ->get('app/dashboard', \App\Http\Controllers\Api\App\DashboardDeportistaController::class)

@@ -65,6 +65,14 @@ class MisMembresiasController extends Controller
                 'venta_total' => $m->venta_total,
                 'periodos' => $m->periodos,
                 'cuotas' => $m->cuotas,
+                'reprogramaciones' => DB::table('membresias.membresia_reprogramaciones')
+                    ->where('membresia_id', $m->id)
+                    ->where('estado', 'APLICADA')
+                    ->orderByDesc('id')->limit(20)->get([
+                        'id', 'cuota_id', 'emision_anterior', 'emision_nueva',
+                        'vencimiento_anterior', 'vencimiento_nuevo',
+                        'vigencia_fin_anterior', 'vigencia_fin_nueva', 'estado',
+                    ]),
                 'suspensiones' => DB::table('membresias.membresia_suspensiones')
                     ->where('membresia_id', $m->id)
                     ->orderByDesc('id')->limit(10)->get([

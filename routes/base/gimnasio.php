@@ -125,6 +125,8 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::post('membresias/{id}/congelacion', [CicloVidaMembresiaControlador::class, 'congelar'])->whereNumber('id')->name('gimnasio.membresias.congelacion');
         Route::get('membresias/{id}/reactivacion/preview', [CicloVidaMembresiaControlador::class, 'previsualizarReactivacion'])->whereNumber('id')->name('gimnasio.membresias.reactivacion.preview');
         Route::post('membresias/{id}/reactivacion', [CicloVidaMembresiaControlador::class, 'reactivar'])->whereNumber('id')->name('gimnasio.membresias.reactivacion');
+        Route::get('membresias/{id}/renovacion-programada/preview', [MembresiaControlador::class, 'previsualizarRenovacionProgramada'])->whereNumber('id')->name('gimnasio.membresias.renovacion-programada.preview');
+        Route::post('membresias/{id}/renovacion-programada', [MembresiaControlador::class, 'registrarRenovacionProgramada'])->whereNumber('id')->name('gimnasio.membresias.renovacion-programada.store');
         Route::post('membresias/{id}/renovar', [MembresiaControlador::class, 'renovar'])->name('gimnasio.membresias.renovar');
         Route::delete('membresias/{id}', [MembresiaControlador::class, 'destroy'])->name('gimnasio.membresias.destroy');
     });

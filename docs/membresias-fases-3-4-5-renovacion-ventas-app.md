@@ -30,6 +30,7 @@ El backend presenta:
 - `fecha_fin_original` procedente de la versión `CONTRATACION` del historial; `null` si no existe fuente histórica.
 - `fecha_fin_vigente` del contrato actualizado.
 - `periodos_renovados` filtrados por marca `renovacion_manual`.
+- `renovacion_iniciada_impaga` y `estado_consulta`: consulta de lectura que muestra `PENDIENTE_PAGO` si una renovación ya empezó sin venta completamente pagada, incluso antes de la ejecución del scheduler. No reemplaza el control real de acceso del backend.
 - `total_pagado_confirmado` desde pagos confirmados de las cuotas y `saldo_ventas_emitidas` desde ventas emitidas no anuladas. Las cuotas futuras sin emitir NO son saldos emitidos.
 - `periodos`, `cuotas`, `suspensiones` y `reprogramaciones` ya existentes.
 

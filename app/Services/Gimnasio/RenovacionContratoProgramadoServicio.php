@@ -194,17 +194,14 @@ final class RenovacionContratoProgramadoServicio
                 'fecha_fin' => $p['fecha_fin'],
                 'updated_at' => $ahora,
             ]);
-            $m = DB::table('membresias.membresias')->where('id', $id)->first();
-            $condiciones = json_decode((string) ($m->condiciones_contratadas ?? ''), true) ?: [];
-            $condiciones['cantidad_periodos'] = $p['numero_periodo_nuevo'];
-            $condiciones['total_bruto_referencial'] = number_format(
-                $p['precio'] * $p['numero_periodo_nuevo'], 2, '.', ''
-            );
-            DB::table('membresias.membresias')->where('id', $id)
-                ->update(['condiciones_contratadas' => json_encode($condiciones, JSON_THROW_ON_ERROR)]);
+            // El snapshot de condiciones pactadas es INMUTABLE. La ampliación
+            // vive en periodos/cuotas e historial comercial, no altera el original.
             app(HistorialComercialMembresiaServicio::class)->registrarContrato(
-                $id, 'RENOVACION_MANUAL', $p + ['periodo_id' => $periodoId, 'cuota_id' => $cuotaId,
-                    'usuario_id' => $usuarioId], 'Renovación manual del mismo contrato, sin venta anticipada.'
+                $id, 'RENOVACION_MANUAL', $p + [
+                    'periodo_id' => $periodoId, 'cuota_id' => $cuotaId,
+                    'usuario_id' => $usuarioId, 'fecha_fin_anterior' => $p['vigencia_actual'],
+                    'fecha_fin_nueva' => $p['fecha_fin'],
+                ], 'Renovación manual del mismo contrato, sin venta anticipada.'
             );
             return $p + ['periodo_id' => $periodoId, 'cuota_id' => $cuotaId];
         });

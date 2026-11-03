@@ -106,7 +106,12 @@ final class CicloVidaMembresiaControlador extends Controller
     public function reactivar(Request $request, int $id)
     {
         $this->validarAlcance($request, $id);
-        $datos = $request->validate(['motivo' => 'required|string|min:8|max:1000']);
-        return ApiResponse::exito('Membresía reactivada.', $this->servicio->reactivar($id, $datos['motivo'], (int) $request->user()->id));
+        $datos = $request->validate([
+            'motivo' => 'required|string|min:8|max:1000',
+            'motivo_codigo' => 'nullable|string|max:60',
+        ]);
+        return ApiResponse::exito('Membresía reactivada.', $this->servicio->reactivar(
+            $id, $datos['motivo'], (int) $request->user()->id, null, $datos['motivo_codigo'] ?? null
+        ));
     }
 }

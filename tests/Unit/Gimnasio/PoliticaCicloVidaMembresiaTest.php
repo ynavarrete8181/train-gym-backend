@@ -37,6 +37,43 @@ class PoliticaCicloVidaMembresiaTest extends TestCase
         $this->assertSame('2027-01-15', $this->politica->calcularFinAjustado('2026-12-31', $intervalo['dias']));
     }
 
+    public function test_regreso_anticipado_reconoce_solo_dias_efectivos(): void
+    {
+        $resultado = $this->politica->calcularRegreso(
+            '2026-11-02', '2026-12-15', '2026-11-03'
+        );
+        $this->assertSame('2026-11-03', $resultado['fecha_regreso']);
+        $this->assertSame('2026-11-02', $resultado['fecha_fin_real']);
+        $this->assertSame(1, $resultado['dias_reconocidos']);
+        $this->assertSame('2027-01-01', $this->politica->calcularFinAjustado(
+            '2026-12-31', $resultado['dias_reconocidos']
+        ));
+    }
+
+    public function test_regreso_diez_de_diciembre_reconoce_treinta_y_ocho_dias(): void
+    {
+        $resultado = $this->politica->calcularRegreso(
+            '2026-11-02', '2026-12-15', '2026-12-10'
+        );
+        $this->assertSame('2026-12-09', $resultado['fecha_fin_real']);
+        $this->assertSame(38, $resultado['dias_reconocidos']);
+        $this->assertSame('2027-02-07', $this->politica->calcularFinAjustado(
+            '2026-12-31', $resultado['dias_reconocidos']
+        ));
+    }
+
+    public function test_regreso_el_mismo_dia_de_congelacion_no_procede(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->politica->calcularRegreso('2026-11-02', '2026-12-15', '2026-11-02');
+    }
+
+    public function test_regreso_fuera_de_fecha_autorizada_no_procede(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->politica->calcularRegreso('2026-11-02', '2026-12-15', '2026-12-17');
+    }
+
     public function test_congelacion_retroactiva_rechazada(): void
     {
         $this->expectException(ValidationException::class);

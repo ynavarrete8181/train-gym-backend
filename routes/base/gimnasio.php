@@ -119,6 +119,8 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::get('membresias/{id}/ciclo-vida', [CicloVidaMembresiaControlador::class, 'mostrar'])->whereNumber('id')->name('gimnasio.membresias.ciclo-vida');
         Route::post('membresias/{id}/congelacion/preview', [CicloVidaMembresiaControlador::class, 'previsualizar'])->whereNumber('id')->name('gimnasio.membresias.congelacion.preview');
         Route::post('membresias/{id}/congelacion/programar', [CicloVidaMembresiaControlador::class, 'programar'])->whereNumber('id')->name('gimnasio.membresias.congelacion.programar');
+        Route::post('membresias/{id}/congelacion/{suspensionId}/preview-edicion', [CicloVidaMembresiaControlador::class, 'previsualizarEdicion'])->whereNumber('id')->whereNumber('suspensionId')->name('gimnasio.membresias.congelacion.preview-edicion');
+        Route::put('membresias/{id}/congelacion/{suspensionId}/programacion', [CicloVidaMembresiaControlador::class, 'actualizarProgramada'])->whereNumber('id')->whereNumber('suspensionId')->name('gimnasio.membresias.congelacion.programacion.update');
         Route::post('membresias/{id}/congelacion/{suspensionId}/cancelar', [CicloVidaMembresiaControlador::class, 'cancelarProgramada'])->whereNumber('id')->whereNumber('suspensionId')->name('gimnasio.membresias.congelacion.cancelar');
         Route::post('membresias/{id}/congelacion', [CicloVidaMembresiaControlador::class, 'congelar'])->whereNumber('id')->name('gimnasio.membresias.congelacion');
         Route::get('membresias/{id}/reactivacion/preview', [CicloVidaMembresiaControlador::class, 'previsualizarReactivacion'])->whereNumber('id')->name('gimnasio.membresias.reactivacion.preview');

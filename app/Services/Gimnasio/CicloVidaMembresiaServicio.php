@@ -443,6 +443,51 @@ final class CicloVidaMembresiaServicio
         });
     }
 
+    /**
+     * Previsualiza el regreso sin modificar contratos, cuotas ni historial.
+     * La confirmación vuelve a calcularlo dentro del bloqueo transaccional.
+     */
+    public function previsualizarReactivacion(int $id): array
+    {
+        $m = DB::table('membresias.membresias')->where('id', $id)->first();
+        $s = DB::table('membresias.membresia_suspensiones')
+            ->where('membresia_id', $id)->where('estado', 'VIGENTE')
+            ->orderByDesc('id')->first();
+        $this->politica->validarReactivacion((string) ($m->estado ?? ''), $s !== null);
+        $regreso = CarbonImmutable::today('America/Guayaquil');
+        $inicio = CarbonImmutable::parse($s->fecha_inicio);
+        if ($regreso->lessThanOrEqualTo($inicio)) {
+            throw ValidationException::withMessages(['fecha' => 'Se requiere al menos un día de congelación para reactivar.']);
+        }
+        $ultimoDia = $regreso->subDay();
+        if ($ultimoDia->greaterThan(CarbonImmutable::parse($s->fecha_fin_prevista))) {
+            throw ValidationException::withMessages([
+                'fecha' => 'La fecha de regreso supera el límite aprobado; requiere revisión administrativa.',
+            ]);
+        }
+        $dias = (int) $inicio->diffInDays($ultimoDia) + 1;
+        $impacto = $this->impactoFinanciero->previsualizar(
+            $id, $s->fecha_inicio, $ultimoDia->toDateString(), $s->tipo
+        );
+        $bloqueo = $s->tipo === 'FACTURACION' && $impacto['requiere_revision_cartera']
+            ? 'Existe deuda emitida que requiere conciliación de Cartera.' : null;
+
+        return [
+            'confirmable' => $bloqueo === null,
+            'motivo_bloqueo' => $bloqueo,
+            'suspension_id' => (int) $s->id,
+            'tipo' => $s->tipo,
+            'fecha_regreso' => $regreso->toDateString(),
+            'fecha_fin_real' => $ultimoDia->toDateString(),
+            'dias_reconocidos' => $dias,
+            'fecha_fin_original' => substr((string) $s->fecha_fin_original, 0, 10),
+            'fecha_fin_propuesta' => $this->politica->calcularFinAjustado(
+                (string) $s->fecha_fin_original, $dias
+            ),
+            'impacto_financiero' => $impacto,
+        ];
+    }
+
     public function reactivar(int $id, string $motivo, ?int $usuarioId, ?string $fechaEfectiva = null): array
     {
         return DB::transaction(function () use ($id, $motivo, $usuarioId, $fechaEfectiva): array {

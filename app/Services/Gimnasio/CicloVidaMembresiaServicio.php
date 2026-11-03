@@ -562,17 +562,12 @@ final class CicloVidaMembresiaServicio
             ->orderByDesc('id')->first();
         $this->politica->validarReactivacion((string) ($m->estado ?? ''), $s !== null);
         $regreso = CarbonImmutable::today('America/Guayaquil');
-        $inicio = CarbonImmutable::parse($s->fecha_inicio);
-        if ($regreso->lessThanOrEqualTo($inicio)) {
-            throw ValidationException::withMessages(['fecha' => 'Se requiere al menos un día de congelación para reactivar.']);
-        }
-        $ultimoDia = $regreso->subDay();
-        if ($ultimoDia->greaterThan(CarbonImmutable::parse($s->fecha_fin_prevista))) {
-            throw ValidationException::withMessages([
-                'fecha' => 'La fecha de regreso supera el límite aprobado; requiere revisión administrativa.',
-            ]);
-        }
-        $dias = (int) $inicio->diffInDays($ultimoDia) + 1;
+        $calculoRegreso = $this->politica->calcularRegreso(
+            (string) $s->fecha_inicio, (string) $s->fecha_fin_prevista,
+            $regreso->toDateString()
+        );
+        $ultimoDia = CarbonImmutable::parse($calculoRegreso['fecha_fin_real']);
+        $dias = $calculoRegreso['dias_reconocidos'];
         $impacto = $this->impactoFinanciero->previsualizar(
             $id, $s->fecha_inicio, $ultimoDia->toDateString(), $s->tipo
         );
@@ -618,16 +613,12 @@ final class CicloVidaMembresiaServicio
                     'fecha' => 'La fecha efectiva automática debe coincidir con el regreso autorizado de vacaciones.',
                 ]);
             }
-            $inicio = CarbonImmutable::parse($s->fecha_inicio);
-            if ($hoy->lessThanOrEqualTo($inicio)) {
-                throw ValidationException::withMessages(['fecha' => 'La reactivación exige al menos un día completo de suspensión.']);
-            }
-            $finReal = $hoy->subDay();
-            $finPrevisto = CarbonImmutable::parse($s->fecha_fin_prevista);
-            if ($finReal->greaterThan($finPrevisto)) {
-                throw ValidationException::withMessages(['fecha' => 'La suspensión excedió la fecha prevista; requiere revisión administrativa antes de reactivar.']);
-            }
-            $dias = (int) $inicio->diffInDays($finReal) + 1;
+            $calculoRegreso = $this->politica->calcularRegreso(
+                (string) $s->fecha_inicio, (string) $s->fecha_fin_prevista,
+                $hoy->toDateString()
+            );
+            $finReal = CarbonImmutable::parse($calculoRegreso['fecha_fin_real']);
+            $dias = $calculoRegreso['dias_reconocidos'];
             $finNuevo = $this->politica->calcularFinAjustado((string) $s->fecha_fin_original, $dias);
             $impacto = $this->impactoFinanciero->previsualizar(
                 $id, $s->fecha_inicio, $finReal->toDateString(), (string) $s->tipo
@@ -647,8 +638,14 @@ final class CicloVidaMembresiaServicio
                 'usuario_id' => $usuarioId,
                 'autorizado_por' => $usuarioId,
                 'movimiento_origen_id' => $s->movimiento_inicio_id,
-                'detalle' => json_encode(['dias_reconocidos' => $dias, 'fecha_fin_anterior' => $s->fecha_fin_original,
-                    'fecha_fin_nueva' => $finNuevo, 'motivo_codigo' => $codigoReactivacion], JSON_THROW_ON_ERROR),
+                'detalle' => json_encode([
+                    'fecha_regreso' => $hoy->toDateString(),
+                    'fecha_fin_real' => $finReal->toDateString(),
+                    'dias_reconocidos' => $dias,
+                    'fecha_fin_anterior' => $s->fecha_fin_original,
+                    'fecha_fin_nueva' => $finNuevo,
+                    'motivo_codigo' => $codigoReactivacion,
+                ], JSON_THROW_ON_ERROR),
                 'created_at' => now(), 'updated_at' => now(),
             ]);
             DB::table('membresias.membresia_suspensiones')->where('id', $s->id)->update([
@@ -723,8 +720,14 @@ final class CicloVidaMembresiaServicio
                 'vigencia_fin_nueva' => $finNuevo, 'estado' => 'APLICADA',
                 'motivo' => trim($motivo), 'created_at' => now(), 'updated_at' => now(),
             ]);
-            return ['membresia_id' => $id, 'suspension_id' => $s->id,
-                'dias_reconocidos' => $dias, 'fecha_fin' => $finNuevo];
+            return [
+                'membresia_id' => $id, 'suspension_id' => $s->id,
+                'fecha_regreso' => $hoy->toDateString(),
+                'fecha_fin_real' => $finReal->toDateString(),
+                'dias_reconocidos' => $dias,
+                'fecha_fin_original' => substr((string) $s->fecha_fin_original, 0, 10),
+                'fecha_fin' => $finNuevo,
+            ];
         });
     }
 }

@@ -17,6 +17,7 @@ class MembresiaControlador extends Controller
         protected MembresiaServicio $membresiaServicio,
         protected \App\Services\Gimnasio\ContratoCuotasServicio $contratoCuotas,
         protected \App\Services\Gimnasio\RenovacionContratoProgramadoServicio $renovacionProgramada,
+        protected \App\Services\Seguridad\AlcanceOperativoService $alcanceOperativo,
         protected VentaServicio $ventaServicio,
         protected \App\Services\Gimnasio\DescuentoDeportistaServicio $descuentos,
     ) {
@@ -274,14 +275,28 @@ class MembresiaControlador extends Controller
         );
     }
 
+    private function validarAlcanceRenovacion(Request $request, int $id): void
+    {
+        $usuarioId = (int) $request->user()->id;
+        $sedeId = $this->alcanceOperativo->sedeDeMembresia($id);
+        if (! $sedeId || ! in_array($sedeId, $this->alcanceOperativo->sedesPermitidas($usuarioId), true)) {
+            throw ValidationException::withMessages([
+                'sede_id' => 'No tienes acceso operativo a la sede del contrato para renovar.',
+            ]);
+        }
+        $this->alcanceOperativo->validarSede($usuarioId, $sedeId);
+    }
+
     public function previsualizarRenovacionProgramada(Request $request, int $id)
     {
+        $this->validarAlcanceRenovacion($request, $id);
         return ApiResponse::exito('Vista previa de renovación del contrato.',
             $this->renovacionProgramada->previsualizar($id));
     }
 
     public function registrarRenovacionProgramada(Request $request, int $id)
     {
+        $this->validarAlcanceRenovacion($request, $id);
         return ApiResponse::exito('Período y cuota nuevos registrados en el contrato original.',
             $this->renovacionProgramada->registrar($id, (int) $request->user()->id));
     }

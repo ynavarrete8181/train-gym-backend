@@ -73,6 +73,15 @@ final class CicloVidaMembresiaControlador extends Controller
             $this->servicio->programarTiempo($id, $datos, (int) $request->user()->id));
     }
 
+    public function cancelarProgramada(Request $request, int $id, int $suspensionId)
+    {
+        $this->validarAlcance($request, $id);
+        $datos = $request->validate(['motivo' => 'required|string|min:8|max:1000']);
+        return ApiResponse::exito('Programación de vacaciones cancelada.',
+            $this->servicio->cancelarProgramada($id, $suspensionId,
+                $datos['motivo'], (int) $request->user()->id));
+    }
+
     public function congelar(Request $request, int $id)
     {
         $this->validarAlcance($request, $id);

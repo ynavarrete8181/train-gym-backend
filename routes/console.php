@@ -344,6 +344,14 @@ Artisan::command('revive:configurar-submenus-membresias {--aplicar}', function (
         }
     }
 
+    // Si una versión anterior del comando creó el submenú duplicado de
+    // operaciones, retirarlo con el servicio oficial de permisos. Ningún
+    // movimiento del contrato se elimina: solo la navegación redundante.
+    $duplicados = DB::table('seguridad.cpu_userrolefunction')
+        ->where('id_menu', 'GIMNASIO-CICLO-VIDA')
+        ->where('activo', true)->get();
+    $this->info('Submenús de operación duplicados detectados: ' . $duplicados->count());
+
     $planes = DB::table('seguridad.cpu_userrolefunction')
         ->where('id_menu', 'GIMNASIO-PLANES')->where('activo', true)->get();
     $renombrar = $planes->filter(fn ($plan) => $plan->nombre !== 'Planes');
@@ -354,6 +362,10 @@ Artisan::command('revive:configurar-submenus-membresias {--aplicar}', function (
     if (! $this->option('aplicar')) {
         $this->line('Solo simulación. Revisa la navegación antes de ejecutar --aplicar en desarrollo.');
         return 0;
+    }
+
+    foreach ($duplicados as $funcion) {
+        $roles->quitarFuncionRol((int) $funcion->id_userrole, 'GIMNASIO-CICLO-VIDA');
     }
 
     foreach ($planes as $plan) {

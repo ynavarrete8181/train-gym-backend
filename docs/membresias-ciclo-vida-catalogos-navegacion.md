@@ -18,10 +18,10 @@
 4. Al congelar, el formulario distingue motivo catalogado, justificación libre y modalidad `TIEMPO` / `FACTURACION`. `Vista previa` consulta Laravel sin escritura. `Guardar` solo se activa cuando la vista previa es confirmable o programable y el motivo contiene al menos ocho caracteres.
 5. Al reactivar, `GET /api/base/gimnasio/membresias/{id}/reactivacion/preview` calcula días completos de suspensión, nueva vigencia y saldos de Cartera sin escritura. `Guardar` exige esa revisión; Laravel vuelve a validar dentro de su transacción.
 6. El código del motivo se valida contra el catálogo ACTIVO y se preserva en el JSON de auditoría del movimiento. Solicitudes históricas sin motivo codificado siguen siendo compatibles.
-7. `routes/console.php` define el comando opcional y repetible `revive:configurar-submenus-membresias`. Por defecto **solo simula**; `--aplicar` registra las páginas nuevas como submenús del menú activo cuyo nombre contiene `Membresías`.
+7. `routes/console.php` define el comando opcional y repetible `revive:configurar-submenus-membresias`. Por defecto **solo simula**; `--aplicar` registra las páginas nuevas como submenús del menú padre real de `GIMNASIO-PLANES`, sin buscar por nombre ni crear otro menú.
    - `GIMNASIO-CICLO-VIDA` → `GestionesCicloVidaPage`, únicamente roles que ya tienen `GIMNASIO-MEMBRESIAS`.
    - `GIMNASIO-MOTIVOS-CICLO-VIDA` → `MotivosCicloVidaPage`, únicamente roles con `GIMNASIO-MEMBRESIAS` y `GIMNASIO-PLANES`.
-   - Se reutiliza la sincronización oficial de rol/usuario y la asociación `PaginaSistemaService`; no se crean rutas fijas ni se alteran permisos preexistentes.
+   - El submenú existente `GIMNASIO-PLANES` se muestra únicamente como **Planes**, sin repetir el nombre del menú padre. Se reutiliza la sincronización oficial de rol/usuario y la asociación `PaginaSistemaService`; no se crean rutas fijas ni se alteran permisos preexistentes.
 
 ## Aplicación en desarrollo (NO PRODUCCIÓN)
 
@@ -35,7 +35,7 @@ php artisan migrate --pretend --path=database/migrations/2026_11_03_100000_creat
 # Tras revisar el SQL y respaldar la base de desarrollo:
 php artisan migrate --path=database/migrations/2026_11_03_100000_create_motivos_ciclo_vida.php
 php artisan revive:configurar-submenus-membresias
-# Si se identifica el menú correcto y los roles previstos:
+# Si se identifica el menú padre real de Planes y los roles previstos:
 php artisan revive:configurar-submenus-membresias --aplicar
 php artisan route:list --path=membresias
 php artisan schedule:list

@@ -8,9 +8,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Fase 2: operación de congelación de TIEMPO sobre contrato completamente pagado.
- * FACTURACION, cobros futuros, cierre y recontratación esperan fases 3/4.
- * Operaciones serializadas por lockForUpdate en membresía.
+ * Ciclo de vida auditado. Las vacaciones de TIEMPO admiten programación
+ * futura sin alterar anticipadamente acceso, cobros ni fecha fin contractual.
+ * Todas las transiciones revalidan y bloquean primero la membresía.
  */
 final class CicloVidaMembresiaServicio
 {
@@ -57,8 +57,8 @@ final class CicloVidaMembresiaServicio
         }
 
         $periodos = DB::table('membresias.membresia_periodos')->where('membresia_id', $id)->get();
-        if ($periodos->count() !== 1) {
-            return 'La congelación de contratos con varios períodos requiere reprogramación financiera (Fase 3).';
+        if ($periodos->isEmpty()) {
+            return 'El contrato no tiene períodos registrados para compensar días.';
         }
 
         if (DB::table('membresias.membresia_cuotas')->where('membresia_id', $id)
@@ -121,14 +121,19 @@ final class CicloVidaMembresiaServicio
                 $bloqueo = 'No existen cuotas futuras sin emitir que puedan reprogramarse.';
             }
         }
-        $inicioFuturo = $intervalo['fecha_inicio'] !== $hoy;
+        $inicioFuturo = $intervalo['fecha_inicio'] > $hoy;
+        $programable = $inicioFuturo && $tipo === PoliticaCicloVidaMembresia::TIEMPO
+            && $bloqueo === null;
         $motivosBloqueo = array_values(array_filter([
-            $inicioFuturo ? 'La congelación futura solo puede simularse en Fase 2; todavía no puede programarse.' : null,
+            $inicioFuturo ? ($programable
+                ? 'Puedes registrar esta solicitud futura. La membresía seguirá activa hasta su fecha de inicio y se revisará nuevamente ese día.'
+                : 'Esta modalidad no puede registrarse por anticipado; solo puede simularse.') : null,
             $bloqueo,
         ]));
         // La simulación no cambia datos. Un contrato puede ser simulable sin ser confirmable.
         return [
             'confirmable' => ! $inicioFuturo && $bloqueo === null,
+            'programable' => $programable,
             'motivo_bloqueo' => $motivosBloqueo ? implode(' ', $motivosBloqueo) : null,
             'programacion_futura' => $inicioFuturo,
             'cuotas_programadas' => DB::table('membresias.membresia_cuotas')
@@ -145,6 +150,149 @@ final class CicloVidaMembresiaServicio
             'requiere_reprogramacion_financiera' => $tipo === PoliticaCicloVidaMembresia::FACTURACION,
             'impacto_financiero' => $financiero,
         ];
+    }
+
+    /**
+     * Registra una autorización de vacaciones futuras. El scheduler la activa
+     * exclusivamente en su fecha, tras una nueva validación económica.
+     */
+    public function programarTiempo(int $id, array $datos, int $usuarioId): array
+    {
+        return DB::transaction(function () use ($id, $datos, $usuarioId): array {
+            $m = DB::table('membresias.membresias')->where('id', $id)->lockForUpdate()->first();
+            if (! $m) {
+                throw ValidationException::withMessages(['membresia_id' => 'Membresía no encontrada.']);
+            }
+            if (strtoupper((string) ($datos['tipo'] ?? '')) !== PoliticaCicloVidaMembresia::TIEMPO) {
+                throw ValidationException::withMessages([
+                    'tipo' => 'La programación anticipada se limita a congelación de tiempo (vacaciones).',
+                ]);
+            }
+            $previa = $this->previsualizar($id, $datos);
+            if (! ($previa['programable'] ?? false)) {
+                throw ValidationException::withMessages([
+                    'fecha_inicio' => $previa['motivo_bloqueo'] ?? 'No es posible programar estas vacaciones.',
+                ]);
+            }
+
+            $movimientoId = DB::table('membresias.membresia_movimientos')->insertGetId([
+                'membresia_id' => $id,
+                'tipo' => PoliticaCicloVidaMembresia::CONGELAR,
+                'estado' => 'PROGRAMADO',
+                'fecha_efectiva' => $previa['inicio'],
+                'motivo' => trim($datos['motivo']),
+                'usuario_id' => $usuarioId,
+                'autorizado_por' => $usuarioId,
+                'detalle' => json_encode($previa, JSON_THROW_ON_ERROR),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            $suspensionId = DB::table('membresias.membresia_suspensiones')->insertGetId([
+                'membresia_id' => $id,
+                'movimiento_inicio_id' => $movimientoId,
+                'tipo' => PoliticaCicloVidaMembresia::TIEMPO,
+                'estado' => 'PROGRAMADA',
+                'fecha_inicio' => $previa['inicio'],
+                'fecha_fin_prevista' => $previa['fin_previsto'],
+                'dias_reconocidos' => 0,
+                'fecha_fin_original' => $previa['fecha_fin_original'],
+                'fecha_fin_ajustada' => $previa['fecha_fin_ajustada'],
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+
+            // No tocar membresía, períodos, cuotas, ventas ni Cartera todavía.
+            return ['suspension_id' => $suspensionId, 'movimiento_id' => $movimientoId,
+                'estado' => 'PROGRAMADA'] + $previa;
+        });
+    }
+
+    /**
+     * Opera con fechas de Ecuador. Si el scheduler llega tarde no reconoce
+     * automáticamente días en los que el cliente pudo haber entrenado.
+     */
+    public function procesarProgramadas(): array
+    {
+        $hoy = CarbonImmutable::today('America/Guayaquil')->toDateString();
+        $ids = DB::table('membresias.membresia_suspensiones')
+            ->where('estado', 'PROGRAMADA')
+            ->where('tipo', PoliticaCicloVidaMembresia::TIEMPO)
+            ->where('fecha_inicio', '<=', $hoy)
+            ->orderBy('id')->pluck('id');
+        $activadas = 0;
+        $rechazadas = 0;
+
+        foreach ($ids as $id) {
+            DB::transaction(function () use ($id, $hoy, &$activadas, &$rechazadas): void {
+                // Contrato ANTES que suspensión: mismo orden que las operaciones manuales.
+                $ref = DB::table('membresias.membresia_suspensiones')->where('id', $id)
+                    ->first(['membresia_id']);
+                if (! $ref) return;
+                $m = DB::table('membresias.membresias')
+                    ->where('id', $ref->membresia_id)->lockForUpdate()->first();
+                $s = DB::table('membresias.membresia_suspensiones')
+                    ->where('id', $id)->lockForUpdate()->first();
+                if (! $s || $s->estado !== 'PROGRAMADA' || ! $m) return;
+                $otroVigente = DB::table('membresias.membresia_suspensiones')
+                    ->where('membresia_id', $m->id)
+                    ->where('estado', 'VIGENTE')->exists();
+                $motivo = null;
+                if (substr((string) $s->fecha_inicio, 0, 10) !== $hoy) {
+                    $motivo = 'No fue posible activar en la fecha acordada; requiere nueva revisión.';
+                } elseif ($m->estado !== 'ACTIVA' || $otroVigente
+                    || substr((string) $m->fecha_fin, 0, 10) < substr((string) $s->fecha_fin_prevista, 0, 10)) {
+                    $motivo = 'El contrato cambió o dejó de estar activo.';
+                } else {
+                    $motivo = $this->motivoBloqueoFinanciero((int) $m->id, $m);
+                }
+                if ($motivo) {
+                    DB::table('membresias.membresia_suspensiones')->where('id', $s->id)
+                        ->update(['estado' => 'NO_APLICADA', 'updated_at' => now()]);
+                    DB::table('membresias.membresia_movimientos')
+                        ->where('id', $s->movimiento_inicio_id)
+                        ->update(['estado' => 'NO_APLICADO', 'updated_at' => now()]);
+                    $rechazadas++;
+                    return;
+                }
+                DB::table('membresias.membresia_suspensiones')->where('id', $s->id)
+                    ->update(['estado' => 'VIGENTE', 'dias_reconocidos' => (int) CarbonImmutable::parse($s->fecha_inicio)
+                        ->diffInDays(CarbonImmutable::parse($s->fecha_fin_prevista)) + 1,
+                        'fecha_fin_original' => $m->fecha_fin,
+                        'fecha_fin_ajustada' => $this->politica->calcularFinAjustado(
+                            (string) $m->fecha_fin,
+                            (int) CarbonImmutable::parse($s->fecha_inicio)->diffInDays(CarbonImmutable::parse($s->fecha_fin_prevista)) + 1
+                        ),
+                        'updated_at' => now()]);
+                DB::table('membresias.membresia_movimientos')->where('id', $s->movimiento_inicio_id)
+                    ->update(['estado' => 'CONFIRMADO', 'updated_at' => now()]);
+                DB::table('membresias.membresias')->where('id', $m->id)->update([
+                    'estado' => 'CONGELADA',
+                    'estado_id' => $this->estados->idPorValor('MEMBRESIA', 'CONGELADA'),
+                    'updated_at' => now(),
+                ]);
+                $activadas++;
+            });
+        }
+
+        // La ausencia no es una segunda congelación automática: al alcanzar
+        // su fecha prevista, el contrato regresa al estado operativo acordado.
+        $vencidas = DB::table('membresias.membresia_suspensiones')
+            ->where('estado', 'VIGENTE')
+            ->where('tipo', PoliticaCicloVidaMembresia::TIEMPO)
+            ->where('fecha_fin_prevista', '<', $hoy)
+            ->orderBy('id')->get(['id', 'membresia_id']);
+        $reactivadas = 0;
+        foreach ($vencidas as $s) {
+            // Una demora de scheduler exige tratamiento aparte para no reconocer
+            // fechas no autorizadas ni vencer el contrato de forma silenciosa.
+            if (CarbonImmutable::parse($s->fecha_fin_prevista)->addDay()->toDateString() !== $hoy) {
+                continue;
+            }
+            $this->reactivar((int) $s->membresia_id,
+                'Finalización automática de vacaciones en la fecha autorizada.', null);
+            $reactivadas++;
+        }
+
+        return ['programadas_revisadas' => $ids->count(), 'activadas' => $activadas,
+            'no_aplicadas' => $rechazadas, 'reactivadas' => $reactivadas];
     }
 
     public function congelar(int $id, array $datos, int $usuarioId): array
@@ -202,7 +350,7 @@ final class CicloVidaMembresiaServicio
         });
     }
 
-    public function reactivar(int $id, string $motivo, int $usuarioId): array
+    public function reactivar(int $id, string $motivo, ?int $usuarioId): array
     {
         return DB::transaction(function () use ($id, $motivo, $usuarioId): array {
             $m = DB::table('membresias.membresias')->where('id', $id)->lockForUpdate()->first();

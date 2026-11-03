@@ -75,7 +75,7 @@ final class CicloVidaMembresiaServicio
         return null;
     }
 
-    public function previsualizar(int $id, array $datos): array
+    public function previsualizar(int $id, array $datos, ?int $ignorarSuspensionId = null): array
     {
         $m = DB::table('membresias.membresias')->where('id', $id)->first();
         if (! $m) {
@@ -85,8 +85,26 @@ final class CicloVidaMembresiaServicio
         if (! in_array($tipo, [PoliticaCicloVidaMembresia::TIEMPO, PoliticaCicloVidaMembresia::FACTURACION], true)) {
             throw ValidationException::withMessages(['tipo' => 'Tipo de congelación no reconocido.']);
         }
-        $existe = DB::table('membresias.membresia_suspensiones')
-            ->where('membresia_id', $id)->whereIn('estado', ['PROGRAMADA', 'VIGENTE'])->exists();
+        // La edición solo puede excluir su propia programación validada.
+        // Nunca se permite omitir otras suspensiones del contrato.
+        if ($ignorarSuspensionId !== null) {
+            $propia = DB::table('membresias.membresia_suspensiones')
+                ->where('id', $ignorarSuspensionId)->where('membresia_id', $id)
+                ->where('estado', 'PROGRAMADA')->where('tipo', PoliticaCicloVidaMembresia::TIEMPO)
+                ->where('fecha_inicio', '>', now('America/Guayaquil')->toDateString())
+                ->exists();
+            if (! $propia || $tipo !== PoliticaCicloVidaMembresia::TIEMPO) {
+                throw ValidationException::withMessages([
+                    'suspension_id' => 'Únicamente puede modificarse una congelación de tiempo futura y programada.',
+                ]);
+            }
+        }
+        $consultaSuspensiones = DB::table('membresias.membresia_suspensiones')
+            ->where('membresia_id', $id)->whereIn('estado', ['PROGRAMADA', 'VIGENTE']);
+        if ($ignorarSuspensionId !== null) {
+            $consultaSuspensiones->where('id', '!=', $ignorarSuspensionId);
+        }
+        $existe = $consultaSuspensiones->exists();
         $hayCuotas = DB::table('membresias.membresia_cuotas')
             ->where('membresia_id', $id)->where('estado', 'PROGRAMADA')->exists();
         $this->politica->validarCongelacion((string) $m->estado, $tipo, $existe, $hayCuotas);
@@ -220,6 +238,95 @@ final class CicloVidaMembresiaServicio
             return ['suspension_id' => $suspensionId, 'movimiento_id' => $movimientoId,
                 'estado' => 'PROGRAMADA'] + $previa;
         });
+    }
+
+    /**
+     * Ajusta las fechas de una solicitud de vacaciones todavía PROGRAMADA.
+     * Mantiene el identificador original y añade un movimiento de auditoría.
+     */
+    public function actualizarProgramada(int $id, int $suspensionId, array $datos, int $usuarioId): array
+    {
+        return DB::transaction(function () use ($id, $suspensionId, $datos, $usuarioId): array {
+            $m = DB::table('membresias.membresias')->where('id', $id)
+                ->lockForUpdate()->first();
+            if (! $m) {
+                throw ValidationException::withMessages(['membresia_id' => 'Membresía no encontrada.']);
+            }
+            $s = DB::table('membresias.membresia_suspensiones')
+                ->where('membresia_id', $id)->where('id', $suspensionId)
+                ->lockForUpdate()->first();
+            if (! $s || $s->estado !== 'PROGRAMADA'
+                || $s->tipo !== PoliticaCicloVidaMembresia::TIEMPO
+                || substr((string) $s->fecha_inicio, 0, 10) <= now('America/Guayaquil')->toDateString()) {
+                throw ValidationException::withMessages([
+                    'suspension_id' => 'Solo puedes editar una congelación de tiempo programada antes de su inicio.',
+                ]);
+            }
+            $previa = $this->previsualizar($id, $datos + ['tipo' => 'TIEMPO'], $suspensionId);
+            if (! $previa['programable']) {
+                throw ValidationException::withMessages([
+                    'fecha_inicio' => $previa['motivo_bloqueo'] ?? 'La nueva programación no cumple los requisitos.',
+                ]);
+            }
+
+            $original = DB::table('membresias.membresia_movimientos')
+                ->where('id', $s->movimiento_inicio_id)->first();
+            $detalleOriginal = $original && $original->detalle
+                ? (is_string($original->detalle) ? json_decode($original->detalle, true) : (array) $original->detalle)
+                : [];
+            $codigo = $this->validarMotivoCatalogado(
+                $datos['motivo_codigo'] ?? ($detalleOriginal['motivo_codigo'] ?? null), 'CONGELAR'
+            );
+            $modificacionId = DB::table('membresias.membresia_movimientos')->insertGetId([
+                'membresia_id' => $id,
+                'tipo' => 'REPROGRAMAR_CONGELACION',
+                'estado' => 'CONFIRMADO',
+                'fecha_efectiva' => now('America/Guayaquil')->toDateString(),
+                'motivo' => trim($datos['motivo']),
+                'usuario_id' => $usuarioId,
+                'autorizado_por' => $usuarioId,
+                'movimiento_origen_id' => $s->movimiento_inicio_id,
+                'detalle' => json_encode([
+                    'suspension_id' => $s->id,
+                    'antes' => ['fecha_inicio' => $s->fecha_inicio,
+                        'fecha_fin_prevista' => $s->fecha_fin_prevista,
+                        'fecha_fin_ajustada' => $s->fecha_fin_ajustada,
+                        'motivo' => $original->motivo ?? null],
+                    'despues' => ['fecha_inicio' => $previa['inicio'],
+                        'fecha_fin_prevista' => $previa['fin_previsto'],
+                        'fecha_fin_ajustada' => $previa['fecha_fin_ajustada'],
+                        'motivo' => trim($datos['motivo'])],
+                    'impacto_financiero' => $previa['impacto_financiero'],
+                ], JSON_THROW_ON_ERROR),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            DB::table('membresias.membresia_suspensiones')->where('id', $s->id)->update([
+                'fecha_inicio' => $previa['inicio'],
+                'fecha_fin_prevista' => $previa['fin_previsto'],
+                'fecha_fin_ajustada' => $previa['fecha_fin_ajustada'],
+                'updated_at' => now(),
+            ]);
+            // Mantener sincronizado el movimiento original: el scheduler lo
+            // utiliza para la fecha efectiva y la ficha usa su motivo.
+            DB::table('membresias.membresia_movimientos')
+                ->where('id', $s->movimiento_inicio_id)->update([
+                    'fecha_efectiva' => $previa['inicio'],
+                    'motivo' => trim($datos['motivo']),
+                    'detalle' => json_encode($previa + [
+                        'motivo_codigo' => $codigo,
+                        'ultima_reprogramacion_id' => $modificacionId,
+                    ], JSON_THROW_ON_ERROR),
+                    'updated_at' => now(),
+                ]);
+            // No se tocan membresía, cuotas, ventas, pagos ni Cartera.
+            return ['suspension_id' => (int) $s->id, 'movimiento_id' => $modificacionId,
+                'estado' => 'PROGRAMADA'] + $previa;
+        });
+    }
+
+    public function previsualizarEdicion(int $id, int $suspensionId, array $datos): array
+    {
+        return $this->previsualizar($id, $datos + ['tipo' => 'TIEMPO'], $suspensionId);
     }
 
     /**

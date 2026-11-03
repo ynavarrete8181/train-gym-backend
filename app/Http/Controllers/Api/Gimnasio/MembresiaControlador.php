@@ -17,6 +17,7 @@ class MembresiaControlador extends Controller
         protected MembresiaServicio $membresiaServicio,
         protected \App\Services\Gimnasio\ContratoCuotasServicio $contratoCuotas,
         protected \App\Services\Gimnasio\RenovacionContratoProgramadoServicio $renovacionProgramada,
+        protected \App\Services\Gimnasio\HistorialIntegralMembresiaServicio $historialIntegral,
         protected \App\Services\Seguridad\AlcanceOperativoService $alcanceOperativo,
         protected VentaServicio $ventaServicio,
         protected \App\Services\Gimnasio\DescuentoDeportistaServicio $descuentos,
@@ -272,6 +273,15 @@ class MembresiaControlador extends Controller
             $respuesta,
             [],
             201
+        );
+    }
+
+    public function historialIntegral(Request $request, int $id)
+    {
+        $this->validarAlcanceRenovacion($request, $id);
+        return ApiResponse::exito(
+            'Historial integral del contrato.',
+            $this->historialIntegral->consultar($id)
         );
     }
 

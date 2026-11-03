@@ -89,6 +89,12 @@ final class RenovacionContratoProgramadoServicio
             if ($cuota->estado === 'ANULADA') {
                 throw ValidationException::withMessages(['cuotas' => 'Existe una cuota anulada; requiere revisión.']);
             }
+            if (! $cuota->venta_id && $cuota->estado === 'PROGRAMADA'
+                && substr((string) $cuota->fecha_programada_emision, 0, 10) <= $hoy->toDateString()) {
+                throw ValidationException::withMessages([
+                    'cuotas' => 'Hay una cuota cuya emisión está atrasada. Procesa el calendario antes de renovar.',
+                ]);
+            }
             if ($cuota->venta_id) {
                 $venta = DB::table('ventas.ventas')->where('id', $cuota->venta_id)->first();
                 if (! $venta || $venta->estado !== 'PAGADA') {
@@ -106,7 +112,7 @@ final class RenovacionContratoProgramadoServicio
             'MESES' => $inicio->addMonthsNoOverflow($duracion)->subDay(),
             'ANIOS' => $inicio->addYears($duracion)->subDay(),
         };
-        $diaPago = (int) ($m->dia_pago ?: $condiciones['dia_pago'] ?? 0);
+        $diaPago = (int) ($m->dia_pago ?: ($condiciones['dia_pago'] ?? 0));
         $vencimiento = ContratoCuotasServicio::primeraFechaPagoPorDia($inicio->toDateString(), $diaPago);
         if ($vencimiento > $fin->toDateString()) {
             throw ValidationException::withMessages([

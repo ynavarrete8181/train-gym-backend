@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Schedule;
 use App\Services\Gimnasio\CobroProgramadoMembresiaServicio;
 use App\Services\Gimnasio\ActualizarEstadosMembresiaServicio;
+use App\Services\Gimnasio\CicloVidaMembresiaServicio;
 use App\Services\Gimnasio\DiagnosticoConfiguracionInicialServicio;
 use App\Services\Alertas\AlertaOperativaServicio;
 use App\Services\Logs\LogRetencionServicio;
@@ -90,6 +91,23 @@ Artisan::command('revive:limpiar-usuarios-prueba-carga', function (): int {
 })->purpose('Elimina únicamente usuarios carga.masiva.*@example.com, sus lotes y avisos de prueba.');
 
 
+Artisan::command('revive:procesar-congelaciones-programadas', function (CicloVidaMembresiaServicio $servicio): int {
+    $resultado = $servicio->procesarProgramadas();
+    $this->info(
+        "Vacaciones programadas revisadas: {$resultado['programadas_revisadas']} | "
+        . "activadas: {$resultado['activadas']} | "
+        . "no aplicadas: {$resultado['no_aplicadas']} | "
+        . "reactivadas: {$resultado['reactivadas']}"
+    );
+    return 0;
+})->purpose('Activa vacaciones en su fecha y restablece la membresía al día siguiente del fin previsto.');
+
+Schedule::command('revive:procesar-congelaciones-programadas')
+    ->dailyAt('00:02')
+    ->timezone('America/Guayaquil')
+    ->withoutOverlapping();
+
+// Activar las suspensiones ANTES de los cobros recurrentes del día.
 Artisan::command('revive:procesar-cobros-membresias {--fecha=}', function (CobroProgramadoMembresiaServicio $servicio): int {
     $resultado = $servicio->procesar($this->option('fecha') ?: null);
 

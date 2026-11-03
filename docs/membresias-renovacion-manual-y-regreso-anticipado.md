@@ -35,7 +35,7 @@ En ambos se comprueba permiso de Membresías y alcance operativo de sede. Larave
 2. Sin suspensiones `VIGENTE` ni `PROGRAMADA`. Primero se resuelve la congelación, para tomar la fecha final efectiva que resulte de su compensación.
 3. El período finaliza en los próximos 45 días (inclusive) y la membresía no ha vencido. Para contratos ya vencidos se mantiene el flujo de nueva contratación hasta implementar un proceso de recuperación excepcional.
 4. Coherencia entre período final, cantidad de períodos, cuotas y `fecha_fin`.
-5. Todas las ventas emitidas previamente deben estar `PAGADA`; ni ventas parciales ni cuotas cuya emisión ya esté atrasada.
+5. **Todas las cuotas originales deben estar emitidas y sus ventas completamente `PAGADA`**. No se permite renovar si alguna cuota sigue programada, parcial, vencida o no conciliada. El cliente conserva su contrato, pero solo puede ampliarlo cuando haya cumplido todas las obligaciones de los períodos anteriores.
 6. Un máximo de 36 períodos por contrato.
 7. Duración, día de pago y precio calculados desde las condiciones **históricas** pactadas, no desde un catálogo actual editable.
 

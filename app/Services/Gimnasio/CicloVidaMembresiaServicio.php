@@ -205,6 +205,61 @@ final class CicloVidaMembresiaServicio
     }
 
     /**
+     * Desiste de una solicitud futura, con movimiento propio de auditoría.
+     * No borra la aprobación original, ni altera el contrato o sus pagos.
+     */
+    public function cancelarProgramada(int $id, int $suspensionId, string $motivo, int $usuarioId): array
+    {
+        return DB::transaction(function () use ($id, $suspensionId, $motivo, $usuarioId): array {
+            $m = DB::table('membresias.membresias')->where('id', $id)->lockForUpdate()->first();
+            if (! $m) {
+                throw ValidationException::withMessages(['membresia_id' => 'Membresía no encontrada.']);
+            }
+
+            $s = DB::table('membresias.membresia_suspensiones')
+                ->where('id', $suspensionId)
+                ->where('membresia_id', $id)
+                ->lockForUpdate()->first();
+            if (! $s || $s->estado !== 'PROGRAMADA'
+                || $s->tipo !== PoliticaCicloVidaMembresia::TIEMPO) {
+                throw ValidationException::withMessages([
+                    'suspension_id' => 'Solo se pueden cancelar solicitudes de vacaciones todavía programadas.',
+                ]);
+            }
+
+            if (substr((string) $s->fecha_inicio, 0, 10) <= now('America/Guayaquil')->toDateString()) {
+                throw ValidationException::withMessages([
+                    'fecha_inicio' => 'La programación ya llegó a su fecha de inicio; revisa el estado y el proceso de reactivación.',
+                ]);
+            }
+
+            $movimientoId = DB::table('membresias.membresia_movimientos')->insertGetId([
+                'membresia_id' => $id,
+                'tipo' => PoliticaCicloVidaMembresia::CANCELAR_PROGRAMACION,
+                'estado' => 'CONFIRMADO',
+                'fecha_efectiva' => now('America/Guayaquil')->toDateString(),
+                'motivo' => trim($motivo),
+                'usuario_id' => $usuarioId,
+                'autorizado_por' => $usuarioId,
+                'movimiento_origen_id' => $s->movimiento_inicio_id,
+                'detalle' => json_encode(['suspension_id' => $s->id,
+                    'fecha_inicio' => $s->fecha_inicio, 'fecha_fin_prevista' => $s->fecha_fin_prevista],
+                    JSON_THROW_ON_ERROR),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+
+            DB::table('membresias.membresia_suspensiones')->where('id', $s->id)
+                ->update(['estado' => 'CANCELADA', 'movimiento_fin_id' => $movimientoId,
+                    'updated_at' => now()]);
+            DB::table('membresias.membresia_movimientos')->where('id', $s->movimiento_inicio_id)
+                ->update(['estado' => 'CANCELADO', 'updated_at' => now()]);
+
+            return ['suspension_id' => $s->id, 'movimiento_id' => $movimientoId,
+                'estado' => 'CANCELADA'];
+        });
+    }
+
+    /**
      * Opera con fechas de Ecuador. Si el scheduler llega tarde no reconoce
      * automáticamente días en los que el cliente pudo haber entrenado.
      */

@@ -46,8 +46,8 @@ final class CicloVidaMembresiaServicio
     }
 
     /**
-     * Solo contrato con un período pagado, sin renovación/cobro automático.
-     * Nunca ajustar un calendario económico futuro sin conciliación.
+     * TIEMPO: contratos sin cobro recurrente con ventas emitidas pagadas.
+     * Las cuotas futuras conservan el día de pago; no se reprograman.
      */
     private function motivoBloqueoFinanciero(int $id, object $m): ?string
     {
@@ -61,10 +61,9 @@ final class CicloVidaMembresiaServicio
             return 'El contrato no tiene períodos registrados para compensar días.';
         }
 
-        if (DB::table('membresias.membresia_cuotas')->where('membresia_id', $id)
-            ->where('estado', 'PROGRAMADA')->exists()) {
-            return 'Existen cuotas programadas; su suspensión corresponde a la Fase 3.';
-        }
+        // En TIEMPO las cuotas todavía PROGRAMADA conservan su día de pago.
+        // No se modifica el calendario de facturación; la revisión se repite
+        // al inicio y solo procede si las ventas emitidas están pagadas.
         if (DB::table('ventas.ventas')->where('membresia_id', $id)
             ->where('estado', '!=', 'ANULADA')
             ->where('estado', '!=', 'PAGADA')->exists()) {

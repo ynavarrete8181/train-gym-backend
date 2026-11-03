@@ -7,6 +7,8 @@ use App\Services\Gimnasio\CicloVidaMembresiaServicio;
 use App\Services\Seguridad\AlcanceOperativoService;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 final class CicloVidaMembresiaControlador extends Controller
 {
@@ -17,10 +19,28 @@ final class CicloVidaMembresiaControlador extends Controller
 
     private function validarAlcance(Request $request, int $id): void
     {
-        $this->alcance->validarSede(
-            (int) $request->user()->id,
-            $this->alcance->sedeDeMembresia($id)
-        );
+        $usuarioId = (int) $request->user()->id;
+        $sedeId = $this->alcance->sedeDeMembresia($id);
+
+        // La ficha del deportista puede consultarse sin la misma autorización
+        // exigida para realizar ajustes financieros en una sede.
+        if (! $sedeId) {
+            throw ValidationException::withMessages([
+                'sede_id' => 'La membresía no tiene sede principal. Asigna una sede al contrato antes de continuar.',
+            ]);
+        }
+
+        if (! in_array($sedeId, $this->alcance->sedesPermitidas($usuarioId), true)) {
+            $sedeNombre = DB::table('institucional.sedes')
+                ->where('id_sede', $sedeId)->value('nombre');
+            throw ValidationException::withMessages([
+                'sede_id' => 'No tienes acceso operativo a la sede '
+                    . ($sedeNombre ?: 'de este contrato')
+                    . '. Solicita que se habilite esa sede en tu contexto de usuario.',
+            ]);
+        }
+
+        $this->alcance->validarSede($usuarioId, $sedeId);
     }
 
     public function mostrar(Request $request, int $id)

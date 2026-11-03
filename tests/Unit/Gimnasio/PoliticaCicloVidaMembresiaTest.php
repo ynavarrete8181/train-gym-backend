@@ -23,6 +23,20 @@ class PoliticaCicloVidaMembresiaTest extends TestCase
         $this->assertSame('2026-12-15', $this->politica->calcularFinAjustado('2026-11-30', 15));
     }
 
+    public function test_vacaciones_diciembre_diecisiete_dias_extienden_hasta_enero_diecisiete(): void
+    {
+        $intervalo = $this->politica->validarIntervalo('2026-12-15', '2026-12-31', '2026-11-02');
+        $this->assertSame(17, $intervalo['dias']);
+        $this->assertSame('2027-01-17', $this->politica->calcularFinAjustado('2026-12-31', $intervalo['dias']));
+    }
+
+    public function test_vacaciones_quince_dias_extienden_hasta_enero_quince(): void
+    {
+        $intervalo = $this->politica->validarIntervalo('2026-12-15', '2026-12-29', '2026-11-02');
+        $this->assertSame(15, $intervalo['dias']);
+        $this->assertSame('2027-01-15', $this->politica->calcularFinAjustado('2026-12-31', $intervalo['dias']));
+    }
+
     public function test_congelacion_retroactiva_rechazada(): void
     {
         $this->expectException(ValidationException::class);

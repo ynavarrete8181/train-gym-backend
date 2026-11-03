@@ -110,6 +110,7 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::put('membresias/{id}', [MembresiaControlador::class, 'update'])->name('gimnasio.membresias.update');
         Route::get('membresias/{id}/ciclo-vida', [CicloVidaMembresiaControlador::class, 'mostrar'])->whereNumber('id')->name('gimnasio.membresias.ciclo-vida');
         Route::post('membresias/{id}/congelacion/preview', [CicloVidaMembresiaControlador::class, 'previsualizar'])->whereNumber('id')->name('gimnasio.membresias.congelacion.preview');
+        Route::post('membresias/{id}/congelacion/programar', [CicloVidaMembresiaControlador::class, 'programar'])->whereNumber('id')->name('gimnasio.membresias.congelacion.programar');
         Route::post('membresias/{id}/congelacion', [CicloVidaMembresiaControlador::class, 'congelar'])->whereNumber('id')->name('gimnasio.membresias.congelacion');
         Route::post('membresias/{id}/reactivacion', [CicloVidaMembresiaControlador::class, 'reactivar'])->whereNumber('id')->name('gimnasio.membresias.reactivacion');
         Route::post('membresias/{id}/renovar', [MembresiaControlador::class, 'renovar'])->name('gimnasio.membresias.renovar');

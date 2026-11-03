@@ -296,8 +296,9 @@ Artisan::command('revive:auditar-identidades', function (): int {
 })->purpose('Audita Personas, Clientes, Usuarios y Entrenadores sin modificar datos.');
 
 /**
- * Registra los submenús del ciclo de vida JUNTO a «Planes» sin crear otro
- * menú principal. El menú padre se resuelve por la función GIMNASIO-PLANES.
+ * Registra únicamente los catálogos del ciclo de vida JUNTO a «Planes» sin crear otro
+ * menú principal. La gestión individual se realiza exclusivamente en Clientes → Membresías.
+ * El menú padre se resuelve por la función GIMNASIO-PLANES.
  * Sin --aplicar solo muestra el plan. No otorga nuevas capacidades.
  */
 Artisan::command('revive:configurar-submenus-membresias {--aplicar}', function (
@@ -323,8 +324,6 @@ Artisan::command('revive:configurar-submenus-membresias {--aplicar}', function (
     }
 
     $opciones = [
-        ['codigo' => 'GIMNASIO-CICLO-VIDA', 'nombre' => 'Congelaciones y reactivaciones',
-            'pagina' => 'GestionesCicloVidaPage', 'requisito' => 'GIMNASIO-MEMBRESIAS'],
         ['codigo' => 'GIMNASIO-MOTIVOS-CICLO-VIDA', 'nombre' => 'Motivos del ciclo de vida',
             'pagina' => 'MotivosCicloVidaPage', 'requisito' => 'GIMNASIO-PLANES'],
     ];
@@ -395,4 +394,4 @@ Artisan::command('revive:configurar-submenus-membresias {--aplicar}', function (
     }
     $this->info('Navegación actualizada. Conserva el menú padre y muestra «Planes».');
     return 0;
-})->purpose('Configura submenús del ciclo de vida junto a Planes en su menú padre existente.');
+})->purpose('Configura catálogos del ciclo de vida junto a Planes; la gestión individual permanece en Clientes.');

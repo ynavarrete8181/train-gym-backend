@@ -155,6 +155,23 @@ final class CicloVidaMembresiaServicio
      * Registra una autorización de vacaciones futuras. El scheduler la activa
      * exclusivamente en su fecha, tras una nueva validación económica.
      */
+    private function validarMotivoCatalogado(?string $codigo, string $operacion): ?string
+    {
+        if ($codigo === null || trim($codigo) === '') {
+            return null;
+        }
+        $codigo = mb_strtoupper(trim($codigo));
+        if (! DB::table('membresias.motivos_ciclo_vida')
+            ->where('codigo', $codigo)
+            ->where('operacion', $operacion)
+            ->where('activo', true)->exists()) {
+            throw ValidationException::withMessages([
+                'motivo_codigo' => 'El motivo seleccionado no está activo para esta operación.',
+            ]);
+        }
+        return $codigo;
+    }
+
     public function programarTiempo(int $id, array $datos, int $usuarioId): array
     {
         return DB::transaction(function () use ($id, $datos, $usuarioId): array {
@@ -174,6 +191,7 @@ final class CicloVidaMembresiaServicio
                 ]);
             }
 
+            $codigoMotivo = $this->validarMotivoCatalogado($datos['motivo_codigo'] ?? null, 'CONGELAR');
             $movimientoId = DB::table('membresias.membresia_movimientos')->insertGetId([
                 'membresia_id' => $id,
                 'tipo' => PoliticaCicloVidaMembresia::CONGELAR,
@@ -182,7 +200,7 @@ final class CicloVidaMembresiaServicio
                 'motivo' => trim($datos['motivo']),
                 'usuario_id' => $usuarioId,
                 'autorizado_por' => $usuarioId,
-                'detalle' => json_encode($previa, JSON_THROW_ON_ERROR),
+                'detalle' => json_encode($previa + ['motivo_codigo' => $codigoMotivo], JSON_THROW_ON_ERROR),
                 'created_at' => now(), 'updated_at' => now(),
             ]);
             $suspensionId = DB::table('membresias.membresia_suspensiones')->insertGetId([
@@ -390,6 +408,7 @@ final class CicloVidaMembresiaServicio
                     'membresia_id' => $previa['motivo_bloqueo'] ?? 'La congelación requiere revisión financiera.',
                 ]);
             }
+            $codigoMotivo = $this->validarMotivoCatalogado($datos['motivo_codigo'] ?? null, 'CONGELAR');
             $movimientoId = DB::table('membresias.membresia_movimientos')->insertGetId([
                 'membresia_id' => $id,
                 'tipo' => PoliticaCicloVidaMembresia::CONGELAR,
@@ -398,7 +417,7 @@ final class CicloVidaMembresiaServicio
                 'motivo' => trim($datos['motivo']),
                 'usuario_id' => $usuarioId,
                 'autorizado_por' => $usuarioId,
-                'detalle' => json_encode($previa, JSON_THROW_ON_ERROR),
+                'detalle' => json_encode($previa + ['motivo_codigo' => $codigoMotivo], JSON_THROW_ON_ERROR),
                 'created_at' => now(), 'updated_at' => now(),
             ]);
             $suspensionId = DB::table('membresias.membresia_suspensiones')->insertGetId([

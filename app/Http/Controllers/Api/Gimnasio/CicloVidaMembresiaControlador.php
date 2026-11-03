@@ -96,6 +96,13 @@ final class CicloVidaMembresiaControlador extends Controller
         return ApiResponse::exito('Congelación registrada.', $this->servicio->congelar($id, $datos, (int) $request->user()->id));
     }
 
+    public function previsualizarReactivacion(Request $request, int $id)
+    {
+        $this->validarAlcance($request, $id);
+        return ApiResponse::exito('Vista previa de reactivación.',
+            $this->servicio->previsualizarReactivacion($id));
+    }
+
     public function reactivar(Request $request, int $id)
     {
         $this->validarAlcance($request, $id);

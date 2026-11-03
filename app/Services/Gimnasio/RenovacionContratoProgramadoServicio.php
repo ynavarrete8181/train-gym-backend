@@ -13,6 +13,25 @@ use Illuminate\Validation\ValidationException;
  */
 final class RenovacionContratoProgramadoServicio
 {
+    /**
+     * La continuidad siempre inicia un día después del último período real.
+     * Permite probar fechas sin depender de una base PostgreSQL.
+     */
+    public static function calcularProximoPeriodo(string $finActual, string $tipo, int $duracion): array
+    {
+        if (! in_array($tipo, ['DIAS', 'SEMANAS', 'MESES', 'ANIOS'], true) || $duracion < 1) {
+            throw new \InvalidArgumentException('Duración de contrato no válida.');
+        }
+        $inicio = CarbonImmutable::parse($finActual)->addDay();
+        $fin = match ($tipo) {
+            'DIAS' => $inicio->addDays($duracion)->subDay(),
+            'SEMANAS' => $inicio->addWeeks($duracion)->subDay(),
+            'MESES' => $inicio->addMonthsNoOverflow($duracion)->subDay(),
+            'ANIOS' => $inicio->addYears($duracion)->subDay(),
+        };
+        return ['fecha_inicio' => $inicio->toDateString(), 'fecha_fin' => $fin->toDateString()];
+    }
+
     public function previsualizar(int $id, bool $bloquear = false): array
     {
         $consulta = DB::table('membresias.membresias')->where('id', $id);
@@ -105,13 +124,9 @@ final class RenovacionContratoProgramadoServicio
             }
         }
 
-        $inicio = $finActual->addDay();
-        $fin = match ($tipo) {
-            'DIAS' => $inicio->addDays($duracion)->subDay(),
-            'SEMANAS' => $inicio->addWeeks($duracion)->subDay(),
-            'MESES' => $inicio->addMonthsNoOverflow($duracion)->subDay(),
-            'ANIOS' => $inicio->addYears($duracion)->subDay(),
-        };
+        $proximo = self::calcularProximoPeriodo($finActual->toDateString(), $tipo, $duracion);
+        $inicio = CarbonImmutable::parse($proximo['fecha_inicio']);
+        $fin = CarbonImmutable::parse($proximo['fecha_fin']);
         $diaPago = (int) ($m->dia_pago ?: ($condiciones['dia_pago'] ?? 0));
         $vencimiento = ContratoCuotasServicio::primeraFechaPagoPorDia($inicio->toDateString(), $diaPago);
         if ($vencimiento > $fin->toDateString()) {

@@ -294,3 +294,74 @@ Artisan::command('revive:auditar-identidades', function (): int {
 
     return $total ? 1 : 0;
 })->purpose('Audita Personas, Clientes, Usuarios y Entrenadores sin modificar datos.');
+
+/**
+ * Navegación de Membresías: registro opt-in, idempotente y sin concesión de
+ * permisos a roles que no tuvieran antes la capacidad correspondiente.
+ * Primer uso: --aplicar exclusivamente en desarrollo, luego revisar Menús.
+ */
+Artisan::command('revive:configurar-submenus-membresias {--aplicar}', function (
+    \App\Services\Seguridad\RolPermisoService $roles,
+    \App\Services\Seguridad\PaginaSistemaService $paginas
+): int {
+    $menu = DB::table('seguridad.cpu_usermenu')
+        ->whereRaw('LOWER(menu) LIKE ?', ['%membres%'])
+        ->where('activo', true)->orderBy('id_usermenu')->first();
+
+    if (! $menu) {
+        $this->error('No existe un menú principal Membresías activo. Créalo o verifica su nombre antes de configurar submenús.');
+        return 1;
+    }
+
+    $permisos = DB::table('seguridad.cpu_userrolefunction')
+        ->whereIn('id_menu', ['GIMNASIO-MEMBRESIAS', 'GIMNASIO-PLANES'])
+        ->where('activo', true)
+        ->get(['id_userrole', 'id_menu'])
+        ->groupBy('id_userrole');
+
+    $opciones = [
+        ['codigo' => 'GIMNASIO-CICLO-VIDA', 'nombre' => 'Congelaciones y reactivaciones',
+            'pagina' => 'GestionesCicloVidaPage', 'requisito' => 'GIMNASIO-MEMBRESIAS'],
+        ['codigo' => 'GIMNASIO-MOTIVOS-CICLO-VIDA', 'nombre' => 'Motivos del ciclo de vida',
+            'pagina' => 'MotivosCicloVidaPage', 'requisito' => 'GIMNASIO-PLANES'],
+    ];
+
+    $pendientes = [];
+    foreach ($permisos as $idRol => $funciones) {
+        $actuales = $funciones->pluck('id_menu')->all();
+        if (! in_array('GIMNASIO-MEMBRESIAS', $actuales, true)) continue;
+        foreach ($opciones as $opcion) {
+            if (! in_array($opcion['requisito'], $actuales, true)) continue;
+            if (DB::table('seguridad.cpu_userrolefunction')
+                ->where('id_userrole', $idRol)->where('id_menu', $opcion['codigo'])->exists()) {
+                continue;
+            }
+            $pendientes[] = [(int) $idRol, $opcion];
+        }
+    }
+
+    $this->info('Menú: ' . $menu->menu . ' | Opciones pendientes: ' . count($pendientes));
+    if (! $this->option('aplicar')) {
+        $this->line('Simulación. Ejecuta --aplicar solo en PostgreSQL de desarrollo después de revisar permisos.');
+        return 0;
+    }
+
+    foreach ($pendientes as [$idRol, $opcion]) {
+        $orden = ((int) DB::table('seguridad.cpu_userrolefunction')
+            ->where('id_userrole', $idRol)->where('id_usermenu', $menu->id_usermenu)->max('orden')) + 1;
+        $roles->guardarFuncionRol([
+            'id_userrole' => $idRol, 'id_usermenu' => (int) $menu->id_usermenu,
+            'nombre' => $opcion['nombre'], 'id_menu' => $opcion['codigo'],
+            'accion' => 'membresias/' . strtolower(str_replace('GIMNASIO-', '', $opcion['codigo'])),
+            'icono' => 'CardMembership', 'activo' => true, 'orden' => $orden,
+        ]);
+    }
+    foreach ($opciones as $opcion) {
+        if (DB::table('seguridad.cpu_userrolefunction')->where('id_menu', $opcion['codigo'])->exists()) {
+            $paginas->asociar($opcion['codigo'], $opcion['pagina']);
+        }
+    }
+
+    $this->info('Submenús registrados. Revisa Menús, Submenús y Páginas del sistema.');
+    return 0;
+})->purpose('Previsualiza o configura submenús del ciclo de vida bajo Membresías.');

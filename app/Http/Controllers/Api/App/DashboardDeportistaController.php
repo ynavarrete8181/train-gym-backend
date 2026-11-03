@@ -29,10 +29,20 @@ class DashboardDeportistaController extends Controller
                 ->first(['m.id', 'm.estado', 'm.fecha_inicio', 'm.fecha_fin', 'm.sede_id', 'p.nombre as plan_nombre']);
 
             if ($registro) {
+                $renovacionImpaga = DB::table('membresias.membresia_periodos as pr')
+                    ->leftJoin('ventas.ventas as v', 'v.id', '=', 'pr.venta_id')
+                    ->where('pr.membresia_id', $registro->id)
+                    ->where('pr.renovacion_manual', true)
+                    ->where('pr.fecha_inicio', '<=', now('America/Guayaquil')->toDateString())
+                    ->where(function ($q): void {
+                        $q->whereNull('pr.venta_id')->orWhere('v.estado', '!=', 'PAGADA');
+                    })->exists();
                 $membresia = [
                     'id' => $registro->id,
                     'nombre' => $registro->plan_nombre,
                     'estado' => $registro->estado,
+                    'estado_consulta' => $renovacionImpaga && $registro->estado === 'ACTIVA'
+                        ? 'PENDIENTE_PAGO' : $registro->estado,
                     'fecha_inicio' => $registro->fecha_inicio,
                     'fecha_fin' => $registro->fecha_fin,
                     'sede_id' => $registro->sede_id,

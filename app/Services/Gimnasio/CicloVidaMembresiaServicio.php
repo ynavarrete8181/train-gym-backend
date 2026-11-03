@@ -27,10 +27,31 @@ final class CicloVidaMembresiaServicio
             throw ValidationException::withMessages(['membresia_id' => 'La membresía no existe.']);
         }
 
-        $movimientos = DB::table('membresias.membresia_movimientos')
-            ->where('membresia_id', $id)->orderByDesc('id')->limit(30)->get();
+        $movimientos = DB::table('membresias.membresia_movimientos as mov')
+            ->leftJoin('seguridad.users as u', 'u.id', '=', 'mov.usuario_id')
+            ->where('mov.membresia_id', $id)->orderByDesc('mov.id')->limit(100)
+            ->get(['mov.*', 'u.name as autor_nombre']);
         $suspensiones = DB::table('membresias.membresia_suspensiones')
-            ->where('membresia_id', $id)->orderByDesc('id')->get();
+            ->where('membresia_id', $id)->orderByDesc('id')->get()
+            ->map(function ($s) use ($movimientos) {
+                // Cantidad autorizada: no confundir con dias_reconocidos
+                // hasta que la suspensión termine efectivamente.
+                $s->dias_previstos = (int) CarbonImmutable::parse($s->fecha_inicio)
+                    ->diffInDays(CarbonImmutable::parse($s->fecha_fin_prevista)) + 1;
+                $inicioMovimiento = $movimientos->first(fn ($mov) =>
+                    (int) $mov->id === (int) $s->movimiento_inicio_id);
+                $cierreMovimiento = $movimientos->first(fn ($mov) =>
+                    (int) $mov->id === (int) ($s->movimiento_fin_id ?? 0));
+                $s->autor_registro = $inicioMovimiento?->autor_nombre;
+                $s->registrado_at = $inicioMovimiento?->created_at;
+                $s->motivo_registro = $inicioMovimiento?->motivo;
+                $s->autor_cierre = $cierreMovimiento?->autor_nombre;
+                $s->motivo_cierre = $cierreMovimiento?->motivo;
+                $s->fecha_regreso = $s->estado === 'FINALIZADA'
+                    ? $cierreMovimiento?->fecha_efectiva : null;
+                $s->fecha_cierre = $cierreMovimiento?->created_at;
+                return $s;
+            });
 
         return [
             'membresia_id' => $id,

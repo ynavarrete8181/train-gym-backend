@@ -111,3 +111,11 @@ php artisan test tests/Unit/Gimnasio/ImpactoFinancieroCongelacionServicioTest.ph
 ```
 
 **Estado de verificación:** commits y lectura posterior confirmados en GitHub. Pendientes: ejecución de PHPUnit contra el proyecto instalado, pruebas PostgreSQL de integración y pruebas de dos workers reales; no se ha migrado ni desplegado a producción.
+
+## Actualización posterior: vacaciones programadas de TIEMPO
+
+Se implementó la primera modalidad de programación anticipada **solo para TIEMPO**, con registro en las tablas existentes y revalidación de deuda el día del inicio. La restricción anterior «solicitudes futuras exclusivamente simuladas» sigue aplicando a `FACTURACION`, pero no a `TIEMPO` elegible.
+
+El procedimiento, cron, cancelación auditada y casos completos están documentados en `docs/membresias-vacaciones-programadas-fase-3.md`. La política de facturación sigue sin anticipar cobros ni modificar cuotas durante `TIEMPO`. El cron se ordena antes de cobros y vencimientos en horario `America/Guayaquil`.
+
+No usar con contratos reales antes de validar PostgreSQL, `schedule:run`, la autorización por sede y pruebas de pagos parciales.

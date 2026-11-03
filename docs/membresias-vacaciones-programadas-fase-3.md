@@ -69,3 +69,19 @@ Casos de aceptación:
 - Usuario sin contexto de la sede: error y bloqueo sin acceso a datos financieros de esa sede.
 
 **Estado:** commits en `dev-revive`; NO se han ejecutado pruebas locales, migraciones ni despliegue a producción desde ChatGPT. La activación automática depende de que el scheduler Laravel existente esté realmente ejecutándose en el entorno. El acceso físico, reservas y reglas de agenda deben verificarse con pruebas integrales adicionales antes de producción.
+
+
+## Edición de fechas de una solicitud futura
+
+La interfaz operativa sigue exclusivamente en **Clientes → Perfil integral → Membresías → icono Gestionar ciclo de vida**. Se retiró el botón duplicado del formulario `Editar membresía`.
+
+Para una suspensión **TIEMPO** con estado `PROGRAMADA` y `fecha_inicio` estrictamente posterior a hoy (zona `America/Guayaquil`), la tabla y el diálogo de detalle ofrecen **Editar fechas**.
+
+1. La pantalla carga las fechas y motivo de la misma suspensión; no crea otra ni altera cobros.
+2. `POST /api/base/gimnasio/membresias/{id}/congelacion/{suspensionId}/preview-edicion` valida que pertenezca al contrato, esté programada y aún no haya iniciado; simula los días y la fecha final ignorando exclusivamente la propia programación.
+3. `PUT /api/base/gimnasio/membresias/{id}/congelacion/{suspensionId}/programacion` vuelve a validar y calcula bajo transacción y `lockForUpdate` del contrato y suspensión. Mantiene `suspension_id` y `movimiento_inicio_id`, actualiza fechas del mismo registro y genera movimiento `REPROGRAMAR_CONGELACION` con antes/después, usuario y motivo.
+4. El movimiento original conserva su identidad y se sincronizan su fecha efectiva y detalle proyectado para la consulta y el scheduler; el movimiento nuevo conserva la evidencia de los valores previos.
+5. No se alteran directamente membresía, períodos, facturación, cuotas, comprobantes, pagos ni Cartera.
+6. Si la programación ya está `VIGENTE`, `FINALIZADA`, `CANCELADA` o el inicio es hoy/anterior, editar se bloquea. Los cambios posteriores requieren flujos independientes de reactivación, prórroga o resolución contractual.
+
+**Comprobaciones pendientes en entorno de desarrollo:** editar dos veces una misma solicitud, nueva fecha fuera de vigencia, inicio igual al día actual, intento de cambiar una suspensión de otro contrato, concurrencia con scheduler, petición sin acceso operativo, carga del movimiento original tras varios cambios, y actualización del calendario tras guardar. Pruebas PHPUnit y build frontend deben ejecutarse localmente antes de producción.

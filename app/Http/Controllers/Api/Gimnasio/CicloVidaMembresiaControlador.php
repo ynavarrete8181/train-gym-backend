@@ -60,6 +60,19 @@ final class CicloVidaMembresiaControlador extends Controller
         return ApiResponse::exito('Vista previa sin efectos sobre el contrato.', $this->servicio->previsualizar($id, $datos));
     }
 
+    public function programar(Request $request, int $id)
+    {
+        $this->validarAlcance($request, $id);
+        $datos = $request->validate([
+            'tipo' => 'required|in:TIEMPO',
+            'fecha_inicio' => 'required|date_format:Y-m-d',
+            'fecha_fin' => 'required|date_format:Y-m-d|after_or_equal:fecha_inicio',
+            'motivo' => 'required|string|min:8|max:1000',
+        ]);
+        return ApiResponse::exito('Vacaciones programadas para su fecha de inicio.',
+            $this->servicio->programarTiempo($id, $datos, (int) $request->user()->id));
+    }
+
     public function congelar(Request $request, int $id)
     {
         $this->validarAlcance($request, $id);

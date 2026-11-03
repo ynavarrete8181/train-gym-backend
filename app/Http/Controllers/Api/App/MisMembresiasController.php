@@ -60,6 +60,18 @@ class MisMembresiasController extends Controller
                     'precio' => $periodo->precio,
                 ])->values()->all();
 
+            // Vista informativa en tiempo real: no confundir ACTIVA con
+            // un nuevo período que inició sin venta totalmente pagada.
+            // Las restricciones operativas de ingreso siguen en Laravel.
+            $renovacionImpaga = DB::table('membresias.membresia_periodos as pr')
+                ->leftJoin('ventas.ventas as vr', 'vr.id', '=', 'pr.venta_id')
+                ->where('pr.membresia_id', $m->id)
+                ->where('pr.renovacion_manual', true)
+                ->where('pr.fecha_inicio', '<=', now('America/Guayaquil')->toDateString())
+                ->where(function ($q): void {
+                    $q->whereNull('pr.venta_id')->orWhere('vr.estado', '!=', 'PAGADA');
+                })->exists();
+
             return [
                 'id' => $m->id,
                 'codigo_contrato' => $m->codigo_contrato,
@@ -69,6 +81,9 @@ class MisMembresiasController extends Controller
                 'tipo_cobro' => $m->tipo_cobro,
                 'cantidad_periodos_contratados' => $m->cantidad_periodos_contratados ?? null,
                 'estado' => $m->estado,
+                'estado_consulta' => $renovacionImpaga && $m->estado === 'ACTIVA'
+                    ? 'PENDIENTE_PAGO' : $m->estado,
+                'renovacion_iniciada_impaga' => $renovacionImpaga,
                 'estado_nombre' => $m->estado_nombre,
                 'fecha_inicio' => $m->fecha_inicio,
                 'fecha_fin' => $m->fecha_fin,

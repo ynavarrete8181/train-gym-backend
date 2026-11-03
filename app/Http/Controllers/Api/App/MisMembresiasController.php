@@ -34,6 +34,32 @@ class MisMembresiasController extends Controller
             $m = $this->membresias->obtenerMembresiaConRelaciones((int) $id);
             if (! $m) return null;
 
+            // El origen contractual procede del snapshot histórico y no de
+            // la fecha_fin actual (que pudo extenderse por reactivaciones).
+            $contratacion = DB::table('membresias.membresia_condiciones_historial')
+                ->where('membresia_id', $m->id)->where('accion', 'CONTRATACION')
+                ->orderBy('version')->first(['condiciones']);
+            $original = $contratacion
+                ? (json_decode((string) $contratacion->condiciones, true) ?: null) : null;
+            $fechaFinOriginal = is_array($original)
+                ? ($original['fecha_fin'] ?? null) : null;
+            $cuotas = collect($m->cuotas ?? []);
+            $pagadoConfirmado = round((float) $cuotas->sum('monto_pagado'), 2);
+            $saldoEmitido = round((float) $cuotas
+                ->filter(fn ($c) => $c->venta_id && $c->venta_estado !== 'ANULADA')
+                ->sum(fn ($c) => max(0, (float) $c->monto - (float) $c->monto_pagado)), 2);
+            $periodosRenovados = collect($m->periodos ?? [])
+                ->filter(fn ($periodo) => (bool) ($periodo->renovacion_manual ?? false))
+                ->map(fn ($periodo) => [
+                    'id' => $periodo->id,
+                    'numero_periodo' => $periodo->numero_periodo,
+                    'fecha_inicio' => $periodo->fecha_inicio,
+                    'fecha_fin' => $periodo->fecha_fin,
+                    'estado' => $periodo->estado,
+                    'venta_estado' => $periodo->venta_estado,
+                    'precio' => $periodo->precio,
+                ])->values()->all();
+
             return [
                 'id' => $m->id,
                 'codigo_contrato' => $m->codigo_contrato,
@@ -46,6 +72,11 @@ class MisMembresiasController extends Controller
                 'estado_nombre' => $m->estado_nombre,
                 'fecha_inicio' => $m->fecha_inicio,
                 'fecha_fin' => $m->fecha_fin,
+                'fecha_fin_original' => $fechaFinOriginal,
+                'fecha_fin_vigente' => $m->fecha_fin,
+                'total_pagado_confirmado' => $pagadoConfirmado,
+                'saldo_ventas_emitidas' => $saldoEmitido,
+                'periodos_renovados' => $periodosRenovados,
                 'precio_aplicado' => $m->precio_aplicado,
                 'sede_nombre' => $m->sede_nombre,
                 'sedes_habilitadas' => $m->sedes_habilitadas,

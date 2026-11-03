@@ -16,6 +16,7 @@ class MembresiaControlador extends Controller
     public function __construct(
         protected MembresiaServicio $membresiaServicio,
         protected \App\Services\Gimnasio\ContratoCuotasServicio $contratoCuotas,
+        protected \App\Services\Gimnasio\RenovacionContratoProgramadoServicio $renovacionProgramada,
         protected VentaServicio $ventaServicio,
         protected \App\Services\Gimnasio\DescuentoDeportistaServicio $descuentos,
     ) {
@@ -271,6 +272,18 @@ class MembresiaControlador extends Controller
             [],
             201
         );
+    }
+
+    public function previsualizarRenovacionProgramada(Request $request, int $id)
+    {
+        return ApiResponse::exito('Vista previa de renovación del contrato.',
+            $this->renovacionProgramada->previsualizar($id));
+    }
+
+    public function registrarRenovacionProgramada(Request $request, int $id)
+    {
+        return ApiResponse::exito('Período y cuota nuevos registrados en el contrato original.',
+            $this->renovacionProgramada->registrar($id, (int) $request->user()->id));
     }
 
     public function renovar(Request $request, int $id)

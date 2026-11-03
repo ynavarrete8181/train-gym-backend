@@ -40,14 +40,16 @@ En ambos se comprueba permiso de Membresías y alcance operativo de sede. Larave
 7. Duración, día de pago y precio calculados desde las condiciones **históricas** pactadas, no desde un catálogo actual editable.
 
 `Vista previa` no escribe datos. `Guardar` vuelve a validar dentro de una transacción y `lockForUpdate`, y agrega:
-- Período N+1 en `membresia_periodos`.
+- Período N+1 en `membresia_periodos`, con marca `renovacion_manual=true` (migración `2026_11_03_120000_mark_renewed_membership_periods.php`).
 - Cuota N+1 `PROGRAMADA` en `membresia_cuotas`, referenciando el nuevo período.
 - Actualización de cantidad de períodos y fin del contrato, sin tocar fechas o ventas previas.
 - Movimiento `RENOVACION_MANUAL` en `membresia_condiciones_historial` con usuario, condiciones anteriores implícitas en versiones y datos nuevos.
 
 La cuota nueva **no emite venta** en el momento del registro: se emite con `revive:emitir-cuotas-membresias` cuando llega la fecha programada. La emisión mantiene idempotencia y vincula Ventas/Cartera.
 
-**Control que requiere validación integral antes de producción:** comprobar que Control de Acceso, validación de servicios y el flujo de confirmación de pago **no permitan utilizar un período renovado no pagado**, incluso si el contrato ha ampliado su fecha final. El flujo de renovación actual guarda períodos/cuotas, pero no prueba por sí mismo la regla de acceso. No usar renovaciones reales en producción hasta validar este punto y la respuesta de pagos parciales.
+**Seguridad de acceso por nueva renovación:** al emitirse la primera venta del período renovado, `EmisionCuotasServicio` cambia el contrato a `PENDIENTE_PAGO` cuando ese período empieza. Como respaldo, `ActualizarEstadosMembresiaServicio` detecta períodos renovados con inicio vencido sin venta pagada y bloquea su acceso incluso si falla la emisión. El servicio de Ventas vuelve a `ACTIVA` cuando la venta queda completamente `PAGADA` y marca el período como activo.
+
+**Control que requiere pruebas de integración antes de producción:** verificar el comportamiento real del control de acceso y reservas, las restricciones por sede, el scheduler y los pagos parciales. No desplegar la renovación a producción hasta validar estas rutas con PostgreSQL y los servicios físicos de acceso.
 
 ## Ejemplos
 
@@ -58,6 +60,9 @@ La cuota nueva **no emite venta** en el momento del registro: se emite con `revi
 ## Verificación pendiente
 
 ```bash
+php artisan migrate --pretend --path=database/migrations/2026_11_03_120000_mark_renewed_membership_periods.php
+# Aplicar solo después de comprobar el esquema y tener respaldo de desarrollo
+php artisan migrate --path=database/migrations/2026_11_03_120000_mark_renewed_membership_periods.php
 php artisan test tests/Unit/Gimnasio/RenovacionContratoProgramadoTest.php
 php artisan test tests/Unit/Gimnasio/PoliticaCicloVidaMembresiaTest.php
 php artisan route:list --path=membresias

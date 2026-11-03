@@ -112,6 +112,39 @@ final class PoliticaCicloVidaMembresia
         return $contratoConCuotas && ! $pagadoCompletamente ? self::FACTURACION : self::TIEMPO;
     }
 
+    /**
+     * Calcula los días completos de una congelación al regresar antes o
+     * en la fecha autorizada. El día del regreso vuelve a ser deportivo.
+     *
+     * @return array{fecha_regreso:string, fecha_fin_real:string, dias_reconocidos:int}
+     */
+    public function calcularRegreso(
+        string $fechaInicio, string $fechaFinAutorizada, string $fechaRegreso
+    ): array {
+        $inicio = CarbonImmutable::createFromFormat('!Y-m-d', substr($fechaInicio, 0, 10));
+        $finAutorizado = CarbonImmutable::createFromFormat('!Y-m-d', substr($fechaFinAutorizada, 0, 10));
+        $regreso = CarbonImmutable::createFromFormat('!Y-m-d', substr($fechaRegreso, 0, 10));
+        if (! $inicio || ! $finAutorizado || ! $regreso) {
+            throw ValidationException::withMessages(['fecha' => 'El período de reactivación tiene fechas inválidas.']);
+        }
+        if ($regreso->lessThanOrEqualTo($inicio)) {
+            throw ValidationException::withMessages([
+                'fecha' => 'La reactivación exige al menos un día completo de suspensión.',
+            ]);
+        }
+        $finReal = $regreso->subDay();
+        if ($finReal->greaterThan($finAutorizado)) {
+            throw ValidationException::withMessages([
+                'fecha' => 'El regreso excede la fecha autorizada; requiere revisión administrativa.',
+            ]);
+        }
+        return [
+            'fecha_regreso' => $regreso->toDateString(),
+            'fecha_fin_real' => $finReal->toDateString(),
+            'dias_reconocidos' => (int) $inicio->diffInDays($finReal) + 1,
+        ];
+    }
+
     public function calcularFinAjustado(string $finOriginal, int $diasReconocidos): string
     {
         if ($diasReconocidos < 0) {

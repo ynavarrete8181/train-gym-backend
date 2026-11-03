@@ -719,15 +719,34 @@ class VentaServicio
         }
 
         if ($estado === 'PAGADA' && $venta->membresia_id) {
-            $estadoMembresiaId = $this->estados->idPorValor('MEMBRESIA', 'ACTIVA');
-            DB::table('membresias.membresias')
-                ->where('id', $venta->membresia_id)
-                ->where('estado', 'PENDIENTE_PAGO')
-                ->update([
-                    'estado' => 'ACTIVA',
-                    'estado_id' => $estadoMembresiaId,
-                    'updated_at' => now(),
-                ]);
+            // Una venta anterior pagada no debe rehabilitar el acceso si existe
+            // una renovación cuyo período ya comenzó y continúa sin pagar.
+            // La validación mira TODAS las renovaciones iniciadas, no solo la
+            // venta que acaba de recibir un pago.
+            $hoy = now('America/Guayaquil')->toDateString();
+            $renovacionImpaga = DB::table('membresias.membresia_periodos as p')
+                ->leftJoin('ventas.ventas as v', 'v.id', '=', 'p.venta_id')
+                ->where('p.membresia_id', $venta->membresia_id)
+                ->where('p.renovacion_manual', true)
+                ->where('p.fecha_inicio', '<=', $hoy)
+                ->where(function ($q): void {
+                    $q->whereNull('p.venta_id')->orWhere('v.estado', '!=', 'PAGADA');
+                })
+                ->exists();
+            // La venta de la solicitud actual todavía podría mostrar estado
+            // antiguo dentro del objeto $venta, pero la fila DB ya se
+            // actualizó arriba a PAGADA antes de consultar este bloqueo.
+            if (! $renovacionImpaga) {
+                $estadoMembresiaId = $this->estados->idPorValor('MEMBRESIA', 'ACTIVA');
+                DB::table('membresias.membresias')
+                    ->where('id', $venta->membresia_id)
+                    ->where('estado', 'PENDIENTE_PAGO')
+                    ->update([
+                        'estado' => 'ACTIVA',
+                        'estado_id' => $estadoMembresiaId,
+                        'updated_at' => now(),
+                    ]);
+            }
 
             DB::table('membresias.membresia_periodos')
                 ->where('membresia_id', $venta->membresia_id)

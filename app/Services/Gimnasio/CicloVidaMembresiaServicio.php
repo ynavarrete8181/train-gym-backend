@@ -335,14 +335,25 @@ final class CicloVidaMembresiaServicio
             ->orderBy('id')->get(['id', 'membresia_id']);
         $reactivadas = 0;
         foreach ($vencidas as $s) {
-            // Una demora de scheduler exige tratamiento aparte para no reconocer
-            // fechas no autorizadas ni vencer el contrato de forma silenciosa.
-            if (CarbonImmutable::parse($s->fecha_fin_prevista)->addDay()->toDateString() !== $hoy) {
-                continue;
+            // Si el scheduler se ejecuta tarde, aplicar la fecha autorizada de
+            // regreso y nunca reconocer los días posteriores como vacaciones.
+            // El método revalida en transacción que aún existe suspensión vigente.
+            $regresoAprobado = CarbonImmutable::parse($s->fecha_fin_prevista)
+                ->addDay()->toDateString();
+            try {
+                $this->reactivar((int) $s->membresia_id,
+                    'Finalización automática de vacaciones en la fecha autorizada.',
+                    null, $regresoAprobado);
+                $reactivadas++;
+            } catch (ValidationException $error) {
+                // Una reactivación manual concurrente pudo finalizar antes.
+                // Cualquier otro problema de estado requiere revisión explícita.
+                $continuaVigente = DB::table('membresias.membresia_suspensiones')
+                    ->where('id', $s->id)->where('estado', 'VIGENTE')->exists();
+                if ($continuaVigente) {
+                    throw $error;
+                }
             }
-            $this->reactivar((int) $s->membresia_id,
-                'Finalización automática de vacaciones en la fecha autorizada.', null);
-            $reactivadas++;
         }
 
         return ['programadas_revisadas' => $ids->count(), 'activadas' => $activadas,
@@ -404,9 +415,9 @@ final class CicloVidaMembresiaServicio
         });
     }
 
-    public function reactivar(int $id, string $motivo, ?int $usuarioId): array
+    public function reactivar(int $id, string $motivo, ?int $usuarioId, ?string $fechaEfectiva = null): array
     {
-        return DB::transaction(function () use ($id, $motivo, $usuarioId): array {
+        return DB::transaction(function () use ($id, $motivo, $usuarioId, $fechaEfectiva): array {
             $m = DB::table('membresias.membresias')->where('id', $id)->lockForUpdate()->first();
             if (! $m) {
                 throw ValidationException::withMessages(['membresia_id' => 'Membresía no encontrada.']);
@@ -414,7 +425,19 @@ final class CicloVidaMembresiaServicio
             $s = DB::table('membresias.membresia_suspensiones')
                 ->where('membresia_id', $id)->where('estado', 'VIGENTE')->lockForUpdate()->first();
             $this->politica->validarReactivacion((string) $m->estado, $s !== null);
-            $hoy = CarbonImmutable::today('America/Guayaquil');
+            // El scheduler puede reconciliar una finalización previamente
+            // autorizada; la llamada humana siempre usa la fecha efectiva real.
+            $hoy = $fechaEfectiva
+                ? CarbonImmutable::parse($fechaEfectiva)
+                : CarbonImmutable::today('America/Guayaquil');
+            if ($fechaEfectiva !== null && ($usuarioId !== null
+                || $s->tipo !== PoliticaCicloVidaMembresia::TIEMPO
+                || $hoy->toDateString() !== CarbonImmutable::parse($s->fecha_fin_prevista)->addDay()->toDateString()
+                || $hoy->greaterThan(CarbonImmutable::today('America/Guayaquil')))) {
+                throw ValidationException::withMessages([
+                    'fecha' => 'La fecha efectiva automática debe coincidir con el regreso autorizado de vacaciones.',
+                ]);
+            }
             $inicio = CarbonImmutable::parse($s->fecha_inicio);
             if ($hoy->lessThanOrEqualTo($inicio)) {
                 throw ValidationException::withMessages(['fecha' => 'La reactivación exige al menos un día completo de suspensión.']);

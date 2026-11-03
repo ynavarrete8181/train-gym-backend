@@ -14,12 +14,11 @@
 
 1. Se crea el catálogo `membresias.motivos_ciclo_vida` con operaciones `CONGELAR`, `REACTIVAR`, `CERRAR`, `REABRIR`, código estable, nombre, descripción, orden y estado activo. La migración inserta motivos iniciales sin borrar ni sobrescribir los existentes.
 2. CRUD desde la página `MotivosCicloVidaPage`; no admite borrar físicamente motivos para no destruir trazabilidad. Código/operación se mantienen inmutables tras crearse; se desactiva para no ofrecerlo en nuevos movimientos.
-3. `GestionesCicloVidaPage` ofrece listado paginado de contratos con acción Gestionar. Reutiliza `GestionCicloVidaMembresia` y sus servicios.
+3. Las operaciones de una membresía se realizan únicamente en **Clientes → Perfil integral → pestaña Membresías → icono Gestionar ciclo de vida**. Allí se reutiliza `GestionCicloVidaMembresia` y sus servicios. La página independiente `GestionesCicloVidaPage` se retiró para no duplicar la gestión operativa.
 4. Al congelar, el formulario distingue motivo catalogado, justificación libre y modalidad `TIEMPO` / `FACTURACION`. `Vista previa` consulta Laravel sin escritura. `Guardar` solo se activa cuando la vista previa es confirmable o programable y el motivo contiene al menos ocho caracteres.
 5. Al reactivar, `GET /api/base/gimnasio/membresias/{id}/reactivacion/preview` calcula días completos de suspensión, nueva vigencia y saldos de Cartera sin escritura. `Guardar` exige esa revisión; Laravel vuelve a validar dentro de su transacción.
 6. El código del motivo se valida contra el catálogo ACTIVO y se preserva en el JSON de auditoría del movimiento. Solicitudes históricas sin motivo codificado siguen siendo compatibles.
-7. `routes/console.php` define el comando opcional y repetible `revive:configurar-submenus-membresias`. Por defecto **solo simula**; `--aplicar` registra las páginas nuevas como submenús del menú padre real de `GIMNASIO-PLANES`, sin buscar por nombre ni crear otro menú.
-   - `GIMNASIO-CICLO-VIDA` → `GestionesCicloVidaPage`, únicamente roles que ya tienen `GIMNASIO-MEMBRESIAS`.
+7. `routes/console.php` define el comando opcional y repetible `revive:configurar-submenus-membresias`. Por defecto **solo simula**; `--aplicar` registra únicamente el catálogo de motivos junto a `Planes`, bajo el padre real de `GIMNASIO-PLANES`. Si una ejecución anterior creó un submenú de operaciones duplicado, el comando lo desactiva mediante el servicio de permisos sin modificar datos contractuales.
    - `GIMNASIO-MOTIVOS-CICLO-VIDA` → `MotivosCicloVidaPage`, únicamente roles con `GIMNASIO-MEMBRESIAS` y `GIMNASIO-PLANES`.
    - El submenú existente `GIMNASIO-PLANES` se muestra únicamente como **Planes**, sin repetir el nombre del menú padre. Se reutiliza la sincronización oficial de rol/usuario y la asociación `PaginaSistemaService`; no se crean rutas fijas ni se alteran permisos preexistentes.
 
@@ -60,3 +59,11 @@ No considerar implementados hasta contar con servicio transaccional y pruebas:
 - Pruebas end-to-end con PostgreSQL de desarrollo, dos workers y scheduler real.
 
 La categoría del motivo no altera por sí misma la regla financiera. Las operaciones que modifican dinero, vigencia o acceso permanecen validadas por Laravel. No se modificó `main` ni Railway.
+
+## Ubicación definitiva aprobada
+
+- **Membresías → Planes**: configuración comercial existente.
+- **Membresías → Motivos del ciclo de vida**: catálogo global administrable con permiso `GIMNASIO-PLANES`.
+- **Clientes → Perfil integral → Membresías → Gestionar ciclo de vida**: congelar, programar, reactivar, cancelar solicitudes y consultar movimientos del contrato del deportista.
+- No crear una segunda pantalla global para operar contratos, ni un nuevo menú principal Membresías.
+- El ícono en la pestaña de Clientes utiliza `ManageHistoryOutlinedIcon` para representar todas las operaciones y no únicamente pausar.

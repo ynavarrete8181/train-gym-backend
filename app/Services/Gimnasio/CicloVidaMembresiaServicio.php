@@ -488,9 +488,9 @@ final class CicloVidaMembresiaServicio
         ];
     }
 
-    public function reactivar(int $id, string $motivo, ?int $usuarioId, ?string $fechaEfectiva = null): array
+    public function reactivar(int $id, string $motivo, ?int $usuarioId, ?string $fechaEfectiva = null, ?string $motivoCodigo = null): array
     {
-        return DB::transaction(function () use ($id, $motivo, $usuarioId, $fechaEfectiva): array {
+        return DB::transaction(function () use ($id, $motivo, $usuarioId, $fechaEfectiva, $motivoCodigo): array {
             $m = DB::table('membresias.membresias')->where('id', $id)->lockForUpdate()->first();
             if (! $m) {
                 throw ValidationException::withMessages(['membresia_id' => 'Membresía no encontrada.']);
@@ -530,6 +530,7 @@ final class CicloVidaMembresiaServicio
                     'membresia_id' => 'La conciliación financiera detectó deuda emitida durante la suspensión. Revisa Ventas y Cartera.',
                 ]);
             }
+            $codigoReactivacion = $this->validarMotivoCatalogado($motivoCodigo, 'REACTIVAR');
             $movimientoId = DB::table('membresias.membresia_movimientos')->insertGetId([
                 'membresia_id' => $id,
                 'tipo' => PoliticaCicloVidaMembresia::REACTIVAR,
@@ -540,7 +541,7 @@ final class CicloVidaMembresiaServicio
                 'autorizado_por' => $usuarioId,
                 'movimiento_origen_id' => $s->movimiento_inicio_id,
                 'detalle' => json_encode(['dias_reconocidos' => $dias, 'fecha_fin_anterior' => $s->fecha_fin_original,
-                    'fecha_fin_nueva' => $finNuevo], JSON_THROW_ON_ERROR),
+                    'fecha_fin_nueva' => $finNuevo, 'motivo_codigo' => $codigoReactivacion], JSON_THROW_ON_ERROR),
                 'created_at' => now(), 'updated_at' => now(),
             ]);
             DB::table('membresias.membresia_suspensiones')->where('id', $s->id)->update([

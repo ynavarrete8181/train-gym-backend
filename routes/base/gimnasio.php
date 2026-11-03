@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Gimnasio\ValoracionDeportistaControlador;
 use App\Http\Controllers\Api\Gimnasio\FotografiaValoracionControlador;
 use App\Http\Controllers\Api\Gimnasio\MembresiaControlador;
 use App\Http\Controllers\Api\Gimnasio\CicloVidaMembresiaControlador;
+use App\Http\Controllers\Api\Gimnasio\MotivoCicloVidaControlador;
 use App\Http\Controllers\Api\Gimnasio\DescuentoDeportistaControlador;
 use App\Http\Controllers\Api\Gimnasio\PlanControlador;
 use App\Http\Controllers\Api\Gimnasio\EntrenadorControlador;
@@ -101,6 +102,13 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
     Route::put('clientes/{id}/valoraciones/{registro}', [ValoracionDeportistaControlador::class, 'actualizar'])->whereNumber('id')->whereNumber('registro');
     Route::delete('clientes/{id}/valoraciones/{registro}', [ValoracionDeportistaControlador::class, 'eliminar'])->whereNumber('id')->whereNumber('registro');
     Route::get('valoraciones/controles-pendientes', [ValoracionDeportistaControlador::class, 'controles']);
+
+    Route::get('membresias/ciclo-vida/motivos', [MotivoCicloVidaControlador::class, 'index'])
+        ->middleware('base.permiso:GIMNASIO-MEMBRESIAS,GIMNASIO-PLANES');
+    Route::post('membresias/ciclo-vida/motivos', [MotivoCicloVidaControlador::class, 'store'])
+        ->middleware('base.permiso:GIMNASIO-PLANES');
+    Route::put('membresias/ciclo-vida/motivos/{id}', [MotivoCicloVidaControlador::class, 'update'])
+        ->whereNumber('id')->middleware('base.permiso:GIMNASIO-PLANES');
 
     // Membresías
     Route::middleware(['base.permiso:GIMNASIO-MEMBRESIAS'])->group(function (): void {

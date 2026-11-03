@@ -68,6 +68,7 @@ final class CicloVidaMembresiaControlador extends Controller
             'fecha_inicio' => 'required|date_format:Y-m-d',
             'fecha_fin' => 'required|date_format:Y-m-d|after_or_equal:fecha_inicio',
             'motivo' => 'required|string|min:8|max:1000',
+            'motivo_codigo' => 'nullable|string|max:60',
         ]);
         return ApiResponse::exito('Vacaciones programadas para su fecha de inicio.',
             $this->servicio->programarTiempo($id, $datos, (int) $request->user()->id));
@@ -90,6 +91,7 @@ final class CicloVidaMembresiaControlador extends Controller
             'fecha_inicio' => 'required|date_format:Y-m-d',
             'fecha_fin' => 'required|date_format:Y-m-d|after_or_equal:fecha_inicio',
             'motivo' => 'required|string|min:8|max:1000',
+            'motivo_codigo' => 'nullable|string|max:60',
         ]);
         return ApiResponse::exito('Congelación registrada.', $this->servicio->congelar($id, $datos, (int) $request->user()->id));
     }

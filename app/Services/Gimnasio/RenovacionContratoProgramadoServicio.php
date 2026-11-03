@@ -108,19 +108,19 @@ final class RenovacionContratoProgramadoServicio
             if ($cuota->estado === 'ANULADA') {
                 throw ValidationException::withMessages(['cuotas' => 'Existe una cuota anulada; requiere revisión.']);
             }
-            if (! $cuota->venta_id && $cuota->estado === 'PROGRAMADA'
-                && substr((string) $cuota->fecha_programada_emision, 0, 10) <= $hoy->toDateString()) {
+            // No extender un plazo fijo si alguna cuota del acuerdo original
+            // todavía no se ha emitido ni pagado. Se habilita la renovación
+            // cuando todas las obligaciones pactadas están realmente pagadas.
+            if (! $cuota->venta_id) {
                 throw ValidationException::withMessages([
-                    'cuotas' => 'Hay una cuota cuya emisión está atrasada. Procesa el calendario antes de renovar.',
+                    'cuotas' => 'Faltan cuotas por emitir y pagar. Espera su emisión y confirma todos los pagos antes de renovar.',
                 ]);
             }
-            if ($cuota->venta_id) {
-                $venta = DB::table('ventas.ventas')->where('id', $cuota->venta_id)->first();
-                if (! $venta || $venta->estado !== 'PAGADA') {
-                    throw ValidationException::withMessages([
-                        'cuotas' => 'Existen ventas emitidas sin pago completo. Revisa Ventas y Cartera antes de renovar.',
-                    ]);
-                }
+            $venta = DB::table('ventas.ventas')->where('id', $cuota->venta_id)->first();
+            if (! $venta || $venta->estado !== 'PAGADA') {
+                throw ValidationException::withMessages([
+                    'cuotas' => 'Existen ventas sin pago completo. Revisa Ventas y Cartera antes de renovar.',
+                ]);
             }
         }
 

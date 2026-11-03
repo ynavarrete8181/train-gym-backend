@@ -162,6 +162,26 @@ class EmisionCuotasServicio
                     'updated_at' => now(),
                 ]);
 
+                // Un período R-E-N-O-V-A-D-O exige su propio pago. La
+                // extensión contractual no concede acceso gratuito cuando
+                // comienza el nuevo período.
+                if (($periodo->renovacion_manual ?? false)
+                    && substr((string) $periodo->fecha_inicio, 0, 10) <= $hoy
+                    && $membresia->estado === 'ACTIVA') {
+                    $estadoPendiente = DB::table('configuracion.estados_catalogo')
+                        ->where('entidad', 'MEMBRESIA')
+                        ->where('valor_interno', 'PENDIENTE_PAGO')
+                        ->where('activo', true)->value('id');
+                    if (! $estadoPendiente) {
+                        throw new \RuntimeException('Falta el estado PENDIENTE_PAGO para membresías.');
+                    }
+                    DB::table('membresias.membresias')->where('id', $membresia->id)->update([
+                        'estado' => 'PENDIENTE_PAGO',
+                        'estado_id' => $estadoPendiente,
+                        'updated_at' => now(),
+                    ]);
+                }
+
                 // Sincronizar Cartera después de enlazar la cuota a la venta:
                 // así el vencimiento proviene de la cuota, no de dias_gracia.
                 $this->cartera->sincronizarVenta((int) $ventaId);

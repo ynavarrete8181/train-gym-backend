@@ -296,28 +296,31 @@ Artisan::command('revive:auditar-identidades', function (): int {
 })->purpose('Audita Personas, Clientes, Usuarios y Entrenadores sin modificar datos.');
 
 /**
- * Navegación de Membresías: registro opt-in, idempotente y sin concesión de
- * permisos a roles que no tuvieran antes la capacidad correspondiente.
- * Primer uso: --aplicar exclusivamente en desarrollo, luego revisar Menús.
+ * Registra los submenús del ciclo de vida JUNTO a «Planes» sin crear otro
+ * menú principal. El menú padre se resuelve por la función GIMNASIO-PLANES.
+ * Sin --aplicar solo muestra el plan. No otorga nuevas capacidades.
  */
 Artisan::command('revive:configurar-submenus-membresias {--aplicar}', function (
     \App\Services\Seguridad\RolPermisoService $roles,
     \App\Services\Seguridad\PaginaSistemaService $paginas
 ): int {
-    $menu = DB::table('seguridad.cpu_usermenu')
-        ->whereRaw('LOWER(menu) LIKE ?', ['%membres%'])
-        ->where('activo', true)->orderBy('id_usermenu')->first();
+    $referencia = DB::table('seguridad.cpu_userrolefunction')
+        ->where('id_menu', 'GIMNASIO-PLANES')->where('activo', true)
+        ->orderBy('id_userrf')->first();
 
-    if (! $menu) {
-        $this->error('No existe un menú principal Membresías activo. Créalo o verifica su nombre antes de configurar submenús.');
+    if (! $referencia) {
+        $this->error('No se encontró el submenú Planes (GIMNASIO-PLANES). No se realizaron cambios.');
         return 1;
     }
 
-    $permisos = DB::table('seguridad.cpu_userrolefunction')
-        ->whereIn('id_menu', ['GIMNASIO-MEMBRESIAS', 'GIMNASIO-PLANES'])
-        ->where('activo', true)
-        ->get(['id_userrole', 'id_menu'])
-        ->groupBy('id_userrole');
+    $menu = DB::table('seguridad.cpu_usermenu')
+        ->where('id_usermenu', $referencia->id_usermenu)
+        ->where('activo', true)->first();
+
+    if (! $menu) {
+        $this->error('El menú padre de Planes no está activo.');
+        return 1;
+    }
 
     $opciones = [
         ['codigo' => 'GIMNASIO-CICLO-VIDA', 'nombre' => 'Congelaciones y reactivaciones',
@@ -325,43 +328,71 @@ Artisan::command('revive:configurar-submenus-membresias {--aplicar}', function (
         ['codigo' => 'GIMNASIO-MOTIVOS-CICLO-VIDA', 'nombre' => 'Motivos del ciclo de vida',
             'pagina' => 'MotivosCicloVidaPage', 'requisito' => 'GIMNASIO-PLANES'],
     ];
+    $permisos = DB::table('seguridad.cpu_userrolefunction')
+        ->whereIn('id_menu', ['GIMNASIO-MEMBRESIAS', 'GIMNASIO-PLANES'])
+        ->where('activo', true)->get(['id_userrole', 'id_menu'])
+        ->groupBy('id_userrole');
 
     $pendientes = [];
     foreach ($permisos as $idRol => $funciones) {
-        $actuales = $funciones->pluck('id_menu')->all();
-        if (! in_array('GIMNASIO-MEMBRESIAS', $actuales, true)) continue;
+        $disponibles = $funciones->pluck('id_menu')->all();
         foreach ($opciones as $opcion) {
-            if (! in_array($opcion['requisito'], $actuales, true)) continue;
-            if (DB::table('seguridad.cpu_userrolefunction')
-                ->where('id_userrole', $idRol)->where('id_menu', $opcion['codigo'])->exists()) {
-                continue;
-            }
-            $pendientes[] = [(int) $idRol, $opcion];
+            if (! in_array($opcion['requisito'], $disponibles, true)) continue;
+            $actual = DB::table('seguridad.cpu_userrolefunction')
+                ->where('id_userrole', $idRol)->where('id_menu', $opcion['codigo'])->first();
+            if ($actual && $actual->activo && (int) $actual->id_usermenu === (int) $menu->id_usermenu) continue;
+            $pendientes[] = ['rol' => (int) $idRol, 'opcion' => $opcion, 'actual' => $actual];
         }
     }
 
-    $this->info('Menú: ' . $menu->menu . ' | Opciones pendientes: ' . count($pendientes));
+    $planes = DB::table('seguridad.cpu_userrolefunction')
+        ->where('id_menu', 'GIMNASIO-PLANES')->where('activo', true)->get();
+    $renombrar = $planes->filter(fn ($plan) => $plan->nombre !== 'Planes');
+    $this->info('Menú padre existente: ' . $menu->menu . ' (#' . $menu->id_usermenu . ')');
+    $this->info('Submenús nuevos/por reubicar: ' . count($pendientes)
+        . ' | Etiquetas «Planes» por actualizar: ' . $renombrar->count());
+
     if (! $this->option('aplicar')) {
-        $this->line('Simulación. Ejecuta --aplicar solo en PostgreSQL de desarrollo después de revisar permisos.');
+        $this->line('Solo simulación. Revisa la navegación antes de ejecutar --aplicar en desarrollo.');
         return 0;
     }
 
-    foreach ($pendientes as [$idRol, $opcion]) {
-        $orden = ((int) DB::table('seguridad.cpu_userrolefunction')
-            ->where('id_userrole', $idRol)->where('id_usermenu', $menu->id_usermenu)->max('orden')) + 1;
+    foreach ($planes as $plan) {
+        if ($plan->nombre === 'Planes') continue;
         $roles->guardarFuncionRol([
-            'id_userrole' => $idRol, 'id_usermenu' => (int) $menu->id_usermenu,
-            'nombre' => $opcion['nombre'], 'id_menu' => $opcion['codigo'],
-            'accion' => 'membresias/' . strtolower(str_replace('GIMNASIO-', '', $opcion['codigo'])),
-            'icono' => 'CardMembership', 'activo' => true, 'orden' => $orden,
-        ]);
+            'id_userrole' => $plan->id_userrole,
+            'id_usermenu' => $plan->id_usermenu,
+            'nombre' => 'Planes', 'icono' => $plan->icono,
+            'accion' => $plan->accion, 'id_menu' => 'GIMNASIO-PLANES',
+            'activo' => true, 'orden' => $plan->orden,
+        ], (int) $plan->id_userrf);
     }
+
+    foreach ($pendientes as $item) {
+        $opcion = $item['opcion'];
+        $actual = $item['actual'];
+        $orden = $actual && (int) $actual->id_usermenu === (int) $menu->id_usermenu
+            ? $actual->orden
+            : ((int) DB::table('seguridad.cpu_userrolefunction')
+                ->where('id_userrole', $item['rol'])
+                ->where('id_usermenu', $menu->id_usermenu)->max('orden')) + 1;
+        $roles->guardarFuncionRol([
+            'id_userrole' => $item['rol'],
+            'id_usermenu' => $menu->id_usermenu,
+            'nombre' => $opcion['nombre'],
+            'icono' => 'CardMembership',
+            'accion' => 'membresias/' . strtolower(str_replace('GIMNASIO-', '', $opcion['codigo'])),
+            'id_menu' => $opcion['codigo'],
+            'activo' => true, 'orden' => $orden,
+        ], $actual ? (int) $actual->id_userrf : null);
+    }
+
     foreach ($opciones as $opcion) {
-        if (DB::table('seguridad.cpu_userrolefunction')->where('id_menu', $opcion['codigo'])->exists()) {
+        if (DB::table('seguridad.cpu_userrolefunction')
+            ->where('id_menu', $opcion['codigo'])->where('activo', true)->exists()) {
             $paginas->asociar($opcion['codigo'], $opcion['pagina']);
         }
     }
-
-    $this->info('Submenús registrados. Revisa Menús, Submenús y Páginas del sistema.');
+    $this->info('Navegación actualizada. Conserva el menú padre y muestra «Planes».');
     return 0;
-})->purpose('Previsualiza o configura submenús del ciclo de vida bajo Membresías.');
+})->purpose('Configura submenús del ciclo de vida junto a Planes en su menú padre existente.');

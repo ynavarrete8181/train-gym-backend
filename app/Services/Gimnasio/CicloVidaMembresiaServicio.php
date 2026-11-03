@@ -300,9 +300,18 @@ final class CicloVidaMembresiaServicio
                 if ($motivo) {
                     DB::table('membresias.membresia_suspensiones')->where('id', $s->id)
                         ->update(['estado' => 'NO_APLICADA', 'updated_at' => now()]);
+                    $detalleOriginal = DB::table('membresias.membresia_movimientos')
+                        ->where('id', $s->movimiento_inicio_id)->value('detalle');
+                    $detalle = is_string($detalleOriginal)
+                        ? (json_decode($detalleOriginal, true) ?: [])
+                        : (array) ($detalleOriginal ?? []);
+                    $detalle['motivo_no_aplicacion'] = $motivo;
+                    $detalle['revisado_fecha'] = $hoy;
                     DB::table('membresias.membresia_movimientos')
                         ->where('id', $s->movimiento_inicio_id)
-                        ->update(['estado' => 'NO_APLICADO', 'updated_at' => now()]);
+                        ->update(['estado' => 'NO_APLICADO',
+                            'detalle' => json_encode($detalle, JSON_THROW_ON_ERROR),
+                            'updated_at' => now()]);
                     $rechazadas++;
                     return;
                 }

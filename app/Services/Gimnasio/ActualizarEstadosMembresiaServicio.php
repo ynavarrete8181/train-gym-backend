@@ -17,7 +17,7 @@ class ActualizarEstadosMembresiaServicio
 
     public function procesar(?string $fecha = null): array
     {
-        $hoy = Carbon::parse($fecha ?: now()->toDateString())->startOfDay();
+        $hoy = Carbon::parse($fecha ?: now('America/Guayaquil')->toDateString())->startOfDay();
         $vencidas = 0;
         $asignacionesFinalizadas = 0;
 

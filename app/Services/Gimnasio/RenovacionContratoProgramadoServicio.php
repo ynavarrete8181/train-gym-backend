@@ -172,6 +172,7 @@ final class RenovacionContratoProgramadoServicio
                 'fecha_fin' => $p['fecha_fin'],
                 'precio' => $p['precio'],
                 'estado' => 'PROGRAMADO',
+                'renovacion_manual' => true,
                 'venta_id' => null,
                 'generado_at' => $ahora,
                 'created_at' => $ahora,

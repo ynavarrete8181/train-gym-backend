@@ -123,6 +123,7 @@ Artisan::command('revive:procesar-cobros-membresias {--fecha=}', function (Cobro
 
 Schedule::command('revive:procesar-cobros-membresias')
     ->dailyAt('00:05')
+    ->timezone('America/Guayaquil')
     ->withoutOverlapping();
 
 Artisan::command('revive:actualizar-estados-membresias {--fecha=}', function (ActualizarEstadosMembresiaServicio $servicio): int {
@@ -140,6 +141,7 @@ Artisan::command('revive:actualizar-estados-membresias {--fecha=}', function (Ac
 
 Schedule::command('revive:actualizar-estados-membresias')
     ->dailyAt('00:15')
+    ->timezone('America/Guayaquil')
     ->withoutOverlapping();
 
 Artisan::command('revive:diagnosticar-configuracion-inicial', function (DiagnosticoConfiguracionInicialServicio $servicio): int {

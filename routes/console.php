@@ -339,7 +339,9 @@ Artisan::command('revive:configurar-submenus-membresias {--aplicar}', function (
             if (! in_array($opcion['requisito'], $disponibles, true)) continue;
             $actual = DB::table('seguridad.cpu_userrolefunction')
                 ->where('id_userrole', $idRol)->where('id_menu', $opcion['codigo'])->first();
-            if ($actual && $actual->activo && (int) $actual->id_usermenu === (int) $menu->id_usermenu) continue;
+            if ($actual && $actual->activo
+                && (int) $actual->id_usermenu === (int) $menu->id_usermenu
+                && $actual->icono === 'settings') continue;
             $pendientes[] = ['rol' => (int) $idRol, 'opcion' => $opcion, 'actual' => $actual];
         }
     }
@@ -356,7 +358,7 @@ Artisan::command('revive:configurar-submenus-membresias {--aplicar}', function (
         ->where('id_menu', 'GIMNASIO-PLANES')->where('activo', true)->get();
     $renombrar = $planes->filter(fn ($plan) => $plan->nombre !== 'Planes');
     $this->info('Menú padre existente: ' . $menu->menu . ' (#' . $menu->id_usermenu . ')');
-    $this->info('Submenús nuevos/por reubicar: ' . count($pendientes)
+    $this->info('Submenús nuevos o con icono incorrecto: ' . count($pendientes)
         . ' | Etiquetas «Planes» por actualizar: ' . $renombrar->count());
 
     if (! $this->option('aplicar')) {
@@ -391,7 +393,7 @@ Artisan::command('revive:configurar-submenus-membresias {--aplicar}', function (
             'id_userrole' => $item['rol'],
             'id_usermenu' => $menu->id_usermenu,
             'nombre' => $opcion['nombre'],
-            'icono' => 'CardMembership',
+            'icono' => 'settings',
             'accion' => 'membresias/' . strtolower(str_replace('GIMNASIO-', '', $opcion['codigo'])),
             'id_menu' => $opcion['codigo'],
             'activo' => true, 'orden' => $orden,

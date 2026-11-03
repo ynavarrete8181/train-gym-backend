@@ -339,6 +339,9 @@ Artisan::command('revive:configurar-submenus-membresias {--aplicar}', function (
             if (! in_array($opcion['requisito'], $disponibles, true)) continue;
             $actual = DB::table('seguridad.cpu_userrolefunction')
                 ->where('id_userrole', $idRol)->where('id_menu', $opcion['codigo'])->first();
+            // Un permiso desactivado expresamente no debe reactivarse
+            // automáticamente al reparar la presentación del menú.
+            if ($actual && ! $actual->activo) continue;
             if ($actual && $actual->activo
                 && (int) $actual->id_usermenu === (int) $menu->id_usermenu
                 && $actual->icono === 'settings') continue;

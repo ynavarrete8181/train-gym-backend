@@ -360,6 +360,7 @@ class MembresiaServicio
             ->get([
                 'p.id',
                 'p.numero_periodo',
+                'p.renovacion_manual',
                 'p.fecha_inicio',
                 'p.fecha_fin',
                 'p.precio',

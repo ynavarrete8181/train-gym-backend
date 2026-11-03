@@ -74,6 +74,31 @@ final class CicloVidaMembresiaControlador extends Controller
             $this->servicio->programarTiempo($id, $datos, (int) $request->user()->id));
     }
 
+    public function previsualizarEdicion(Request $request, int $id, int $suspensionId)
+    {
+        $this->validarAlcance($request, $id);
+        $datos = $request->validate([
+            'fecha_inicio' => 'required|date_format:Y-m-d',
+            'fecha_fin' => 'required|date_format:Y-m-d|after_or_equal:fecha_inicio',
+        ]);
+        return ApiResponse::exito('Vista previa de actualización sin efectos sobre el contrato.',
+            $this->servicio->previsualizarEdicion($id, $suspensionId, $datos));
+    }
+
+    public function actualizarProgramada(Request $request, int $id, int $suspensionId)
+    {
+        $this->validarAlcance($request, $id);
+        $datos = $request->validate([
+            'fecha_inicio' => 'required|date_format:Y-m-d',
+            'fecha_fin' => 'required|date_format:Y-m-d|after_or_equal:fecha_inicio',
+            'motivo' => 'required|string|min:8|max:1000',
+            'motivo_codigo' => 'nullable|string|max:60',
+        ]);
+        return ApiResponse::exito('Fechas de congelación programada actualizadas.',
+            $this->servicio->actualizarProgramada($id, $suspensionId, $datos,
+                (int) $request->user()->id));
+    }
+
     public function cancelarProgramada(Request $request, int $id, int $suspensionId)
     {
         $this->validarAlcance($request, $id);

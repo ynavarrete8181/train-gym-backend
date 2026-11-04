@@ -249,7 +249,33 @@ class DeportistaControlador extends Controller
                 'h.condiciones', 'h.motivo', 'h.registrado_at', 'autor.name as autor_nombre'])
             ->groupBy('membresia_id');
 
+        // La ficha integral debe entregar la misma configuración persistida que
+        // el detalle individual de Membresías. Sin estos datos la edición
+        // pierde sedes secundarias y no precarga el beneficio comercial.
+        $sedesAutorizadas = DB::table('membresias.membresia_sedes as ms')
+            ->join('institucional.sedes as s', 's.id_sede', '=', 'ms.sede_id')
+            ->whereIn('ms.membresia_id', $membresias->pluck('id')->all())
+            ->where('ms.activo', true)
+            ->orderByDesc('ms.es_principal')->orderBy('s.nombre')
+            ->get(['ms.membresia_id', 'ms.sede_id', 'ms.es_principal', 'ms.activo',
+                's.nombre as sede_nombre'])
+            ->groupBy('membresia_id');
+
+        $descuentosVigentes = DB::table('membresias.descuentos_deportistas')
+            ->where('deportista_id', (int) $id)
+            ->whereIn('plan_id', $membresias->pluck('plan_id')->unique()->all())
+            ->where('activo', true)
+            ->orderByDesc('fecha_inicio')->orderByDesc('id')
+            ->get(['id', 'plan_id', 'modalidad_id', 'tipo', 'valor', 'motivo',
+                'fecha_inicio', 'fecha_fin']);
+
         foreach ($membresias as $membresia) {
+            $membresia->sedes_habilitadas = $sedesAutorizadas
+                ->get($membresia->id, collect())->values();
+            $membresia->descuento_vigente = $descuentosVigentes->first(fn ($descuento) =>
+                (int) $descuento->plan_id === (int) $membresia->plan_id
+                && (int) ($descuento->modalidad_id ?? 0) === (int) ($membresia->modalidad_id ?? 0)
+            );
             $membresia->cuotas = $cuotas->get($membresia->id, collect())->values();
             $membresia->periodos = $periodos->get($membresia->id, collect())->values();
             $membresia->historial_condiciones = $historial->get($membresia->id, collect())

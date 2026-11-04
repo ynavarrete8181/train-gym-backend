@@ -48,7 +48,25 @@ class MisMembresiasController extends Controller
             $saldoEmitido = round((float) $cuotas
                 ->filter(fn ($c) => $c->venta_id && $c->venta_estado !== 'ANULADA')
                 ->sum(fn ($c) => max(0, (float) $c->monto - (float) $c->monto_pagado)), 2);
-            $periodosRenovados = collect($m->periodos ?? [])
+            $hoy = now('America/Guayaquil')->toDateString();
+            $periodos = collect($m->periodos ?? []);
+            $periodoVigente = $periodos->first(fn ($periodo) =>
+                substr((string) $periodo->fecha_inicio, 0, 10) <= $hoy
+                && substr((string) $periodo->fecha_fin, 0, 10) >= $hoy
+            );
+            $periodosFuturos = $periodos
+                ->filter(fn ($periodo) => substr((string) $periodo->fecha_inicio, 0, 10) > $hoy)
+                ->sortBy('numero_periodo')
+                ->map(fn ($periodo) => [
+                    'id' => $periodo->id,
+                    'numero_periodo' => $periodo->numero_periodo,
+                    'fecha_inicio' => $periodo->fecha_inicio,
+                    'fecha_fin' => $periodo->fecha_fin,
+                    'estado' => $periodo->estado,
+                    'venta_estado' => $periodo->venta_estado,
+                    'renovacion_manual' => (bool) ($periodo->renovacion_manual ?? false),
+                ])->values()->all();
+            $periodosRenovados = $periodos
                 ->filter(fn ($periodo) => (bool) ($periodo->renovacion_manual ?? false))
                 ->map(fn ($periodo) => [
                     'id' => $periodo->id,
@@ -92,6 +110,8 @@ class MisMembresiasController extends Controller
                 'total_pagado_confirmado' => $pagadoConfirmado,
                 'saldo_ventas_emitidas' => $saldoEmitido,
                 'periodos_renovados' => $periodosRenovados,
+                'periodo_vigente' => $periodoVigente,
+                'periodos_futuros' => $periodosFuturos,
                 'precio_aplicado' => $m->precio_aplicado,
                 'sede_nombre' => $m->sede_nombre,
                 'sedes_habilitadas' => $m->sedes_habilitadas,

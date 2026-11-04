@@ -85,13 +85,16 @@ final class RenovacionContratoProgramadoServicio
             ]);
         }
 
-        // Se renueva cuando faltan como máximo 45 días; no se facturan
-        // períodos superpuestos ni se extiende el contrato indefinidamente.
+        // La primera renovación se autoriza en los últimos 45 días del
+        // contrato original. Las siguientes pueden quedar programadas en
+        // secuencia, sin activar ni cobrar anticipadamente sus períodos.
         $hoy = CarbonImmutable::today('America/Guayaquil');
         $finActual = CarbonImmutable::parse($ultimo->fecha_fin);
-        if ($finActual->lessThan($hoy) || $finActual->greaterThan($hoy->addDays(45))) {
+        $esContinuacionProgramada = (bool) ($ultimo->renovacion_manual ?? false);
+        if ((! $esContinuacionProgramada && ($finActual->lessThan($hoy) || $finActual->greaterThan($hoy->addDays(45))))
+            || ($esContinuacionProgramada && $finActual->lessThan($hoy))) {
             throw ValidationException::withMessages([
-                'membresia_id' => 'La renovación manual se permite durante los últimos 45 días de vigencia, antes de vencer.',
+                'membresia_id' => 'La primera renovación requiere estar en los últimos 45 días; las continuaciones deben programarse antes de su vencimiento.',
             ]);
         }
         // Bloquear hasta conciliar cualquier venta emitida del contrato.
@@ -104,16 +107,29 @@ final class RenovacionContratoProgramadoServicio
                 'cuotas' => 'Las cuotas no coinciden con los períodos pactados. Solicita conciliación.',
             ]);
         }
+        // La contratación original debe estar pagada. Una renovación
+        // futura puede continuar PROGRAMADA, sin venta, y no se cobra por
+        // adelantado. Solo se permite esa excepción para períodos marcados
+        // como renovaciones y cuya emisión todavía no corresponde.
+        $periodosPorId = DB::table('membresias.membresia_periodos')
+            ->where('membresia_id', $id)->get()->keyBy('id');
         foreach ($cuotas as $cuota) {
             if ($cuota->estado === 'ANULADA') {
                 throw ValidationException::withMessages(['cuotas' => 'Existe una cuota anulada; requiere revisión.']);
             }
-            // No extender un plazo fijo si alguna cuota del acuerdo original
-            // todavía no se ha emitido ni pagado. Se habilita la renovación
-            // cuando todas las obligaciones pactadas están realmente pagadas.
+            $periodoCuota = $periodosPorId->get($cuota->periodo_id);
+            if (! $periodoCuota || (int) $periodoCuota->numero_periodo !== (int) $cuota->numero_cuota) {
+                throw ValidationException::withMessages(['cuotas' => 'La cuota no coincide con su período contractual.']);
+            }
             if (! $cuota->venta_id) {
+                if ((bool) ($periodoCuota->renovacion_manual ?? false)
+                    && $cuota->estado === 'PROGRAMADA'
+                    && substr((string) $cuota->fecha_programada_emision, 0, 10) > $hoy->toDateString()
+                    && substr((string) $periodoCuota->fecha_inicio, 0, 10) > $hoy->toDateString()) {
+                    continue;
+                }
                 throw ValidationException::withMessages([
-                    'cuotas' => 'Faltan cuotas por emitir y pagar. Espera su emisión y confirma todos los pagos antes de renovar.',
+                    'cuotas' => 'Las cuotas originales o exigibles deben estar emitidas y pagadas antes de renovar.',
                 ]);
             }
             $venta = DB::table('ventas.ventas')->where('id', $cuota->venta_id)->first();
@@ -144,6 +160,7 @@ final class RenovacionContratoProgramadoServicio
             'confirmable' => true,
             'membresia_id' => $id,
             'codigo_contrato' => $m->codigo_contrato,
+            'periodo_anterior' => (int) $ultimo->numero_periodo,
             'periodo_actual' => (int) $ultimo->numero_periodo,
             'numero_periodo_nuevo' => (int) $ultimo->numero_periodo + 1,
             'vigencia_actual' => $finActual->toDateString(),
@@ -156,7 +173,7 @@ final class RenovacionContratoProgramadoServicio
             'tipo_duracion' => $tipo,
             'duracion' => $duracion,
             'estado_cuota' => 'PROGRAMADA',
-            'mensaje' => 'La cuota se programa sin emitir venta anticipada. Ventas y Cartera permanecen intactas.',
+            'mensaje' => 'La renovación queda programada a continuación del último período. No reemplaza el período vigente ni emite ventas anticipadas.',
         ];
     }
 

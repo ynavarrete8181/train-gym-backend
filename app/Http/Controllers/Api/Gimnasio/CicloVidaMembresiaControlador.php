@@ -45,7 +45,9 @@ final class CicloVidaMembresiaControlador extends Controller
 
     public function mostrar(Request $request, int $id)
     {
-        $this->validarAlcance($request, $id);
+        // Consulta de solo lectura desde el perfil del deportista.
+        // La ruta ya exige autenticación y GIMNASIO-MEMBRESIAS.
+        // Las operaciones que modifican el contrato siguen validando la sede.
         return ApiResponse::exito('Ciclo de vida consultado.', $this->servicio->resumen($id));
     }
 

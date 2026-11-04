@@ -33,9 +33,9 @@ El nuevo contrato con calendario explícito utiliza:
 En ambos se comprueba permiso de Membresías y alcance operativo de sede. Laravel exige:
 1. Contrato `ACTIVA`, con snapshot de condiciones originales y `renovable=true`.
 2. Sin suspensiones `VIGENTE` ni `PROGRAMADA`. Primero se resuelve la congelación, para tomar la fecha final efectiva que resulte de su compensación.
-3. El período finaliza en los próximos 45 días (inclusive) y la membresía no ha vencido. Para contratos ya vencidos se mantiene el flujo de nueva contratación hasta implementar un proceso de recuperación excepcional.
+3. La **primera renovación** se registra durante los últimos 45 días del contrato original. Si el último período es una renovación manual programada, se pueden anexar más períodos consecutivos antes de que venza; nunca se superponen períodos. Para contratos vencidos se utiliza el flujo de recontratación.
 4. Coherencia entre período final, cantidad de períodos, cuotas y `fecha_fin`.
-5. **Todas las cuotas originales deben estar emitidas y sus ventas completamente `PAGADA`**. No se permite renovar si alguna cuota sigue programada, parcial, vencida o no conciliada. El cliente conserva su contrato, pero solo puede ampliarlo cuando haya cumplido todas las obligaciones de los períodos anteriores.
+5. **Todas las cuotas originales deben estar emitidas y sus ventas completamente `PAGADA`**. Las cuotas de renovaciones anteriores que todavía no han iniciado se pueden mantener `PROGRAMADA`, sin venta y con emisión futura. Ninguna cuota exigible sin pagar, parcial, anulada o no conciliada permite añadir una renovación. El precio y el período vigentes no se alteran.
 6. Un máximo de 36 períodos por contrato.
 7. Duración, día de pago y precio calculados desde las condiciones **históricas** pactadas, no desde un catálogo actual editable.
 
@@ -55,7 +55,9 @@ La cuota nueva **no emite venta** en el momento del registro: se emite con `revi
 
 - Sin congelación: fin 31/12/2026 → un mes renovado comienza 01/01/2027, termina 31/01/2027.
 - Si la reactivación consolidó la vigencia hasta 13/02/2027 → siguiente mes comienza 14/02/2027 y termina 13/03/2027, sujeto a calendario financiero y día pactado.
-- Si vuelve hoy durante una congelación: al reactivar se reconocen solo días completos hasta ayer. La renovación no está disponible hasta quedar `ACTIVA` y dentro de los 45 días finales.
+- Si vuelve hoy durante una congelación: al reactivar se reconocen solo días completos hasta ayer. La renovación no está disponible hasta quedar `ACTIVA` y dentro de los 45 días finales del contrato original.
+- Varias renovaciones: contrato original finaliza 31/12/2026; renovación 1 cubre 01/01/2027–31/01/2027; renovación 2 cubre 01/02/2027–28/02/2027, conservando ambas cuotas como PROGRAMADA hasta la emisión programada y sin alterar el período vigente. La segunda renovación requiere que el contrato permanezca ACTIVA y que no existan pagos vencidos u otras deudas emitidas.
+- La API móvil `mis-membresias` expone `periodo_vigente` (el que incluye la fecha actual) y `periodos_futuros` (ordenados cronológicamente), además del historial anterior. La fecha final contractual ampliada no equivale a acceso anticipado.
 
 ## Verificación pendiente
 

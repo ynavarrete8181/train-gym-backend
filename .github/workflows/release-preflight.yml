@@ -20,4 +20,4 @@ jobs:
         run: |
           find app database/migrations tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Probar vencimientos y reglas de ciclo de vida
-        run: php artisan test tests/Unit/Gimnasio/VencimientoMensualTest.php tests/Unit/Gimnasio/PoliticaCicloVidaMembresiaTest.php tests/Unit/Gimnasio/ImpactoFinancieroCongelacionServicioTest.php
+        run: php artisan test tests/Unit/Gimnasio/VencimientoMensualTest.php tests/Unit/Gimnasio/PoliticaCicloVidaMembresiaTest.php tests/Unit/Gimnasio/ImpactoFinancieroCongelacionServicioTest.php tests/Unit/Gimnasio/RenovacionContratoProgramadoTest.php

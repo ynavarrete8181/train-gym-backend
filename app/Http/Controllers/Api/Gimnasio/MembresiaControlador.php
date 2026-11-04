@@ -278,7 +278,8 @@ class MembresiaControlador extends Controller
 
     public function historialIntegral(Request $request, int $id)
     {
-        $this->validarAlcanceRenovacion($request, $id);
+        // Historial de solo lectura: permiso de membresías validado por la ruta.
+        // Renovaciones y demás cambios continúan sujetos al alcance de sede.
         return ApiResponse::exito(
             'Historial integral del contrato.',
             $this->historialIntegral->consultar($id)

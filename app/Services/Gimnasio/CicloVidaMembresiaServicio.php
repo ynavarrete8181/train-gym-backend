@@ -63,7 +63,144 @@ final class CicloVidaMembresiaServicio
                 && $this->motivoBloqueoFinanciero($id, $m) === null
                 && ! $suspensiones->contains(fn ($s) => in_array($s->estado, ['PROGRAMADA', 'VIGENTE'], true)),
             'permite_congelar_facturacion' => false,
+            'puede_cancelar_contrato' => ! in_array(strtoupper((string) $m->estado), ['CANCELADA', 'VENCIDA'], true),
         ];
+    }
+
+    public function previsualizarProrroga(int $id, int $suspensionId, string $nuevaFechaFin): array
+    {
+        $m = DB::table('membresias.membresias')->where('id', $id)->first();
+        $s = DB::table('membresias.membresia_suspensiones')
+            ->where('id', $suspensionId)->where('membresia_id', $id)->first();
+        if (! $m || ! $s || $s->estado !== 'VIGENTE' || $s->tipo !== PoliticaCicloVidaMembresia::TIEMPO
+            || strtoupper((string) $m->estado) !== 'CONGELADA') {
+            throw ValidationException::withMessages([
+                'suspension_id' => 'Solo puede prorrogarse una congelación de tiempo vigente.',
+            ]);
+        }
+        $inicio = CarbonImmutable::createFromFormat('!Y-m-d', substr((string) $s->fecha_inicio, 0, 10));
+        $finActual = CarbonImmutable::createFromFormat('!Y-m-d', substr((string) $s->fecha_fin_prevista, 0, 10));
+        $finNuevo = CarbonImmutable::createFromFormat('!Y-m-d', $nuevaFechaFin);
+        if (! $inicio || ! $finActual || ! $finNuevo || $finNuevo->format('Y-m-d') !== $nuevaFechaFin) {
+            throw ValidationException::withMessages(['fecha_fin' => 'La nueva fecha final no es válida.']);
+        }
+        if (! $finNuevo->greaterThan($finActual)) {
+            throw ValidationException::withMessages(['fecha_fin' => 'La prórroga debe ampliar la fecha autorizada actual.']);
+        }
+        $diasTotales = (int) $inicio->diffInDays($finNuevo) + 1;
+        if ($diasTotales > 90) {
+            throw ValidationException::withMessages(['fecha_fin' => 'Una congelación no puede superar 90 días sin una política excepcional.']);
+        }
+        $diasAnteriores = (int) $inicio->diffInDays($finActual) + 1;
+
+        return [
+            'confirmable' => true,
+            'membresia_id' => $id,
+            'suspension_id' => $suspensionId,
+            'fecha_fin_anterior' => $finActual->toDateString(),
+            'fecha_fin_propuesta' => $finNuevo->toDateString(),
+            'dias_adicionales' => $diasTotales - $diasAnteriores,
+            'dias_totales' => $diasTotales,
+            'fecha_fin_original' => substr((string) $s->fecha_fin_original, 0, 10),
+            'fecha_fin_ajustada' => $this->politica->calcularFinAjustado((string) $s->fecha_fin_original, $diasTotales),
+            'modifica_pagos' => false,
+        ];
+    }
+
+    public function prorrogar(int $id, int $suspensionId, array $datos, int $usuarioId): array
+    {
+        return DB::transaction(function () use ($id, $suspensionId, $datos, $usuarioId): array {
+            $m = DB::table('membresias.membresias')->where('id', $id)->lockForUpdate()->first();
+            $s = DB::table('membresias.membresia_suspensiones')
+                ->where('id', $suspensionId)->where('membresia_id', $id)->lockForUpdate()->first();
+            if (! $m || ! $s) {
+                throw ValidationException::withMessages(['suspension_id' => 'La congelación no existe.']);
+            }
+            $previa = $this->previsualizarProrroga($id, $suspensionId, $datos['fecha_fin']);
+            $codigo = $this->validarMotivoCatalogado($datos['motivo_codigo'] ?? null, 'CONGELAR');
+            $movimientoId = DB::table('membresias.membresia_movimientos')->insertGetId([
+                'membresia_id' => $id,
+                'tipo' => PoliticaCicloVidaMembresia::PRORROGAR_CONGELACION,
+                'estado' => 'CONFIRMADO',
+                'fecha_efectiva' => now('America/Guayaquil')->toDateString(),
+                'motivo' => trim($datos['motivo']),
+                'usuario_id' => $usuarioId,
+                'autorizado_por' => $usuarioId,
+                'movimiento_origen_id' => $s->movimiento_inicio_id,
+                'detalle' => json_encode($previa + ['motivo_codigo' => $codigo], JSON_THROW_ON_ERROR),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            DB::table('membresias.membresia_suspensiones')->where('id', $suspensionId)->update([
+                'fecha_fin_prevista' => $previa['fecha_fin_propuesta'],
+                'dias_reconocidos' => $previa['dias_totales'],
+                'fecha_fin_ajustada' => $previa['fecha_fin_ajustada'],
+                'updated_at' => now(),
+            ]);
+            return $previa + ['movimiento_id' => $movimientoId];
+        });
+    }
+
+    public function previsualizarCancelacion(int $id): array
+    {
+        $m = DB::table('membresias.membresias')->where('id', $id)->first();
+        if (! $m) {
+            throw ValidationException::withMessages(['membresia_id' => 'Membresía no encontrada.']);
+        }
+        $this->politica->validarCierre((string) $m->estado, 'vista previa');
+        $ventas = DB::table('ventas.ventas')->where('membresia_id', $id)->where('estado', '!=', 'ANULADA');
+        return [
+            'confirmable' => true,
+            'membresia_id' => $id,
+            'estado_actual' => $m->estado,
+            'fecha_efectiva' => now('America/Guayaquil')->toDateString(),
+            'ventas_emitidas' => (clone $ventas)->count(),
+            'ventas_pendientes' => (clone $ventas)->where('estado', '!=', 'PAGADA')->count(),
+            'congelacion_abierta' => DB::table('membresias.membresia_suspensiones')
+                ->where('membresia_id', $id)->whereIn('estado', ['PROGRAMADA', 'VIGENTE'])->exists(),
+            'advertencias' => [
+                'La cancelación impide nuevos accesos y no elimina ventas, pagos ni comprobantes.',
+                'Las obligaciones pendientes deben conciliarse en Cartera.',
+            ],
+        ];
+    }
+
+    public function cancelarContrato(int $id, array $datos, int $usuarioId): array
+    {
+        return DB::transaction(function () use ($id, $datos, $usuarioId): array {
+            $m = DB::table('membresias.membresias')->where('id', $id)->lockForUpdate()->first();
+            if (! $m) {
+                throw ValidationException::withMessages(['membresia_id' => 'Membresía no encontrada.']);
+            }
+            $this->politica->validarCierre((string) $m->estado, (string) $datos['motivo']);
+            $codigo = $this->validarMotivoCatalogado($datos['motivo_codigo'] ?? null, 'CERRAR');
+            $previa = $this->previsualizarCancelacion($id);
+            $abiertas = DB::table('membresias.membresia_suspensiones')
+                ->where('membresia_id', $id)->whereIn('estado', ['PROGRAMADA', 'VIGENTE'])->lockForUpdate()->get();
+            $movimientoId = DB::table('membresias.membresia_movimientos')->insertGetId([
+                'membresia_id' => $id, 'tipo' => PoliticaCicloVidaMembresia::CERRAR,
+                'estado' => 'CONFIRMADO', 'fecha_efectiva' => $previa['fecha_efectiva'],
+                'motivo' => trim($datos['motivo']), 'usuario_id' => $usuarioId,
+                'autorizado_por' => $usuarioId,
+                'detalle' => json_encode($previa + [
+                    'motivo_codigo' => $codigo,
+                    'suspensiones_cerradas' => $abiertas->pluck('id')->map(fn ($v) => (int) $v)->all(),
+                ], JSON_THROW_ON_ERROR),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            foreach ($abiertas as $s) {
+                DB::table('membresias.membresia_suspensiones')->where('id', $s->id)->update([
+                    'estado' => 'CANCELADA', 'movimiento_fin_id' => $movimientoId, 'updated_at' => now(),
+                ]);
+                DB::table('membresias.membresia_movimientos')->where('id', $s->movimiento_inicio_id)
+                    ->where('estado', 'PROGRAMADO')->update(['estado' => 'CANCELADO', 'updated_at' => now()]);
+            }
+            DB::table('membresias.membresias')->where('id', $id)->update([
+                'estado' => 'CANCELADA',
+                'estado_id' => $this->estados->idPorValor('MEMBRESIA', 'CANCELADA'),
+                'updated_at' => now(),
+            ]);
+            return $previa + ['movimiento_id' => $movimientoId, 'estado' => 'CANCELADA'];
+        });
     }
 
     /**

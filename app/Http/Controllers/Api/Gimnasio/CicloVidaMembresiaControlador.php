@@ -139,4 +139,42 @@ final class CicloVidaMembresiaControlador extends Controller
             $id, $datos['motivo'], (int) $request->user()->id, null, $datos['motivo_codigo'] ?? null
         ));
     }
+
+    public function previsualizarProrroga(Request $request, int $id, int $suspensionId)
+    {
+        $this->validarAlcance($request, $id);
+        $datos = $request->validate(['fecha_fin' => 'required|date_format:Y-m-d']);
+        return ApiResponse::exito('Vista previa de prórroga.',
+            $this->servicio->previsualizarProrroga($id, $suspensionId, $datos['fecha_fin']));
+    }
+
+    public function prorrogar(Request $request, int $id, int $suspensionId)
+    {
+        $this->validarAlcance($request, $id);
+        $datos = $request->validate([
+            'fecha_fin' => 'required|date_format:Y-m-d',
+            'motivo' => 'required|string|min:8|max:1000',
+            'motivo_codigo' => 'nullable|string|max:60',
+        ]);
+        return ApiResponse::exito('Congelación prorrogada con trazabilidad.',
+            $this->servicio->prorrogar($id, $suspensionId, $datos, (int) $request->user()->id));
+    }
+
+    public function previsualizarCancelacion(Request $request, int $id)
+    {
+        $this->validarAlcance($request, $id);
+        return ApiResponse::exito('Vista previa de cancelación contractual.',
+            $this->servicio->previsualizarCancelacion($id));
+    }
+
+    public function cancelarContrato(Request $request, int $id)
+    {
+        $this->validarAlcance($request, $id);
+        $datos = $request->validate([
+            'motivo' => 'required|string|min:8|max:1000',
+            'motivo_codigo' => 'required|string|max:60',
+        ]);
+        return ApiResponse::exito('Contrato cancelado. El historial financiero se conserva.',
+            $this->servicio->cancelarContrato($id, $datos, (int) $request->user()->id));
+    }
 }

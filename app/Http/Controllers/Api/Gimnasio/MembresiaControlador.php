@@ -437,10 +437,9 @@ class MembresiaControlador extends Controller
         // Ambas operaciones requieren movimiento, suspensión y trazabilidad transaccional.
         $estadoSolicitado = strtoupper((string) $request->input('estado', $membresia->estado));
         $estadoActual = strtoupper((string) $membresia->estado);
-        if ($estadoSolicitado !== $estadoActual &&
-            ($estadoSolicitado === 'CONGELADA' || $estadoActual === 'CONGELADA')) {
+        if ($estadoSolicitado !== $estadoActual) {
             throw ValidationException::withMessages([
-                'estado' => 'Utiliza Gestión del ciclo de vida para congelar o reactivar la membresía.',
+                'estado' => 'El estado contractual no se edita directamente. Utiliza Gestión del ciclo de vida, pagos, renovación o cancelación según corresponda.',
             ]);
         }
         if ($request->filled('fecha_congelacion_inicio') || $request->filled('fecha_congelacion_fin')) {

@@ -5,6 +5,16 @@ use App\Http\Controllers\Api\Entrenamiento\PruebasRendimientoControlador;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['base.auth'])->prefix('entrenamiento')->group(function (): void {
+    Route::get('sesiones', [EntrenamientoControlador::class, 'sesiones'])
+        ->middleware('base.permiso:ENTRENAMIENTO-SESIONES')
+        ->name('entrenamiento.sesiones.index');
+    Route::get('pizarra', [EntrenamientoControlador::class, 'pizarra'])
+        ->middleware('base.permiso:ENTRENAMIENTO-SESIONES')
+        ->name('entrenamiento.pizarra');
+    Route::get('pizarra-general', [EntrenamientoControlador::class, 'pizarraGeneral'])
+        ->middleware('base.permiso:ENTRENAMIENTO-SESIONES')
+        ->name('entrenamiento.pizarra-general');
+
     // Lecturas necesarias para la ficha integral del cliente. La escritura conserva su permiso específico.
     Route::get('ejercicios', [EntrenamientoControlador::class, 'ejercicios'])
         ->middleware('base.permiso:ENTRENAMIENTO-EJERCICIOS,GIMNASIO-DEPORTISTAS')

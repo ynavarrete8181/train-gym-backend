@@ -25,6 +25,7 @@ class DashboardDeportistaController extends Controller
                 ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
                 ->where('m.deportista_id', $deportista->id)
                 ->orderByRaw("CASE WHEN m.estado = 'ACTIVA' THEN 0 WHEN m.estado = 'PENDIENTE_PAGO' THEN 1 ELSE 2 END")
+                ->orderByRaw("CASE WHEN p.tipo_producto = 'MEMBRESIA' THEN 0 ELSE 1 END")
                 ->orderByDesc('m.fecha_inicio')
                 ->first(['m.id', 'm.estado', 'm.fecha_inicio', 'm.fecha_fin', 'm.sede_id', 'p.nombre as plan_nombre']);
 

@@ -16,6 +16,7 @@ final class PoliticaCicloVidaMembresia
 {
     public const CONGELAR = 'CONGELAR';
     public const CANCELAR_PROGRAMACION = 'CANCELAR_PROGRAMACION';
+    public const PRORROGAR_CONGELACION = 'PRORROGAR_CONGELACION';
     public const REACTIVAR = 'REACTIVAR';
     public const CERRAR = 'CERRAR';
     public const REAPERTURA_EXCEPCIONAL = 'REAPERTURA_EXCEPCIONAL';

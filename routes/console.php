@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Schedule;
 use App\Services\Gimnasio\CobroProgramadoMembresiaServicio;
+use App\Services\Gimnasio\EmisionCuotasServicio;
 use App\Services\Gimnasio\ActualizarEstadosMembresiaServicio;
 use App\Services\Gimnasio\CicloVidaMembresiaServicio;
 use App\Services\Gimnasio\DiagnosticoConfiguracionInicialServicio;
@@ -123,6 +124,23 @@ Artisan::command('revive:procesar-cobros-membresias {--fecha=}', function (Cobro
 
 Schedule::command('revive:procesar-cobros-membresias')
     ->dailyAt('00:05')
+    ->timezone('America/Guayaquil')
+    ->withoutOverlapping();
+
+// Las cuotas del calendario contractual se emiten solo cuando llega su fecha.
+// Ejecutar después de activar congelaciones y antes de actualizar estados.
+Artisan::command('revive:emitir-cuotas-membresias {--fecha=}', function (EmisionCuotasServicio $servicio): int {
+    $resultado = $servicio->procesar($this->option('fecha') ?: null);
+    $this->info(
+        "Cuotas revisadas: {$resultado['cuotas_procesadas']} | "
+        . "emitidas: {$resultado['cuotas_emitidas']} | "
+        . "omitidas: {$resultado['cuotas_omitidas']}"
+    );
+    return 0;
+})->purpose('Emite ventas de cuotas contractuales programadas en su fecha, sin duplicarlas.');
+
+Schedule::command('revive:emitir-cuotas-membresias')
+    ->dailyAt('00:08')
     ->timezone('America/Guayaquil')
     ->withoutOverlapping();
 

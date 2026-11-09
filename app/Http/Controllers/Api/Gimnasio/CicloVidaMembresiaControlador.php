@@ -125,7 +125,9 @@ final class CicloVidaMembresiaControlador extends Controller
 
     public function mostrar(Request $request, int $id)
     {
-        $this->validarAlcance($request, $id);
+        // Consulta de solo lectura desde el perfil del deportista: la ruta ya exige
+        // autenticación y GIMNASIO-MEMBRESIAS; las operaciones que modifican el contrato
+        // siguen validando la sede.
         $resumen = $this->servicio->resumen($id);
         $resumen['puede_reabrir'] = strtoupper((string) $resumen['estado']) === 'CANCELADA'
             && $this->alcance->esGlobal((int) $request->user()->id);

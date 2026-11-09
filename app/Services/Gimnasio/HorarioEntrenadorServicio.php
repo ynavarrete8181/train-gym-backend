@@ -70,7 +70,7 @@ class HorarioEntrenadorServicio
         $esPersonalizado = ($datos['tipo_horario'] ?? 'PERSONALIZADO') === 'PERSONALIZADO';
         $fechaInicioNueva = $esPersonalizado
             ? ($datos['fecha_inicio'] ?? null)
-            : now()->toDateString();
+            : now('America/Guayaquil')->toDateString();
 
         $antes = $id
             ? DB::table('agenda.entrenador_horarios')
@@ -132,7 +132,7 @@ class HorarioEntrenadorServicio
                     return $this->hidratar($despues);
                 }
 
-                $fechaCierre = $fechaInicioNueva ?: now()->toDateString();
+                $fechaCierre = $fechaInicioNueva ?: now('America/Guayaquil')->toDateString();
                 if ($antes->fecha_inicio && $fechaCierre > (string) $antes->fecha_inicio) {
                     $fechaCierre = Carbon::parse($fechaCierre)->subDay()->toDateString();
                 }

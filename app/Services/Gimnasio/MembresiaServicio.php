@@ -61,6 +61,15 @@ class MembresiaServicio
         $tipoDuracion = $modalidad?->tipo_duracion ?? $plan->tipo_duracion;
         $duracion = (int) ($modalidad?->duracion ?? $plan->duracion);
         $datos['fecha_fin'] = $this->calcularFechaFin($datos['fecha_inicio'], $tipoDuracion, $duracion);
+        if (($plan->tipo_producto ?? null) === 'PASE_DIARIO' || ! ($plan->renovable ?? false)) {
+            $datos['renovacion_automatica'] = false;
+        }
+        // Solo el pase guarda vigencia propia: sus fechas de contrato son el día de uso.
+        if (($plan->tipo_producto ?? null) === 'PASE_DIARIO' && ! empty($datos['vigencia_fin'])) {
+            $datos['vigencia_inicio'] = $datos['fecha_inicio'];
+        } else {
+            unset($datos['vigencia_fin'], $datos['vigencia_inicio']);
+        }
         $datos['estado'] = ($plan->requiere_pago ?? true) ? 'PENDIENTE_PAGO' : 'ACTIVA';
         $datos = $this->estados->aplicar($datos, 'MEMBRESIA');
         $datos['created_at'] = now();
@@ -109,6 +118,21 @@ class MembresiaServicio
 
         $antes = DB::table('membresias.membresias')->where('id', $id)->first();
 
+        if (! empty($datos['renovacion_automatica']) && ! ($antes->renovacion_automatica ?? false)) {
+            $planRenovacion = DB::table('membresias.planes')->where('id', $antes->plan_id)->first();
+            $condiciones = json_decode((string) ($antes->condiciones_contratadas ?? ''), true);
+            if ($antes->cantidad_periodos_contratados === null
+                || ($planRenovacion->tipo_producto ?? null) === 'PASE_DIARIO'
+                || ! ($planRenovacion->renovable ?? false)
+                || ! (is_array($condiciones) && ($condiciones['renovable'] ?? false))
+                || empty($condiciones['tipo_duracion']) || (int) ($condiciones['duracion'] ?? 0) < 1
+                || (float) ($condiciones['precio_periodo'] ?? 0) <= 0) {
+                throw ValidationException::withMessages([
+                    'renovacion_automatica' => 'La renovación automática solo aplica a contratos con cuotas de planes renovables.',
+                ]);
+            }
+        }
+
         // Un contrato con cuotas programadas no puede cambiar sus bases
         // comerciales mediante la edición heredada: desalinearía períodos,
         // ventas emitidas y obligaciones futuras.
@@ -149,6 +173,17 @@ class MembresiaServicio
 
         if (array_key_exists('fecha_inicio', $datos)) {
             $plan = DB::table('membresias.planes')->where('id', $antes->plan_id)->first();
+            $fechaUso = substr((string) $datos['fecha_inicio'], 0, 10);
+            if (($plan->tipo_producto ?? null) === 'PASE_DIARIO'
+                && (($antes->vigencia_inicio && $fechaUso < substr((string) $antes->vigencia_inicio, 0, 10))
+                    || ($antes->vigencia_fin && $fechaUso > substr((string) $antes->vigencia_fin, 0, 10)))) {
+                throw ValidationException::withMessages(['fecha_inicio' => 'La fecha de uso debe estar dentro de la vigencia del pase.']);
+            }
+            if (($plan->tipo_producto ?? null) === 'PASE_DIARIO'
+                && $fechaUso !== substr((string) $antes->fecha_inicio, 0, 10)
+                && $this->usoPaseConVenta($id)) {
+                throw ValidationException::withMessages(['fecha_inicio' => 'Este día de uso ya tiene una venta: no se puede cambiar.']);
+            }
             $modalidad = $antes->modalidad_id
                 ? DB::table('membresias.plan_modalidades')->where('id', $antes->modalidad_id)->first()
                 : null;
@@ -172,7 +207,7 @@ class MembresiaServicio
                 ->where('estado', 'ACTIVO')
                 ->update([
                     'estado' => 'FINALIZADO',
-                    'fecha_fin' => now()->toDateString(),
+                    'fecha_fin' => now('America/Guayaquil')->toDateString(),
                     'updated_at' => now(),
                 ]);
         }
@@ -198,16 +233,28 @@ class MembresiaServicio
                 ]);
         }
 
+        // El día de uso de un pase sin venta vive también en su último período.
+        if (array_key_exists('fecha_inicio', $datos)
+            && DB::table('membresias.planes')->where('id', $antes->plan_id)->value('tipo_producto') === 'PASE_DIARIO'
+            && ! $this->usoPaseConVenta($id)) {
+            DB::table('membresias.membresia_periodos')->where('membresia_id', $id)
+                ->orderByDesc('numero_periodo')->limit(1)
+                ->update(['fecha_inicio' => $actualizada->fecha_inicio, 'fecha_fin' => $actualizada->fecha_fin, 'updated_at' => now()]);
+        }
+
         $membresia = $this->obtenerMembresiaConRelaciones($id);
         $this->auditar('gimnasio', 'ACTUALIZAR', 'membresias.membresias', $id, $antes, $membresia);
         return $membresia;
     }
 
-    public function eliminar(int $id): void
+    private function usoPaseConVenta(int $id): bool
     {
-        $antes = $this->obtenerMembresiaConRelaciones($id);
-        DB::table('membresias.membresias')->where('id', $id)->delete();
-        $this->auditar('gimnasio', 'ELIMINAR', 'membresias.membresias', $id, $antes, null);
+        $ultimo = DB::table('membresias.membresia_periodos as mp')
+            ->leftJoin('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
+            ->where('mp.membresia_id', $id)->orderByDesc('mp.numero_periodo')
+            ->first(['mp.venta_id', 'v.estado']);
+
+        return $ultimo && $ultimo->venta_id && $ultimo->estado !== 'ANULADA';
     }
 
     public function obtenerMembresiaConRelaciones(int $id)
@@ -360,6 +407,7 @@ class MembresiaServicio
             ->get([
                 'p.id',
                 'p.numero_periodo',
+                'p.renovacion_manual',
                 'p.fecha_inicio',
                 'p.fecha_fin',
                 'p.precio',
@@ -531,7 +579,7 @@ class MembresiaServicio
                     ->where('id', $actual->id)
                     ->update([
                         'estado' => 'FINALIZADO',
-                        'fecha_fin' => now()->toDateString(),
+                        'fecha_fin' => now('America/Guayaquil')->toDateString(),
                         'updated_at' => now(),
                     ]);
             }

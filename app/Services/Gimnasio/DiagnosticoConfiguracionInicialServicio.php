@@ -21,12 +21,6 @@ class DiagnosticoConfiguracionInicialServicio
                 ->where('e.estado', 'ACTIVO')
                 ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('agenda.entrenador_horarios as eh')->whereColumn('eh.entrenador_id', 'e.id')->where('eh.activo', true))
                 ->count(),
-            'membresias_sin_ficha_requerida' => DB::table('membresias.membresias as m')
-                ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
-                ->where('p.requiere_ficha_inicial', true)
-                ->whereNotIn('m.estado', ['CANCELADA', 'VENCIDA'])
-                ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('clientes.fichas_iniciales as f')->whereColumn('f.deportista_id', 'm.deportista_id'))
-                ->count(),
             'membresias_pendientes_sin_venta' => DB::table('membresias.membresias as m')
                 ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
                 ->where('m.estado', 'PENDIENTE_PAGO')

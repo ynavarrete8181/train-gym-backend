@@ -2,6 +2,7 @@
 
 namespace App\Services\Ventas;
 
+use App\Support\FechaNegocio;
 use App\Services\Concerns\RegistraAuditoria;
 use App\Services\Seguridad\AlcanceOperativoService;
 use Illuminate\Support\Facades\DB;
@@ -54,10 +55,10 @@ class TurnoCajaServicio
         $this->filtrarTexto($query, 't.estado', $filtros['estado'] ?? null);
 
         if (! empty($filtros['desde'])) {
-            $query->whereDate('t.fecha_apertura', '>=', $filtros['desde']);
+            $query->whereRaw(FechaNegocio::diaSql('t.fecha_apertura').' >= ?', [$filtros['desde']]);
         }
         if (! empty($filtros['hasta'])) {
-            $query->whereDate('t.fecha_apertura', '<=', $filtros['hasta']);
+            $query->whereRaw(FechaNegocio::diaSql('t.fecha_apertura').' <= ?', [$filtros['hasta']]);
         }
 
         $paginador = $query

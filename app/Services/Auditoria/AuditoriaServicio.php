@@ -2,6 +2,7 @@
 
 namespace App\Services\Auditoria;
 
+use App\Support\FechaNegocio;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -141,8 +142,8 @@ class AuditoriaServicio
 
         return [
             'total_eventos' => $eventos->count(),
-            'total_accesos_hoy' => DB::table('auditoria.accesos')->whereDate('created_at', now()->toDateString())->count(),
-            'accesos_fallidos_hoy' => DB::table('auditoria.accesos')->where('tipo', 'LOGIN_FALLIDO')->whereDate('created_at', now()->toDateString())->count(),
+            'total_accesos_hoy' => DB::table('auditoria.accesos')->whereRaw(FechaNegocio::diaSql('created_at').' = ?', [FechaNegocio::hoy()])->count(),
+            'accesos_fallidos_hoy' => DB::table('auditoria.accesos')->where('tipo', 'LOGIN_FALLIDO')->whereRaw(FechaNegocio::diaSql('created_at').' = ?', [FechaNegocio::hoy()])->count(),
             'por_modulo' => $agrupar('modulo'),
             'por_accion' => $agrupar('accion'),
             'por_usuario' => $agrupar('usuario_nombre'),

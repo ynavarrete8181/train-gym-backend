@@ -1,0 +1,133 @@
+<?php
+
+namespace Tests\Unit\Gimnasio;
+
+use App\Services\Gimnasio\PoliticaCicloVidaMembresia;
+use Illuminate\Validation\ValidationException;
+use Tests\TestCase;
+
+class PoliticaCicloVidaMembresiaTest extends TestCase
+{
+    private PoliticaCicloVidaMembresia $politica;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->politica = new PoliticaCicloVidaMembresia();
+    }
+
+    public function test_intervalo_inclusivo_de_quince_dias_y_fin_ajustado(): void
+    {
+        $resultado = $this->politica->validarIntervalo('2026-11-15', '2026-11-29', '2026-11-02');
+        $this->assertSame(15, $resultado['dias']);
+        $this->assertSame('2026-12-15', $this->politica->calcularFinAjustado('2026-11-30', 15));
+    }
+
+    public function test_vacaciones_diciembre_diecisiete_dias_extienden_hasta_enero_diecisiete(): void
+    {
+        $intervalo = $this->politica->validarIntervalo('2026-12-15', '2026-12-31', '2026-11-02');
+        $this->assertSame(17, $intervalo['dias']);
+        $this->assertSame('2027-01-17', $this->politica->calcularFinAjustado('2026-12-31', $intervalo['dias']));
+    }
+
+    public function test_vacaciones_quince_dias_extienden_hasta_enero_quince(): void
+    {
+        $intervalo = $this->politica->validarIntervalo('2026-12-15', '2026-12-29', '2026-11-02');
+        $this->assertSame(15, $intervalo['dias']);
+        $this->assertSame('2027-01-15', $this->politica->calcularFinAjustado('2026-12-31', $intervalo['dias']));
+    }
+
+    public function test_regreso_anticipado_reconoce_solo_dias_efectivos(): void
+    {
+        $resultado = $this->politica->calcularRegreso(
+            '2026-11-02', '2026-12-15', '2026-11-03'
+        );
+        $this->assertSame('2026-11-03', $resultado['fecha_regreso']);
+        $this->assertSame('2026-11-02', $resultado['fecha_fin_real']);
+        $this->assertSame(1, $resultado['dias_reconocidos']);
+        $this->assertSame('2027-01-01', $this->politica->calcularFinAjustado(
+            '2026-12-31', $resultado['dias_reconocidos']
+        ));
+    }
+
+    public function test_regreso_diez_de_diciembre_reconoce_treinta_y_ocho_dias(): void
+    {
+        $resultado = $this->politica->calcularRegreso(
+            '2026-11-02', '2026-12-15', '2026-12-10'
+        );
+        $this->assertSame('2026-12-09', $resultado['fecha_fin_real']);
+        $this->assertSame(38, $resultado['dias_reconocidos']);
+        $this->assertSame('2027-02-07', $this->politica->calcularFinAjustado(
+            '2026-12-31', $resultado['dias_reconocidos']
+        ));
+    }
+
+    public function test_regreso_el_mismo_dia_de_congelacion_no_procede(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->politica->calcularRegreso('2026-11-02', '2026-12-15', '2026-11-02');
+    }
+
+    public function test_regreso_fuera_de_fecha_autorizada_no_procede(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->politica->calcularRegreso('2026-11-02', '2026-12-15', '2026-12-17');
+    }
+
+    public function test_congelacion_retroactiva_rechazada(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->politica->validarIntervalo('2026-10-20', '2026-11-10', '2026-11-02');
+    }
+
+    public function test_intervalo_invertido_rechazado(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->politica->validarIntervalo('2026-11-20', '2026-11-10', '2026-11-02');
+    }
+
+    public function test_congelacion_requiere_membresia_activa(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->politica->validarCongelacion('CANCELADA', 'TIEMPO', false, false);
+    }
+
+    public function test_no_se_permite_otra_congelacion_pendiente(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->politica->validarCongelacion('ACTIVA', 'TIEMPO', true, false);
+    }
+
+    public function test_congelacion_de_facturacion_requiere_cuotas_programadas(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->politica->validarCongelacion('ACTIVA', 'FACTURACION', false, false);
+    }
+
+    public function test_reactivacion_requiere_congelacion_vigente(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->politica->validarReactivacion('ACTIVA', false);
+    }
+
+    public function test_cierre_requiere_motivo(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->politica->validarCierre('ACTIVA', '   ');
+    }
+
+    public function test_politica_c_sugiere_facturacion_solo_si_hay_cuotas_pendientes(): void
+    {
+        $this->assertSame('FACTURACION', $this->politica->tipoSugerido(true, false));
+        $this->assertSame('TIEMPO', $this->politica->tipoSugerido(true, true));
+        $this->assertSame('TIEMPO', $this->politica->tipoSugerido(false, true));
+    }
+
+    public function test_validaciones_positivas_no_producen_efectos_colaterales(): void
+    {
+        $this->politica->validarCongelacion('ACTIVA', 'FACTURACION', false, true);
+        $this->politica->validarReactivacion('CONGELADA', true);
+        $this->politica->validarCierre('CONGELADA', 'Retiro voluntario');
+        $this->assertTrue(true);
+    }
+}

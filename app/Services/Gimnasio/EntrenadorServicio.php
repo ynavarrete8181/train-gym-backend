@@ -134,7 +134,7 @@ class EntrenadorServicio
             ->leftJoin('institucional.sedes as sd', 'sd.id_sede', '=', 'x.sede_id')
             ->where('x.entrenador_id', $entrenadorId)
             ->where('x.activo', true)
-            ->whereDate('x.fecha_fin', '>=', now()->toDateString())
+            ->whereDate('x.fecha_fin', '>=', now('America/Guayaquil')->toDateString())
             ->orderBy('x.fecha_inicio')
             ->limit(10)
             ->get([
@@ -176,7 +176,7 @@ class EntrenadorServicio
      */
     public function listarTurnos(int $entrenadorId, ?int $sedeId = null): array
     {
-        $hoy = now()->toDateString();
+        $hoy = now('America/Guayaquil')->toDateString();
 
         $horarios = DB::table('agenda.entrenador_horarios as eh')
             ->where('eh.entrenador_id', $entrenadorId)

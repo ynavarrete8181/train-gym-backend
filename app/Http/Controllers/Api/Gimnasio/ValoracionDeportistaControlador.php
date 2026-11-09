@@ -37,7 +37,8 @@ class ValoracionDeportistaControlador extends Controller
         $this->autorizar($request,$id);
         $seccion = $request->validate(['seccion'=>['required',Rule::in(self::SECCIONES)]])['seccion'];
         $registros = DB::table('clientes.valoracion_registros')
-            ->where('deportista_id',$id)->where('seccion',$seccion)->where('estado','ACTIVO')
+            ->where('deportista_id',$id)->where('seccion',$seccion)
+            ->when(! $request->boolean('incluir_inactivos'), fn ($q) => $q->where('estado','ACTIVO'))
             ->orderByDesc('fecha_registro')->orderByDesc('id')->limit(150)->get()
             ->map(function ($registro) {
                 $registro->datos = json_decode($registro->datos ?: '{}',true);
@@ -66,7 +67,7 @@ class ValoracionDeportistaControlador extends Controller
         if ($anterior) {
             $v['fecha_registro'] = $anterior->fecha_registro;
         } elseif (in_array($v['seccion'], ['antecedentes', 'objetivos'], true)) {
-            $v['fecha_registro'] = now()->toDateString();
+            $v['fecha_registro'] = now('America/Guayaquil')->toDateString();
         } elseif (empty($v['fecha_registro'])) {
             throw ValidationException::withMessages(['fecha_registro' => 'La fecha del registro es obligatoria.']);
         }
@@ -220,19 +221,35 @@ class ValoracionDeportistaControlador extends Controller
         return $this->crear($request, $id, $registro);
     }
 
-    public function eliminar(Request $request, int $id, int $registro)
+    /** Los registros no se eliminan: se inactivan y conservan su historial. */
+    public function cambiarEstado(Request $request, int $id, int $registro)
     {
         $this->autorizar($request, $id);
-        DB::transaction(function () use ($id, $registro): void {
+        $activo = (bool) $request->validate(['activo' => 'required|boolean'])['activo'];
+        $estado = $activo ? 'ACTIVO' : 'INACTIVO';
+
+        DB::transaction(function () use ($id, $registro, $activo, $estado): void {
             $fila = DB::table('clientes.valoracion_registros')->where('id',$registro)
-                ->where('deportista_id',$id)->where('estado','ACTIVO')->lockForUpdate()->first();
+                ->where('deportista_id',$id)->lockForUpdate()->first();
             abort_unless($fila, 404);
             DB::table('clientes.valoracion_registros')->where('id',$registro)
-                ->update(['estado'=>'ANULADO','updated_at'=>now()]);
-            DB::table('clientes.valoracion_controles')->where('registro_origen_id',$registro)
-                ->where('estado','PROGRAMADO')->update(['estado'=>'CANCELADO','updated_at'=>now()]);
+                ->update(['estado'=>$estado,'updated_at'=>now()]);
+            if (! $activo) {
+                DB::table('clientes.valoracion_controles')->where('registro_origen_id',$registro)
+                    ->where('estado','PROGRAMADO')->update(['estado'=>'CANCELADO','updated_at'=>now()]);
+            }
+            app(\App\Services\Auditoria\AuditoriaServicio::class)->registrar([
+                'modulo' => 'clientes',
+                'tabla' => 'clientes.valoracion_registros',
+                'registro_id' => $registro,
+                'accion' => $activo ? 'ACTIVAR' : 'INACTIVAR',
+                'descripcion' => "Registro de ficha inicial {$estado}.",
+                'datos_antes' => ['estado' => $fila->estado],
+                'datos_despues' => ['estado' => $estado],
+            ]);
         });
-        return ApiResponse::exito('Registro anulado correctamente.');
+
+        return ApiResponse::exito($activo ? 'Registro activado.' : 'Registro inactivado. Su historial se conserva.');
     }
 
     public function progreso(Request $request, int $id)
@@ -394,7 +411,7 @@ class ValoracionDeportistaControlador extends Controller
             ->join('clientes.valoracion_registros as r','r.id','=','c.registro_origen_id')
             ->leftJoin('clientes.deportistas as d','d.id','=','c.deportista_id')
             ->where('c.estado','PROGRAMADO')
-            ->whereDate('c.fecha_programada','<=',now()->addDays($dias)->toDateString())
+            ->whereDate('c.fecha_programada','<=',now('America/Guayaquil')->addDays($dias)->toDateString())
             ->select('c.id','c.deportista_id','c.fecha_programada','c.responsable_id','r.seccion','r.titulo','d.codigo_deportista')
             ->orderBy('c.fecha_programada')->limit(200)->get();
         return ApiResponse::exito('Controles próximos y vencidos consultados.',$items);

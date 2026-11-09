@@ -46,6 +46,26 @@ class VentaControlador extends Controller
         );
     }
 
+    public function anularVentaPos(Request $request, int $id)
+    {
+        $datos = $request->validate(['motivo' => 'required|string|min:8|max:500']);
+
+        return ApiResponse::exito(
+            'Venta anulada. Su historial se conserva.',
+            (array) $this->ventas->anularVentaPendiente($id, $datos['motivo'], (int) $request->user()->id),
+        );
+    }
+
+    public function anularVentaPagada(Request $request, int $id)
+    {
+        $datos = $request->validate(['motivo' => 'required|string|min:8|max:500']);
+
+        return ApiResponse::exito(
+            'Venta anulada: se registró la devolución y el inventario regresó al stock.',
+            (array) $this->ventas->anularVentaPagada($id, $datos['motivo'], (int) $request->user()->id),
+        );
+    }
+
     public function cuentasAbiertasPos(Request $request)
     {
         return ApiResponse::exito(

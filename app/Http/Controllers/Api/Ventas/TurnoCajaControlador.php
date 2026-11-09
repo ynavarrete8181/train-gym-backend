@@ -3,18 +3,32 @@
 namespace App\Http\Controllers\Api\Ventas;
 
 use App\Http\Controllers\Controller;
+use App\Services\Ventas\CierreAutomaticoCajaServicio;
 use App\Services\Ventas\TurnoCajaServicio;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
 
 class TurnoCajaControlador extends Controller
 {
-    public function __construct(private readonly TurnoCajaServicio $turnos)
+    public function __construct(
+        private readonly TurnoCajaServicio $turnos,
+        private readonly CierreAutomaticoCajaServicio $cierreAutomatico,
+    ) {
+    }
+
+    /** Cierra los turnos vencidos aunque la tarea programada no haya corrido (servidor apagado o dormido). */
+    private function cerrarTurnosVencidos(): void
     {
+        try {
+            $this->cierreAutomatico->procesar();
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     public function index(Request $request)
     {
+        $this->cerrarTurnosVencidos();
         $usuarioId = (int) $request->user()->id;
         $paginador = $this->turnos->listar($request->all(), $usuarioId);
 
@@ -35,6 +49,7 @@ class TurnoCajaControlador extends Controller
             'saldo_inicial' => 'required|numeric|min:0',
             'observaciones' => 'nullable|string|max:1000',
         ]);
+        $this->cerrarTurnosVencidos();
 
         return ApiResponse::exito(
             'Turno de caja abierto correctamente.',
@@ -72,6 +87,7 @@ class TurnoCajaControlador extends Controller
 
     public function actual(Request $request)
     {
+        $this->cerrarTurnosVencidos();
         return ApiResponse::exito(
             'Turno actual consultado.',
             (array) ($this->turnos->turnoAbiertoUsuario((int) $request->user()->id) ?? []),

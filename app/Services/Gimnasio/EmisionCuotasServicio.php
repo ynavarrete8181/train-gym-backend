@@ -19,7 +19,7 @@ class EmisionCuotasServicio
 
     public function procesar(?string $fecha = null): array
     {
-        $hoy = Carbon::parse($fecha ?: now()->toDateString())->toDateString();
+        $hoy = Carbon::parse($fecha ?: now('America/Guayaquil')->toDateString())->toDateString();
         $ids = DB::table('membresias.membresia_cuotas')
             ->where('estado', 'PROGRAMADA')
             ->where('fecha_programada_emision', '<=', $hoy)
@@ -29,19 +29,54 @@ class EmisionCuotasServicio
         $omitidas = 0;
 
         foreach ($ids as $id) {
-            DB::transaction(function () use ($id, &$emitidas, &$omitidas): void {
+            DB::transaction(function () use ($id, $hoy, &$emitidas, &$omitidas): void {
+                // Bloquear siempre contrato ANTES de cuota, igual que el servicio
+                // de congelación. Evita carreras y bloqueos inversos con finanzas.
+                $referencia = DB::table('membresias.membresia_cuotas')->where('id', $id)
+                    ->first(['membresia_id']);
+                if (! $referencia) {
+                    $omitidas++;
+                    return;
+                }
+                $membresia = DB::table('membresias.membresias')
+                    ->where('id', $referencia->membresia_id)->lockForUpdate()->first();
                 $cuota = DB::table('membresias.membresia_cuotas')
                     ->where('id', $id)->lockForUpdate()->first();
 
-                if (! $cuota || $cuota->estado !== 'PROGRAMADA' || $cuota->venta_id) {
+                // Un freeze/reactivación puede haber movido fechas después de
+                // seleccionar IDs; nunca emitir por la fecha antigua.
+                if (! $cuota || $cuota->estado !== 'PROGRAMADA' || $cuota->venta_id
+                    || $cuota->fecha_programada_emision > $hoy) {
                     $omitidas++;
                     return;
                 }
 
-                $membresia = DB::table('membresias.membresias')
-                    ->where('id', $cuota->membresia_id)->first();
+                if (! $membresia || (int) $cuota->membresia_id !== (int) $membresia->id
+                    || in_array($membresia->estado, ['CANCELADA', 'VENCIDA'], true)) {
+                    $omitidas++;
+                    return;
+                }
 
-                if (! $membresia || $membresia->estado === 'CANCELADA') {
+                // Una suspensión financiera VIGENTE bloquea la emisión incluso
+                // cuando el estado del contrato todavía figure como ACTIVA.
+                $suspensionFinanciera = DB::table('membresias.membresia_suspensiones')
+                    ->where('membresia_id', $membresia->id)
+                    ->where('tipo', 'FACTURACION')
+                    ->where('estado', 'VIGENTE')
+                    ->exists();
+                if ($suspensionFinanciera) {
+                    $omitidas++;
+                    return;
+                }
+
+                // TIEMPO conserva el calendario pactado. No emitir contra una
+                // congelación heredada sin suspensión VIGENTE trazable.
+                if ($membresia->estado === 'CONGELADA'
+                    && ! DB::table('membresias.membresia_suspensiones')
+                        ->where('membresia_id', $membresia->id)
+                        ->where('tipo', 'TIEMPO')
+                        ->where('estado', 'VIGENTE')
+                        ->exists()) {
                     $omitidas++;
                     return;
                 }
@@ -81,7 +116,7 @@ class EmisionCuotasServicio
                     'total' => $cuota->monto,
                     'estado' => 'PENDIENTE',
                     'estado_id' => $estadoId,
-                    'fecha_venta' => now(),
+                    'fecha_venta' => now('America/Guayaquil'),
                     'observaciones' => 'Venta automática del calendario contractual.',
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -126,6 +161,26 @@ class EmisionCuotasServicio
                     'estado' => 'PENDIENTE_PAGO',
                     'updated_at' => now(),
                 ]);
+
+                // Un período R-E-N-O-V-A-D-O exige su propio pago. La
+                // extensión contractual no concede acceso gratuito cuando
+                // comienza el nuevo período.
+                if (($periodo->renovacion_manual ?? false)
+                    && substr((string) $periodo->fecha_inicio, 0, 10) <= $hoy
+                    && $membresia->estado === 'ACTIVA') {
+                    $estadoPendiente = DB::table('configuracion.estados_catalogo')
+                        ->where('entidad', 'MEMBRESIA')
+                        ->where('valor_interno', 'PENDIENTE_PAGO')
+                        ->where('activo', true)->value('id');
+                    if (! $estadoPendiente) {
+                        throw new \RuntimeException('Falta el estado PENDIENTE_PAGO para membresías.');
+                    }
+                    DB::table('membresias.membresias')->where('id', $membresia->id)->update([
+                        'estado' => 'PENDIENTE_PAGO',
+                        'estado_id' => $estadoPendiente,
+                        'updated_at' => now(),
+                    ]);
+                }
 
                 // Sincronizar Cartera después de enlazar la cuota a la venta:
                 // así el vencimiento proviene de la cuota, no de dias_gracia.

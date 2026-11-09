@@ -7,6 +7,10 @@ use Illuminate\Support\Facades\DB;
 
 class VentasResponsableServicio
 {
+    use FiltraColumnasReporte;
+
+    private const COLUMNAS = ['ventas', 'clientes', 'total_ventas', 'total_cobrado', 'saldo_pendiente', 'ticket_promedio', 'porcentaje_cobrado'];
+
     public function __construct(private readonly AlcanceOperativoService $alcance)
     {
     }
@@ -22,8 +26,8 @@ class VentasResponsableServicio
             ->all();
         $sedes = $sedesSolicitadas ?: $sedesPermitidas;
 
-        $desde = $filtros['desde'] ?? now()->startOfMonth()->toDateString();
-        $hasta = $filtros['hasta'] ?? now()->toDateString();
+        $desde = $filtros['desde'] ?? now('America/Guayaquil')->startOfMonth()->toDateString();
+        $hasta = $filtros['hasta'] ?? now('America/Guayaquil')->toDateString();
 
         $pagadoSql = "(SELECT COALESCE(SUM(pg.monto), 0) FROM ventas.pagos pg WHERE pg.venta_id = v.id AND pg.estado = 'CONFIRMADO')";
         $saldoSql = "GREATEST(v.total - {$pagadoSql}, 0)";
@@ -77,36 +81,9 @@ class VentasResponsableServicio
             $query->whereRaw("LOWER(COALESCE(responsable.name, 'Sin responsable')) LIKE ?", ['%' . mb_strtolower((string) $filtros['responsable']) . '%']);
         }
 
-        if (! empty($filtros['ventas'])) {
-            $query->havingRaw('CAST(COUNT(v.id) AS TEXT) LIKE ?', ['%' . trim((string) $filtros['ventas']) . '%']);
-        }
+        [$reporte, $opcionesFiltro] = $this->filtrarColumnas($query, $filtros, self::COLUMNAS);
 
-        if (! empty($filtros['clientes'])) {
-            $query->havingRaw('CAST(COUNT(DISTINCT v.cliente_id) AS TEXT) LIKE ?', ['%' . trim((string) $filtros['clientes']) . '%']);
-        }
-
-        if (! empty($filtros['total_ventas'])) {
-            $query->havingRaw('CAST(SUM(v.total) AS TEXT) LIKE ?', ['%' . trim((string) $filtros['total_ventas']) . '%']);
-        }
-
-        if (! empty($filtros['total_cobrado'])) {
-            $query->havingRaw("CAST(SUM({$pagadoSql}) AS TEXT) LIKE ?", ['%' . trim((string) $filtros['total_cobrado']) . '%']);
-        }
-
-        if (! empty($filtros['saldo'])) {
-            $query->havingRaw("CAST(SUM({$saldoSql}) AS TEXT) LIKE ?", ['%' . trim((string) $filtros['saldo']) . '%']);
-        }
-
-        if (! empty($filtros['ticket_promedio'])) {
-            $query->havingRaw('CAST(AVG(v.total) AS TEXT) LIKE ?', ['%' . trim((string) $filtros['ticket_promedio']) . '%']);
-        }
-
-        if (! empty($filtros['porcentaje_cobrado'])) {
-            $query->havingRaw("CAST(CASE WHEN SUM(v.total) > 0 THEN (SUM({$pagadoSql}) / SUM(v.total)) * 100 ELSE 0 END AS TEXT) LIKE ?", ['%' . trim((string) $filtros['porcentaje_cobrado']) . '%']);
-        }
-
-        $resumen = DB::query()
-            ->fromSub(clone $query, 'reporte')
+        $resumen = (clone $reporte)
             ->selectRaw('COUNT(DISTINCT responsable) as responsables')
             ->selectRaw('COALESCE(SUM(ventas), 0) as ventas')
             ->selectRaw('COALESCE(SUM(total_ventas), 0) as total_ventas')
@@ -114,7 +91,7 @@ class VentasResponsableServicio
             ->selectRaw('COALESCE(SUM(saldo_pendiente), 0) as saldo_pendiente')
             ->first();
 
-        $paginador = $query
+        $paginador = $reporte
             ->orderByDesc('total_ventas')
             ->orderBy('responsable')
             ->paginate($filtros['per_page'] ?? 10, ['*'], 'page', $filtros['page'] ?? 1);
@@ -146,6 +123,7 @@ class VentasResponsableServicio
                     'total_cobrado' => round((float) ($resumen->total_cobrado ?? 0), 2),
                     'saldo_pendiente' => round((float) ($resumen->saldo_pendiente ?? 0), 2),
                 ],
+                'opciones_filtro' => $opcionesFiltro,
                 'catalogos' => [
                     'sedes' => DB::table('institucional.sedes')
                         ->whereIn('id_sede', $sedesPermitidas)

@@ -7,7 +7,9 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Schedule;
 use App\Services\Gimnasio\CobroProgramadoMembresiaServicio;
+use App\Services\Gimnasio\EmisionCuotasServicio;
 use App\Services\Gimnasio\ActualizarEstadosMembresiaServicio;
+use App\Services\Gimnasio\CicloVidaMembresiaServicio;
 use App\Services\Gimnasio\DiagnosticoConfiguracionInicialServicio;
 use App\Services\Alertas\AlertaOperativaServicio;
 use App\Services\Logs\LogRetencionServicio;
@@ -90,6 +92,23 @@ Artisan::command('revive:limpiar-usuarios-prueba-carga', function (): int {
 })->purpose('Elimina únicamente usuarios carga.masiva.*@example.com, sus lotes y avisos de prueba.');
 
 
+Artisan::command('revive:procesar-congelaciones-programadas', function (CicloVidaMembresiaServicio $servicio): int {
+    $resultado = $servicio->procesarProgramadas();
+    $this->info(
+        "Vacaciones programadas revisadas: {$resultado['programadas_revisadas']} | "
+        . "activadas: {$resultado['activadas']} | "
+        . "no aplicadas: {$resultado['no_aplicadas']} | "
+        . "reactivadas: {$resultado['reactivadas']}"
+    );
+    return 0;
+})->purpose('Activa vacaciones en su fecha y restablece la membresía al día siguiente del fin previsto.');
+
+Schedule::command('revive:procesar-congelaciones-programadas')
+    ->dailyAt('00:02')
+    ->timezone('America/Guayaquil')
+    ->withoutOverlapping();
+
+// Activar las suspensiones ANTES de los cobros recurrentes del día.
 Artisan::command('revive:procesar-cobros-membresias {--fecha=}', function (CobroProgramadoMembresiaServicio $servicio): int {
     $resultado = $servicio->procesar($this->option('fecha') ?: null);
 
@@ -105,6 +124,24 @@ Artisan::command('revive:procesar-cobros-membresias {--fecha=}', function (Cobro
 
 Schedule::command('revive:procesar-cobros-membresias')
     ->dailyAt('00:05')
+    ->timezone('America/Guayaquil')
+    ->withoutOverlapping();
+
+// Las cuotas del calendario contractual se emiten solo cuando llega su fecha.
+// Ejecutar después de activar congelaciones y antes de actualizar estados.
+Artisan::command('revive:emitir-cuotas-membresias {--fecha=}', function (EmisionCuotasServicio $servicio): int {
+    $resultado = $servicio->procesar($this->option('fecha') ?: null);
+    $this->info(
+        "Cuotas revisadas: {$resultado['cuotas_procesadas']} | "
+        . "emitidas: {$resultado['cuotas_emitidas']} | "
+        . "omitidas: {$resultado['cuotas_omitidas']}"
+    );
+    return 0;
+})->purpose('Emite ventas de cuotas contractuales programadas en su fecha, sin duplicarlas.');
+
+Schedule::command('revive:emitir-cuotas-membresias')
+    ->dailyAt('00:08')
+    ->timezone('America/Guayaquil')
     ->withoutOverlapping();
 
 Artisan::command('revive:actualizar-estados-membresias {--fecha=}', function (ActualizarEstadosMembresiaServicio $servicio): int {
@@ -120,8 +157,24 @@ Artisan::command('revive:actualizar-estados-membresias {--fecha=}', function (Ac
     return 0;
 })->purpose('Vence membresías fuera de vigencia y finaliza sus asignaciones de entrenador.');
 
+Artisan::command('revive:renovar-membresias-automaticas {--fecha=}', function (\App\Services\Gimnasio\RenovacionAutomaticaMembresiaServicio $servicio) {
+    $resultado = $servicio->procesar($this->option('fecha') ?: null);
+    $this->info("Renovación automática {$resultado['fecha']}: candidatas {$resultado['candidatas']}, renovadas " . count($resultado['renovadas']) . ', omitidas ' . count($resultado['omitidas']));
+    foreach ($resultado['omitidas'] as $id => $motivo) {
+        $this->line("  Membresía {$id}: {$motivo}");
+    }
+    return 0;
+})->purpose('Programa un período más en los contratos con renovación automática y cuotas al día.');
+
+// Antes de los cobros (00:05): un período que inicia hoy emite su venta en la misma jornada.
+Schedule::command('revive:renovar-membresias-automaticas')
+    ->dailyAt('00:03')
+    ->timezone('America/Guayaquil')
+    ->withoutOverlapping();
+
 Schedule::command('revive:actualizar-estados-membresias')
     ->dailyAt('00:15')
+    ->timezone('America/Guayaquil')
     ->withoutOverlapping();
 
 Artisan::command('revive:diagnosticar-configuracion-inicial', function (DiagnosticoConfiguracionInicialServicio $servicio): int {
@@ -172,10 +225,17 @@ Artisan::command('revive:cerrar-turnos-caja-vencidos {--fecha=}', function (Cier
     );
 
     return 0;
-})->purpose('Cierra automáticamente turnos de caja de días anteriores y deja el arqueo pendiente de conciliación.');
+})->purpose('Cierra la caja diaria a las 22:00 (y los turnos de días anteriores) y deja el arqueo pendiente de conciliación.');
+
+// 22:00 cierra la caja diaria; 00:01 recoge lo que quedó abierto (por ejemplo, turnos abiertos después de las 22:00).
+Schedule::command('revive:cerrar-turnos-caja-vencidos')
+    ->dailyAt(CierreAutomaticoCajaServicio::HORA_CIERRE)
+    ->timezone('America/Guayaquil')
+    ->withoutOverlapping();
 
 Schedule::command('revive:cerrar-turnos-caja-vencidos')
     ->dailyAt('00:01')
+    ->timezone('America/Guayaquil')
     ->withoutOverlapping();
 
 
@@ -274,3 +334,121 @@ Artisan::command('revive:auditar-identidades', function (): int {
 
     return $total ? 1 : 0;
 })->purpose('Audita Personas, Clientes, Usuarios y Entrenadores sin modificar datos.');
+
+/**
+ * Registra únicamente los catálogos del ciclo de vida JUNTO a «Planes» sin crear otro
+ * menú principal. La gestión individual se realiza exclusivamente en Clientes → Membresías.
+ * El menú padre se resuelve por la función GIMNASIO-PLANES.
+ * Sin --aplicar solo muestra el plan. No otorga nuevas capacidades.
+ */
+Artisan::command('revive:configurar-submenus-membresias {--aplicar}', function (
+    \App\Services\Seguridad\RolPermisoService $roles,
+    \App\Services\Seguridad\PaginaSistemaService $paginas
+): int {
+    $referencia = DB::table('seguridad.cpu_userrolefunction')
+        ->where('id_menu', 'GIMNASIO-PLANES')->where('activo', true)
+        ->orderBy('id_userrf')->first();
+
+    if (! $referencia) {
+        $this->error('No se encontró el submenú Planes (GIMNASIO-PLANES). No se realizaron cambios.');
+        return 1;
+    }
+
+    $menu = DB::table('seguridad.cpu_usermenu')
+        ->where('id_usermenu', $referencia->id_usermenu)
+        ->where('activo', true)->first();
+
+    if (! $menu) {
+        $this->error('El menú padre de Planes no está activo.');
+        return 1;
+    }
+
+    $opciones = [
+        ['codigo' => 'GIMNASIO-MOTIVOS-CICLO-VIDA', 'nombre' => 'Motivos del ciclo de vida',
+            'pagina' => 'MotivosCicloVidaPage', 'requisito' => 'GIMNASIO-PLANES'],
+    ];
+    $permisos = DB::table('seguridad.cpu_userrolefunction')
+        ->whereIn('id_menu', ['GIMNASIO-MEMBRESIAS', 'GIMNASIO-PLANES'])
+        ->where('activo', true)->get(['id_userrole', 'id_menu'])
+        ->groupBy('id_userrole');
+
+    $pendientes = [];
+    foreach ($permisos as $idRol => $funciones) {
+        $disponibles = $funciones->pluck('id_menu')->all();
+        foreach ($opciones as $opcion) {
+            if (! in_array($opcion['requisito'], $disponibles, true)) continue;
+            $actual = DB::table('seguridad.cpu_userrolefunction')
+                ->where('id_userrole', $idRol)->where('id_menu', $opcion['codigo'])->first();
+            // Un permiso desactivado expresamente no debe reactivarse
+            // automáticamente al reparar la presentación del menú.
+            if ($actual && ! $actual->activo) continue;
+            if ($actual && $actual->activo
+                && (int) $actual->id_usermenu === (int) $menu->id_usermenu
+                && $actual->icono === 'settings') continue;
+            $pendientes[] = ['rol' => (int) $idRol, 'opcion' => $opcion, 'actual' => $actual];
+        }
+    }
+
+    // Si una versión anterior del comando creó el submenú duplicado de
+    // operaciones, retirarlo con el servicio oficial de permisos. Ningún
+    // movimiento del contrato se elimina: solo la navegación redundante.
+    $duplicados = DB::table('seguridad.cpu_userrolefunction')
+        ->where('id_menu', 'GIMNASIO-CICLO-VIDA')
+        ->where('activo', true)->get();
+    $this->info('Submenús de operación duplicados detectados: ' . $duplicados->count());
+
+    $planes = DB::table('seguridad.cpu_userrolefunction')
+        ->where('id_menu', 'GIMNASIO-PLANES')->where('activo', true)->get();
+    $renombrar = $planes->filter(fn ($plan) => $plan->nombre !== 'Planes');
+    $this->info('Menú padre existente: ' . $menu->menu . ' (#' . $menu->id_usermenu . ')');
+    $this->info('Submenús nuevos o con icono incorrecto: ' . count($pendientes)
+        . ' | Etiquetas «Planes» por actualizar: ' . $renombrar->count());
+
+    if (! $this->option('aplicar')) {
+        $this->line('Solo simulación. Revisa la navegación antes de ejecutar --aplicar en desarrollo.');
+        return 0;
+    }
+
+    foreach ($duplicados as $funcion) {
+        $roles->quitarFuncionRol((int) $funcion->id_userrole, 'GIMNASIO-CICLO-VIDA');
+    }
+
+    foreach ($planes as $plan) {
+        if ($plan->nombre === 'Planes') continue;
+        $roles->guardarFuncionRol([
+            'id_userrole' => $plan->id_userrole,
+            'id_usermenu' => $plan->id_usermenu,
+            'nombre' => 'Planes', 'icono' => $plan->icono,
+            'accion' => $plan->accion, 'id_menu' => 'GIMNASIO-PLANES',
+            'activo' => true, 'orden' => $plan->orden,
+        ], (int) $plan->id_userrf);
+    }
+
+    foreach ($pendientes as $item) {
+        $opcion = $item['opcion'];
+        $actual = $item['actual'];
+        $orden = $actual && (int) $actual->id_usermenu === (int) $menu->id_usermenu
+            ? $actual->orden
+            : ((int) DB::table('seguridad.cpu_userrolefunction')
+                ->where('id_userrole', $item['rol'])
+                ->where('id_usermenu', $menu->id_usermenu)->max('orden')) + 1;
+        $roles->guardarFuncionRol([
+            'id_userrole' => $item['rol'],
+            'id_usermenu' => $menu->id_usermenu,
+            'nombre' => $opcion['nombre'],
+            'icono' => 'settings',
+            'accion' => 'membresias/' . strtolower(str_replace('GIMNASIO-', '', $opcion['codigo'])),
+            'id_menu' => $opcion['codigo'],
+            'activo' => true, 'orden' => $orden,
+        ], $actual ? (int) $actual->id_userrf : null);
+    }
+
+    foreach ($opciones as $opcion) {
+        if (DB::table('seguridad.cpu_userrolefunction')
+            ->where('id_menu', $opcion['codigo'])->where('activo', true)->exists()) {
+            $paginas->asociar($opcion['codigo'], $opcion['pagina']);
+        }
+    }
+    $this->info('Navegación actualizada. Conserva el menú padre y muestra «Planes».');
+    return 0;
+})->purpose('Configura catálogos del ciclo de vida junto a Planes; la gestión individual permanece en Clientes.');

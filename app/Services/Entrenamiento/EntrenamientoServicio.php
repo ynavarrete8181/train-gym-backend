@@ -2,6 +2,7 @@
 
 namespace App\Services\Entrenamiento;
 
+use App\Support\FechaNegocio;
 use App\Services\Concerns\RegistraAuditoria;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -24,14 +25,118 @@ class EntrenamientoServicio
             $ejercicio->video_url = $ejercicio->video_path
                 ? Storage::disk('public')->url($ejercicio->video_path)
                 : null;
+
             return $ejercicio;
         });
+
         return $pagina;
     }
 
     public function guardarEjercicio(array $datos, ?int $id = null): object
     {
         return $this->guardar('entrenamiento.ejercicios', $datos, $id);
+    }
+
+    public function listarSesiones(array $filtros)
+    {
+        $query = DB::table('entrenamiento.sesiones as s')
+            ->join('clientes.deportistas as d', 'd.id', '=', 's.cliente_id')
+            ->leftJoin('personas.personas as persona', 'persona.id', '=', 'd.persona_id')
+            ->leftJoin('seguridad.users as usuario', 'usuario.id', '=', 'd.usuario_id')
+            ->leftJoin('entrenamiento.planes as plan', 'plan.id', '=', 's.plan_id')
+            ->leftJoin('entrenamiento.sesiones_ejercicios as se', 'se.sesion_id', '=', 's.id')
+            ->select(
+                's.*',
+                'd.codigo_deportista',
+                'plan.nombre as plan_nombre',
+                DB::raw("COALESCE(NULLIF(TRIM(persona.nombre_completo), ''), usuario.name) as deportista_nombre"),
+                DB::raw('COUNT(DISTINCT se.id) as total_ejercicios')
+            )
+            ->groupBy('s.id', 'd.codigo_deportista', 'plan.nombre', 'persona.nombre_completo', 'usuario.name');
+
+        if (! empty($filtros['busqueda'])) {
+            $texto = '%'.mb_strtolower(trim((string) $filtros['busqueda'])).'%';
+            $query->where(function ($q) use ($texto): void {
+                $q->whereRaw('LOWER(d.codigo_deportista) LIKE ?', [$texto])
+                    ->orWhereRaw('LOWER(COALESCE(persona.nombre_completo, usuario.name)) LIKE ?', [$texto])
+                    ->orWhereRaw('LOWER(COALESCE(plan.nombre, s.nombre)) LIKE ?', [$texto]);
+            });
+        }
+        if (! empty($filtros['estado'])) {
+            $query->whereIn('s.estado', (array) $filtros['estado']);
+        }
+
+        return $query->orderByDesc('s.fecha_programada')->orderBy('deportista_nombre')
+            ->paginate($filtros['per_page'] ?? 10, ['*'], 'page', $filtros['page'] ?? 1);
+    }
+
+    public function obtenerPizarra(int $planId, int $semana, string $dia): array
+    {
+        $plan = DB::table('entrenamiento.planes as p')
+            ->join('clientes.deportistas as d', 'd.id', '=', 'p.cliente_id')
+            ->join('seguridad.users as u', 'u.id', '=', 'd.usuario_id')
+            ->where('p.id', $planId)
+            ->first(['p.id', 'p.nombre', 'p.objetivo', 'p.estado', 'p.cliente_id', 'u.name as deportista_nombre', 'd.codigo_deportista']);
+        abort_unless($plan, 404, 'Plan no encontrado.');
+
+        $rutinas = DB::table('entrenamiento.rutinas as r')
+            ->join('entrenamiento.ejercicios as e', 'e.id', '=', 'r.ejercicio_id')
+            ->where('r.plan_id', $planId)->where('r.semana', $semana)->where('r.dia', $dia)
+            ->orderBy('r.bloque')->orderBy('r.orden')
+            ->get(['r.*', 'e.nombre as ejercicio_nombre', 'e.grupo_muscular', 'e.equipamiento'])
+            ->map(function ($rutina) use ($plan): array {
+                $rm = DB::table('entrenamiento.rm_registros')->where('cliente_id', $plan->cliente_id)
+                    ->where('ejercicio_id', $rutina->ejercicio_id)->orderByDesc('fecha_registro')->orderByDesc('id')->value('rm_estimado');
+                $series = DB::table('entrenamiento.rutina_series')->where('rutina_id', $rutina->id)->orderBy('numero_serie')->get()
+                    ->map(function ($serie) use ($rm): array {
+                        $kg = $serie->tipo_carga === 'PORCENTAJE_RM' && $rm && $serie->porcentaje_rm !== null
+                            ? round(((float) $rm * (float) $serie->porcentaje_rm) / 100, 2)
+                            : ($serie->carga_fija !== null ? (float) $serie->carga_fija : null);
+
+                        return array_merge((array) $serie, ['carga_kg' => $kg, 'carga_lb' => $kg !== null ? round($kg * 2.2046226218, 2) : null]);
+                    })->values();
+                $transferencias = DB::table('entrenamiento.rutina_transferencias as t')
+                    ->join('entrenamiento.ejercicios as e', 'e.id', '=', 't.ejercicio_id')
+                    ->where('t.rutina_id', $rutina->id)->orderBy('t.orden')
+                    ->get(['t.id', 't.modo_aplicacion', 't.observaciones', 'e.nombre as ejercicio_nombre'])
+                    ->map(function ($transferencia): array {
+                        $transferencia->series = DB::table('entrenamiento.rutina_transferencia_series')
+                            ->where('transferencia_id', $transferencia->id)->orderBy('numero_serie')->get();
+
+                        return (array) $transferencia;
+                    })->values();
+
+                return array_merge((array) $rutina, ['rm_estimado' => $rm ? (float) $rm : null, 'series_detalle' => $series, 'transferencias' => $transferencias]);
+            })->values();
+
+        return ['plan' => $plan, 'semana' => $semana, 'dia' => $dia, 'rutinas' => $rutinas];
+    }
+
+    public function obtenerPizarraGeneral(int $sedeId, string $fecha): array
+    {
+        $pizarra = DB::table('entrenamiento.pizarras_generales as p')
+            ->join('institucional.sedes as s', 's.id_sede', '=', 'p.sede_id')
+            ->where('p.sede_id', $sedeId)->whereDate('p.fecha', $fecha)
+            ->first(['p.*', 's.nombre as sede_nombre']);
+        $ejercicios = $pizarra ? DB::table('entrenamiento.pizarra_general_ejercicios as pe')
+            ->join('entrenamiento.ejercicios as e', 'e.id', '=', 'pe.ejercicio_id')
+            ->where('pe.pizarra_id', $pizarra->id)->orderBy('pe.orden')
+            ->get(['pe.*', 'e.nombre as ejercicio_nombre', 'e.grupo_muscular', 'e.equipamiento']) : collect();
+        $asistentes = DB::table('membresias.membresias as m')
+            ->join('membresias.planes as pl', 'pl.id', '=', 'm.plan_id')
+            ->join('clientes.deportistas as d', 'd.id', '=', 'm.deportista_id')
+            ->join('seguridad.users as u', 'u.id', '=', 'd.usuario_id')
+            ->leftJoin('acceso.asistencias as a', function ($join) use ($fecha): void {
+                $join->on('a.membresia_id', '=', 'm.id')->whereRaw(FechaNegocio::diaSql('a.fecha_hora').' = ?', [$fecha]);
+            })
+            ->where('m.sede_id', $sedeId)->whereDate('m.fecha_inicio', '<=', $fecha)->whereDate('m.fecha_fin', '>=', $fecha)
+            ->where(function ($q): void {
+                $q->where('pl.tipo_producto', 'PASE_DIARIO')->orWhere('pl.nombre', 'ILIKE', '%pizarra%');
+            })
+            ->orderBy('u.name')->get(['m.id as membresia_id', 'u.name', 'd.codigo_deportista', 'pl.nombre as membresia', 'a.fecha_hora as ingreso_at'])
+            ->unique('membresia_id')->values();
+
+        return ['pizarra' => $pizarra, 'ejercicios' => $ejercicios, 'asistentes' => $asistentes, 'fecha' => $fecha];
     }
 
     public function listarPlanes(array $filtros)
@@ -42,7 +147,7 @@ class EntrenamientoServicio
             ->leftJoin('seguridad.users as entrenadores', 'entrenamiento.planes.entrenador_id', '=', 'entrenadores.id')
             ->select('entrenamiento.planes.*', 'clientes.name as cliente_nombre', 'clientes.deportistas.codigo_deportista', 'entrenadores.name as entrenador_nombre');
 
-        if (!empty($filtros['cliente_id'])) {
+        if (! empty($filtros['cliente_id'])) {
             $query->where('entrenamiento.planes.cliente_id', $filtros['cliente_id']);
         }
 
@@ -68,10 +173,10 @@ class EntrenamientoServicio
             ->join('seguridad.users as clientes', 'clientes.deportistas.usuario_id', '=', 'clientes.id')
             ->select('entrenamiento.rutinas.*', 'entrenamiento.planes.nombre as plan_nombre', 'clientes.name as cliente_nombre', 'entrenamiento.ejercicios.nombre as ejercicio_nombre');
 
-        if (!empty($filtros['cliente_id'])) {
+        if (! empty($filtros['cliente_id'])) {
             $query->where('entrenamiento.planes.cliente_id', $filtros['cliente_id']);
         }
-        if (!empty($filtros['plan_id'])) {
+        if (! empty($filtros['plan_id'])) {
             $query->where('entrenamiento.rutinas.plan_id', $filtros['plan_id']);
         }
 
@@ -97,7 +202,7 @@ class EntrenamientoServicio
             ->join('entrenamiento.ejercicios', 'entrenamiento.rm_registros.ejercicio_id', '=', 'entrenamiento.ejercicios.id')
             ->select('entrenamiento.rm_registros.*', 'clientes.name as cliente_nombre', 'clientes.deportistas.codigo_deportista', 'entrenamiento.ejercicios.nombre as ejercicio_nombre');
 
-        if (!empty($filtros['cliente_id'])) {
+        if (! empty($filtros['cliente_id'])) {
             $query->where('entrenamiento.rm_registros.cliente_id', $filtros['cliente_id']);
         }
 
@@ -131,7 +236,6 @@ class EntrenamientoServicio
         return $registros->keyBy('ejercicio_id')->toArray();
     }
 
-
     public function listarProgreso(array $filtros)
     {
         $query = DB::table('entrenamiento.progresos_corporales')
@@ -139,7 +243,7 @@ class EntrenamientoServicio
             ->join('seguridad.users as clientes', 'clientes.deportistas.usuario_id', '=', 'clientes.id')
             ->select('entrenamiento.progresos_corporales.*', 'clientes.name as cliente_nombre', 'clientes.deportistas.codigo_deportista');
 
-        if (!empty($filtros['cliente_id'])) {
+        if (! empty($filtros['cliente_id'])) {
             $query->where('entrenamiento.progresos_corporales.cliente_id', $filtros['cliente_id']);
         }
 
@@ -152,14 +256,8 @@ class EntrenamientoServicio
     public function guardarProgreso(array $datos, ?int $id = null): object
     {
         $datos = $this->conMetricasCorporales($datos);
-        return $this->obtenerProgreso($this->guardarRetornandoId('entrenamiento.progresos_corporales', $datos, $id));
-    }
 
-    public function eliminarProgreso(int $id): void
-    {
-        $antes = $this->obtenerProgreso($id);
-        DB::table('entrenamiento.progresos_corporales')->where('id', $id)->delete();
-        $this->auditar('entrenamiento', 'ELIMINAR', 'entrenamiento.progresos_corporales', $id, $antes, null);
+        return $this->obtenerProgreso($this->guardarRetornandoId('entrenamiento.progresos_corporales', $datos, $id));
     }
 
     public function obtenerProgreso(int $id): object
@@ -219,6 +317,7 @@ class EntrenamientoServicio
     private function guardar(string $tabla, array $datos, ?int $id): object
     {
         $id = $this->guardarRetornandoId($tabla, $datos, $id);
+
         return DB::table($tabla)->where('id', $id)->first();
     }
 
@@ -229,12 +328,14 @@ class EntrenamientoServicio
         if ($id) {
             DB::table($tabla)->where('id', $id)->update($datos);
             $this->auditar('entrenamiento', 'ACTUALIZAR', $tabla, $id, $antes, DB::table($tabla)->where('id', $id)->first());
+
             return $id;
         }
 
         $datos['created_at'] = now();
         $nuevoId = DB::table($tabla)->insertGetId($datos);
         $this->auditar('entrenamiento', 'CREAR', $tabla, $nuevoId, null, DB::table($tabla)->where('id', $nuevoId)->first());
+
         return $nuevoId;
     }
 
@@ -292,7 +393,7 @@ class EntrenamientoServicio
         $valores = is_array($valor) ? array_filter($valor) : [$valor];
         is_array($valor)
             ? $query->whereIn($columna, $valores)
-            : $query->whereRaw("LOWER({$columna}) LIKE ?", ['%' . mb_strtolower($valor) . '%']);
+            : $query->whereRaw("LOWER({$columna}) LIKE ?", ['%'.mb_strtolower($valor).'%']);
     }
 
     private function filtrarBooleano($query, string $columna, mixed $valor): void

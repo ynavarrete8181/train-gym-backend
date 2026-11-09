@@ -12,6 +12,8 @@ use Illuminate\Validation\ValidationException;
 
 class VentaPosServicio
 {
+    private const ESTADOS_PASE_CERRADO = ['CANCELADA', 'CONGELADA'];
+
     public function __construct(
         private readonly TurnoCajaServicio $turnos,
         private readonly VentaServicio $ventas,
@@ -82,6 +84,7 @@ class VentaPosServicio
             ->get();
 
         $planes = $this->planesPorSede($sedeId);
+        $hoy = now('America/Guayaquil')->toDateString();
 
         $membresias = DB::table('membresias.membresias as m')
             ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
@@ -90,7 +93,16 @@ class VentaPosServicio
                     ->whereColumn('ms.membresia_id', 'm.id')
                     ->where('ms.sede_id', $sedeId)->where('ms.activo', true);
             })
-            ->whereNotIn('m.estado', ['CANCELADA', 'VENCIDA'])
+            ->where(function ($query) use ($hoy): void {
+                // El pase diario asignado queda libre para venderse cada día;
+                // la membresía regular depende de su vigencia y congelaciones.
+                // Si está cerrado también se muestra, para explicar por qué no se vende.
+                $query->where('p.tipo_producto', 'PASE_DIARIO')->orWhere(function ($regular) use ($hoy): void {
+                    $regular->where('p.tipo_producto', '!=', 'PASE_DIARIO')
+                        ->whereNotIn('m.estado', ['CANCELADA', 'VENCIDA', 'CONGELADA'])
+                        ->whereRaw("(m.fecha_fin IS NULL OR m.fecha_fin + (COALESCE(m.dias_gracia, 0) * INTERVAL '1 day') >= ?)", [$hoy]);
+                });
+            })
             ->orderBy('p.nombre')
             ->get([
                 'm.id',
@@ -100,11 +112,22 @@ class VentaPosServicio
                 'm.codigo_contrato as codigo',
                 'm.fecha_inicio',
                 'm.fecha_fin',
+                'm.vigencia_inicio',
+                'm.vigencia_fin',
                 'm.estado',
                 'm.precio_aplicado as precio',
                 'p.nombre',
                 'p.tipo_producto',
-            ]);
+            ])
+            // Un mismo pase asignado más de una vez se presenta como una sola opción.
+            ->groupBy(fn ($m) => $m->tipo_producto === 'PASE_DIARIO'
+                ? "pase:{$m->cliente_id}:{$m->plan_id}" : "membresia:{$m->id}")
+            // Entre varias asignaciones prevalece la que sigue abierta.
+            ->map(fn ($grupo) => $grupo
+                ->sortByDesc(fn ($m) => (in_array($m->estado, self::ESTADOS_PASE_CERRADO, true) || ($m->vigencia_fin && substr((string) $m->vigencia_fin, 0, 10) < $hoy) ? '0' : '1') . $m->fecha_inicio)
+                ->first())
+            ->sortBy('nombre')
+            ->values();
 
         // Mostrar también los pases diarios que tienen una cuenta abierta.
         // El frontend puede consultar la membresía, pero no generar un cobro duplicado.
@@ -116,7 +139,8 @@ class VentaPosServicio
                 ->where('v.estado', '!=', 'ANULADA')
                 ->orderByDesc('mp.numero_periodo')
                 ->orderByDesc('mp.id')
-                ->get(['mp.membresia_id', 'v.id as venta_id', 'v.estado as venta_estado'])
+                ->get(['mp.membresia_id', 'mp.numero_periodo', 'mp.fecha_inicio as periodo_inicio', 'mp.fecha_fin as periodo_fin',
+                    'v.id as venta_id', 'v.numero as venta_numero', 'v.fecha_venta', 'v.estado as venta_estado'])
                 ->unique('membresia_id')
                 ->keyBy('membresia_id');
         }
@@ -124,11 +148,33 @@ class VentaPosServicio
         // La tarifa visible en el POS corresponde a la sede del turno, no
         // al precio histórico de contratación de la membresía.
         $tarifasSede = $this->planesPorSede($sedeId)->keyBy('id');
-        $membresias = $membresias->map(function ($m) use ($tarifasSede, $sedeId, $cuentasMembresia) {
+        $membresias = $membresias->map(function ($m) use ($tarifasSede, $sedeId, $cuentasMembresia, $hoy) {
             $cuenta = $cuentasMembresia->get($m->id);
+            $esPase = $m->tipo_producto === 'PASE_DIARIO';
             $m->venta_id = $cuenta?->venta_id;
             $m->venta_estado = $cuenta?->venta_estado;
-            $m->cobro_disponible = $cuenta === null;
+            // Datos para explicar en la tarjeta qué se facturó, cuándo y qué sigue.
+            $m->venta_numero = $cuenta?->venta_numero;
+            $m->venta_fecha = $cuenta?->fecha_venta;
+            $m->periodo_numero = $cuenta?->numero_periodo;
+            $m->periodo_inicio = $cuenta?->periodo_inicio;
+            $m->periodo_fin = $cuenta?->periodo_fin;
+            $m->proxima_cuota = $esPase ? null : DB::table('membresias.membresia_cuotas')
+                ->where('membresia_id', $m->id)->where('estado', 'PROGRAMADA')
+                ->orderBy('numero_cuota')->first(['numero_cuota', 'fecha_programada_emision', 'fecha_vencimiento', 'monto']);
+            $paseCerrado = $esPase && in_array($m->estado, self::ESTADOS_PASE_CERRADO, true);
+            $usoConVenta = $esPase && $cuenta && substr((string) $cuenta->periodo_inicio, 0, 10) >= $hoy;
+            $usoPropuesto = max(substr((string) $m->fecha_inicio, 0, 10), $hoy);
+            $fueraVigencia = $esPase && ! $paseCerrado && ! $usoConVenta ? $this->motivoVigenciaPase($m, $usoPropuesto, $hoy) : null;
+            $m->cobro_disponible = $esPase ? ! $paseCerrado && ! $usoConVenta && ! $fueraVigencia : $cuenta === null;
+            $m->fecha_uso_pase = $esPase && ! $paseCerrado && ! $fueraVigencia ? $usoPropuesto : null;
+            $m->motivo_bloqueo = match (true) {
+                $paseCerrado && $m->estado === 'CONGELADA' => 'Pase congelado: reactívalo desde Membresías para venderlo.',
+                $paseCerrado => 'Pase cerrado: ya no se puede vender. Asígnalo de nuevo desde Membresías.',
+                $usoConVenta && $cuenta->venta_estado === 'PAGADA' => 'El pase de esta fecha ya está pagado.',
+                $usoConVenta => 'La venta de esta fecha está pendiente: cóbrala desde Cuentas abiertas.',
+                default => $fueraVigencia,
+            };
             $m->precio = $m->modalidad_id
                 ? $this->precioModalidadSede((int) $m->modalidad_id, $sedeId)
                 : ($tarifasSede->get($m->plan_id)?->precio ?? $m->precio);
@@ -189,12 +235,36 @@ class VentaPosServicio
                 ->get();
         }
 
+        // Explica en caja por qué no aparece una membresía que el cliente sí tiene en otra sede.
+        $hoyOtras = now()->toDateString();
+        $otrasSedes = DB::table('membresias.membresias as m')
+            ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
+            ->whereNotExists(function ($query) use ($sedeId): void {
+                $query->selectRaw('1')->from('membresias.membresia_sedes as ms')
+                    ->whereColumn('ms.membresia_id', 'm.id')
+                    ->where('ms.sede_id', $sedeId)->where('ms.activo', true);
+            })
+            ->where('m.estado', '!=', 'CANCELADA')
+            ->where(function ($query) use ($hoyOtras): void {
+                $query->where('p.tipo_producto', 'PASE_DIARIO')->orWhere(function ($regular) use ($hoyOtras): void {
+                    $regular->where('m.estado', '!=', 'VENCIDA')
+                        ->whereRaw("(m.fecha_fin IS NULL OR m.fecha_fin + (COALESCE(m.dias_gracia, 0) * INTERVAL '1 day') >= ?)", [$hoyOtras]);
+                });
+            })
+            ->orderBy('p.nombre')
+            ->get([
+                'm.id', 'm.deportista_id as cliente_id', 'm.codigo_contrato as codigo', 'm.vigencia_fin',
+                'p.nombre', 'p.tipo_producto',
+                DB::raw("(SELECT string_agg(s.nombre, ', ' ORDER BY s.nombre) FROM membresias.membresia_sedes ms JOIN institucional.sedes s ON s.id_sede = ms.sede_id WHERE ms.membresia_id = m.id AND ms.activo) as sedes"),
+            ]);
+
         return [
             'turno' => $turno,
             'clientes' => $clientes,
             'servicios' => $servicios,
             'planes' => $planes,
             'membresias' => $membresias,
+            'membresias_otras_sedes' => $otrasSedes,
             'productos' => $productos,
         ];
     }
@@ -225,12 +295,8 @@ class VentaPosServicio
             if (! $m) throw ValidationException::withMessages(['membresia_id' => 'Membresía no válida para esta sede.']);
             $modalidadId = $m->modalidad_id;
             if ($plan->tipo_producto === 'PASE_DIARIO') {
-                $fechaCotizacion = substr((string) $m->fecha_inicio, 0, 10);
-                if ($fechaCotizacion < now('America/Guayaquil')->toDateString()) {
-                    throw ValidationException::withMessages([
-                        'membresia_id' => 'El Pase Diario corresponde a una fecha pasada. Revisa la vigencia.',
-                    ]);
-                }
+                // Una fecha de uso pasada se traslada a hoy al vender el pase.
+                $fechaCotizacion = max(substr((string) $m->fecha_inicio, 0, 10), $fechaCotizacion);
             }
             $precio = $modalidadId
                 ? $this->precioModalidadSede((int) $modalidadId, (int) $turno->sede_id)
@@ -412,11 +478,25 @@ class VentaPosServicio
                 throw ValidationException::withMessages(['membresia_id' => 'La membresía no habilita el acceso a esta sede.']);
             }
 
-            if (in_array(strtoupper((string) $membresia->estado), ['CANCELADA', 'VENCIDA'], true)) {
+            $esPase = DB::table('membresias.planes')->where('id', $membresia->plan_id)
+                ->value('tipo_producto') === 'PASE_DIARIO';
+            $estadosNoVigentes = $esPase ? ['CANCELADA'] : ['CANCELADA', 'VENCIDA'];
+            if (in_array(strtoupper((string) $membresia->estado), $estadosNoVigentes, true)) {
                 throw ValidationException::withMessages(['membresia_id' => 'La membresía ya no está vigente.']);
             }
+            if (! $ventaId && strtoupper((string) $membresia->estado) === 'CONGELADA') {
+                throw ValidationException::withMessages(['membresia_id' => 'La membresía está congelada.']);
+            }
 
-            $ventaPendiente = DB::table('ventas.ventas')
+            if ($esPase && ! $ventaId) {
+                $this->prepararUsoPase((int) $membresiaId, (int) $turno->sede_id);
+            }
+            // Una cuenta del pase actual atendida en otra sede cambia su tarifa y su acceso.
+            if ($esPase && (! $ventaId || $this->ventas->ventaHabilitaMembresia((int) $membresiaId, $ventaId))) {
+                $this->fijarSedePase((int) $membresiaId, (int) $turno->sede_id);
+            }
+
+            $ventaPendiente = ! $esPase && DB::table('ventas.ventas')
                 ->where('membresia_id', $membresiaId)
                 ->whereIn('estado', ['PENDIENTE', 'PARCIAL'])
                 ->exists();
@@ -468,9 +548,6 @@ class VentaPosServicio
             }
             if ($ventaExistente && ! in_array(strtoupper((string) $ventaExistente->estado), ['PENDIENTE', 'PARCIAL'], true)) {
                 throw ValidationException::withMessages(['venta_id' => 'Solo se pueden modificar cuentas pendientes o parciales.']);
-            }
-            if ($ventaExistente && $ventaExistente->inventario_aplicado_at) {
-                throw ValidationException::withMessages(['venta_id' => 'Esta venta ya afectó inventario y no puede modificarse.']);
             }
             $primero = $detalles->first();
             $venta = $this->ventas->guardarVenta([
@@ -546,6 +623,9 @@ class VentaPosServicio
                 'updated_at' => $ahora,
             ])->all());
 
+            // Reserva el stock desde que la cuenta se guarda; al editarla se ajusta la diferencia.
+            $this->ventas->sincronizarInventarioVenta((int) $venta->id, $usuarioId);
+
             $venta->detalles = DB::table('ventas.venta_detalles')
                 ->where('venta_id', $venta->id)
                 ->orderBy('id')
@@ -566,7 +646,7 @@ class VentaPosServicio
                 ]);
             }
 
-            $venta = $this->guardar($datos, $usuarioId, $ventaId);
+            $venta = $this->cuentaDePaseCancelado($datos, $turno, $ventaId) ?? $this->guardar($datos, $usuarioId, $ventaId);
             $pagadoActual = (float) DB::table('ventas.pagos')
                 ->where('venta_id', $venta->id)
                 ->where('estado', 'CONFIRMADO')
@@ -662,18 +742,22 @@ class VentaPosServicio
 
             if ($ventaActualizada->saldo_pendiente <= 0 && ! empty($ventaActualizada->membresia_id)) {
                 $estadoActivoId = $this->estados->idPorValor('MEMBRESIA', 'ACTIVA');
-                DB::table('membresias.membresias')
-                    ->where('id', $ventaActualizada->membresia_id)
-                    ->where('estado', 'PENDIENTE_PAGO')
-                    ->update([
-                        'estado' => 'ACTIVA',
-                        'estado_id' => $estadoActivoId,
-                        'updated_at' => now(),
-                    ]);
+                if ($this->ventas->ventaHabilitaMembresia((int) $ventaActualizada->membresia_id, (int) $ventaActualizada->id)) {
+                    DB::table('membresias.membresias')
+                        ->where('id', $ventaActualizada->membresia_id)
+                        ->where('estado', 'PENDIENTE_PAGO')
+                        ->update([
+                            'estado' => 'ACTIVA',
+                            'estado_id' => $estadoActivoId,
+                            'updated_at' => now(),
+                        ]);
+                }
 
                 DB::table('membresias.membresia_periodos')
                     ->where('membresia_id', $ventaActualizada->membresia_id)
                     ->where('venta_id', $ventaActualizada->id)
+                    ->whereExists(fn ($q) => $q->selectRaw('1')->from('membresias.membresias as mc')
+                        ->where('mc.id', $ventaActualizada->membresia_id)->where('mc.estado', '!=', 'CANCELADA'))
                     ->update([
                         'estado' => 'ACTIVA',
                         'updated_at' => now(),
@@ -684,6 +768,45 @@ class VentaPosServicio
 
             return $ventaActualizada;
         });
+    }
+
+    /**
+     * La deuda de un pase cancelado se cobra tal como quedó: no cambia su tarifa
+     * ni su sede, no admite más consumos y pagarla no reactiva el pase.
+     */
+    private function cuentaDePaseCancelado(array $datos, object $turno, ?int $ventaId): ?object
+    {
+        if (! $ventaId) {
+            return null;
+        }
+
+        $membresiaId = DB::table('ventas.ventas as v')
+            ->join('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
+            ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
+            ->where('v.id', $ventaId)
+            ->whereIn('v.estado', ['PENDIENTE', 'PARCIAL'])
+            ->where('m.estado', 'CANCELADA')
+            ->where('p.tipo_producto', 'PASE_DIARIO')
+            ->value('m.id');
+        if (! $membresiaId) {
+            return null;
+        }
+
+        $sedeHabilitada = DB::table('membresias.membresia_sedes')
+            ->where('membresia_id', $membresiaId)
+            ->where('sede_id', $turno->sede_id)->where('activo', true)->exists();
+        if (! $sedeHabilitada) {
+            throw ValidationException::withMessages(['membresia_id' => 'La membresía no habilita el acceso a esta sede.']);
+        }
+
+        $actuales = DB::table('ventas.venta_detalles')->where('venta_id', $ventaId)->get(['cantidad']);
+        $entrada = collect($datos['detalles'] ?? []);
+        if ($entrada->count() !== $actuales->count()
+            || abs((float) $entrada->sum(fn ($item) => (float) ($item['cantidad'] ?? 0)) - (float) $actuales->sum('cantidad')) > 0.001) {
+            throw ValidationException::withMessages(['detalles' => 'Esta cuenta es de un pase cancelado: solo se puede cobrar su saldo, sin agregar consumos.']);
+        }
+
+        return DB::table('ventas.ventas')->where('id', $ventaId)->lockForUpdate()->first();
     }
 
     private function resolverDetalles($detalles, int $sedeId, ?int $ventaId = null)
@@ -713,8 +836,15 @@ class VentaPosServicio
                 if (! $producto) {
                     throw ValidationException::withMessages(['detalles' => 'El producto no está disponible o no tiene precio configurado para la sede.']);
                 }
-                if ($producto->controla_stock && $cantidad > (float) $producto->stock_actual) {
-                    throw ValidationException::withMessages(['detalles' => "Stock insuficiente para {$producto->nombre} en la sede."]);
+                // Al editar una cuenta, lo que ella misma ya reservó cuenta como disponible.
+                $reservado = $ventaId ? (float) app(\App\Services\Inventario\InventarioServicio::class)->netoVenta((int) $ventaId, $productoId)['total'] : 0.0;
+                $disponible = (float) $producto->stock_actual + $reservado;
+                if ($producto->controla_stock && $cantidad > $disponible) {
+                    throw ValidationException::withMessages(['detalles' => sprintf(
+                        'No hay stock suficiente de %s en esta sede: quedan %s.',
+                        $producto->nombre,
+                        rtrim(rtrim(number_format($disponible, 2, '.', ''), '0'), '.'),
+                    )]);
                 }
 
                 $precio = round((float) $producto->precio, 2);
@@ -770,7 +900,12 @@ class VentaPosServicio
                             ->whereColumn('ms.membresia_id', 'm.id')
                             ->where('ms.sede_id', $sedeId)->where('ms.activo', true);
                     })
-                    ->whereNotIn('m.estado', ['CANCELADA', 'VENCIDA'])
+                    ->where(function ($q): void {
+                        $q->whereNotIn('m.estado', ['CANCELADA', 'VENCIDA'])
+                            ->orWhere(function ($pase): void {
+                                $pase->where('m.estado', 'VENCIDA')->where('p.tipo_producto', 'PASE_DIARIO');
+                            });
+                    })
                     ->first([
                         'm.id',
                         'm.plan_id',
@@ -778,6 +913,7 @@ class VentaPosServicio
                         'm.codigo_contrato',
                         'm.precio_aplicado',
                         'm.estado',
+                        'p.tipo_producto',
                         'p.nombre as plan_nombre',
                         'pm.nombre as modalidad_nombre',
                     ]);
@@ -788,7 +924,11 @@ class VentaPosServicio
                     ]);
                 }
 
-                $periodoFacturado = DB::table('membresias.membresia_periodos as mp')
+                // Cada venta de un pase tiene su propio período: prepararUsoPase
+                // ya validó la fecha y una deuda anterior no impide vender ni cobrar.
+                $esPase = $membresia->tipo_producto === 'PASE_DIARIO';
+
+                $periodoFacturado = ! $esPase && DB::table('membresias.membresia_periodos as mp')
                     ->join('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
                     ->where('mp.membresia_id', $membresia->id)
                     ->whereRaw('mp.numero_periodo = (SELECT MAX(mp2.numero_periodo) FROM membresias.membresia_periodos mp2 WHERE mp2.membresia_id = mp.membresia_id)')
@@ -801,7 +941,7 @@ class VentaPosServicio
                     ]);
                 }
 
-                $ventaPendiente = DB::table('ventas.ventas')
+                $ventaPendiente = ! $esPase && DB::table('ventas.ventas')
                     ->where('membresia_id', $membresia->id)
                     ->whereIn('estado', ['PENDIENTE', 'PARCIAL'])
                     ->when($ventaId, fn ($query) => $query->where('id', '!=', $ventaId))
@@ -821,20 +961,6 @@ class VentaPosServicio
                     throw ValidationException::withMessages([
                         'detalles' => 'La membresía seleccionada no tiene un precio aplicado válido.',
                     ]);
-                }
-
-                if (strtoupper((string) $membresia->estado) === 'PENDIENTE_PAGO'
-                    && DB::table('membresias.planes')->where('id', $membresia->plan_id)
-                        ->where('tipo_producto', 'PASE_DIARIO')->exists()) {
-                    $hoy = now('America/Guayaquil')->toDateString();
-                    $fechaInicio = substr((string) DB::table('membresias.membresias')
-                        ->where('id', $membresia->id)->value('fecha_inicio'), 0, 10);
-                    if ($fechaInicio < $hoy) {
-                        throw ValidationException::withMessages([
-                            'membresia_id' => 'El Pase Diario corresponde a una fecha anterior. Verifica su vigencia.',
-                        ]);
-                    }
-                    // El cobro puede ser anticipado; la fecha de acceso no cambia.
                 }
 
                 $descripcion = $membresia->plan_nombre
@@ -873,6 +999,94 @@ class VentaPosServicio
 
             throw ValidationException::withMessages(['detalles' => 'Existe un tipo de ítem no permitido en la venta.']);
         })->values();
+    }
+
+    /**
+     * Deja el pase listo para una nueva venta: su fecha de uso es hoy, o la fecha
+     * futura ya asignada. El acceso se habilita solo cuando esa venta se paga.
+     */
+    private function prepararUsoPase(int $membresiaId, int $sedeId): void
+    {
+        $membresia = DB::table('membresias.membresias')->where('id', $membresiaId)->lockForUpdate()->first();
+        $hoy = now('America/Guayaquil')->toDateString();
+        $ultimo = DB::table('membresias.membresia_periodos as mp')
+            ->leftJoin('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
+            ->where('mp.membresia_id', $membresiaId)
+            ->orderByDesc('mp.numero_periodo')
+            ->first(['mp.id', 'mp.numero_periodo', 'mp.fecha_inicio', 'mp.venta_id', 'v.estado as venta_estado']);
+        $inicioUltimo = $ultimo ? substr((string) $ultimo->fecha_inicio, 0, 10) : $hoy;
+        $conVenta = $ultimo && $ultimo->venta_id && $ultimo->venta_estado !== 'ANULADA';
+
+        if ($conVenta && $inicioUltimo >= $hoy) {
+            throw ValidationException::withMessages([
+                'membresia_id' => 'Este pase ya tiene una venta para el '
+                    . implode('/', array_reverse(explode('-', $inicioUltimo)))
+                    . '. Si está pendiente, continúa desde Cuentas abiertas.',
+            ]);
+        }
+
+        $fechaUso = max($inicioUltimo, $hoy);
+        $fueraVigencia = $this->motivoVigenciaPase($membresia, $fechaUso, $hoy);
+        if ($fueraVigencia) {
+            throw ValidationException::withMessages(['membresia_id' => $fueraVigencia]);
+        }
+        $estado = $this->estados->aplicar(['estado' => 'PENDIENTE_PAGO'], 'MEMBRESIA');
+        $precio = $membresia->modalidad_id
+            ? $this->precioModalidadSede((int) $membresia->modalidad_id, $sedeId)
+            : (float) ($this->planesPorSede($sedeId)->firstWhere('id', $membresia->plan_id)?->precio ?? 0);
+        $periodo = [
+            'fecha_inicio' => $fechaUso,
+            'fecha_fin' => $fechaUso,
+            'precio' => $precio,
+            'estado' => 'PENDIENTE_PAGO',
+            'venta_id' => null,
+            'generado_at' => now(),
+            'updated_at' => now(),
+        ];
+
+        if ($ultimo && ! $conVenta) {
+            DB::table('membresias.membresia_periodos')->where('id', $ultimo->id)->update($periodo);
+        } else {
+            DB::table('membresias.membresia_periodos')->insert($periodo + [
+                'membresia_id' => $membresiaId,
+                'numero_periodo' => ((int) ($ultimo?->numero_periodo ?? 0)) + 1,
+                'created_at' => now(),
+            ]);
+        }
+
+        DB::table('membresias.membresias')->where('id', $membresiaId)->update([
+            'fecha_inicio' => $fechaUso,
+            'fecha_fin' => $fechaUso,
+            'estado' => $estado['estado'],
+            'estado_id' => $estado['estado_id'] ?? null,
+            'updated_at' => now(),
+        ]);
+    }
+
+    /** Un pase sin vigencia registrada no tiene límite de fechas. */
+    private function motivoVigenciaPase(object $membresia, string $fechaUso, string $hoy): ?string
+    {
+        $inicio = $membresia->vigencia_inicio ? substr((string) $membresia->vigencia_inicio, 0, 10) : null;
+        $fin = $membresia->vigencia_fin ? substr((string) $membresia->vigencia_fin, 0, 10) : null;
+        $legible = fn (string $fecha) => implode('/', array_reverse(explode('-', $fecha)));
+
+        if ($inicio && $hoy < $inicio) {
+            return 'El pase inicia el '.$legible($inicio).'.';
+        }
+        if ($fin && $fechaUso > $fin) {
+            return 'La vigencia terminó el '.$legible($fin).'. Edita la vigencia desde Membresías para venderlo.';
+        }
+
+        return null;
+    }
+
+    /** El pase da acceso únicamente en la sede de su venta, aunque esté habilitado en varias. */
+    private function fijarSedePase(int $membresiaId, int $sedeId): void
+    {
+        DB::table('membresias.membresias')->where('id', $membresiaId)
+            ->update(['sede_id' => $sedeId, 'updated_at' => now()]);
+        DB::table('membresias.membresia_sedes')->where('membresia_id', $membresiaId)
+            ->update(['es_principal' => DB::raw('sede_id = ' . $sedeId), 'updated_at' => now()]);
     }
 
     private function precioModalidadSede(int $modalidadId, int $sedeId): float
@@ -936,6 +1150,7 @@ class VentaPosServicio
             'servicios' => [],
             'planes' => [],
             'membresias' => [],
+            'membresias_otras_sedes' => [],
             'productos' => [],
         ];
     }

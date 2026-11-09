@@ -2,6 +2,7 @@
 
 namespace App\Services\Alertas;
 
+use App\Support\FechaNegocio;
 use App\Services\Seguridad\AlcanceOperativoService;
 use App\Services\Seguridad\AvisoUsuarioService;
 use Illuminate\Support\Collection;
@@ -15,6 +16,7 @@ class AlertaOperativaServicio
         'CONCILIACION_CAJA',
         'DIFERENCIA_CAJA',
         'META_EN_RIESGO',
+        'NO_RETORNO_POST_CONGELACION',
     ];
 
     public function __construct(
@@ -30,6 +32,7 @@ class AlertaOperativaServicio
             ->merge($this->detectarConciliacionesPendientes())
             ->merge($this->detectarDiferenciasCajaHoy())
             ->merge($this->detectarMetasEnRiesgo())
+            ->merge($this->detectarNoRetornoPostCongelacion())
             ->values();
 
         $identidadesActivas = [];
@@ -179,7 +182,7 @@ class AlertaOperativaServicio
             ->join('ventas.ventas as v', 'v.id', '=', 'cc.venta_id')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
             ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
-            ->whereDate('cc.fecha_vencimiento', '<', now()->toDateString())
+            ->whereDate('cc.fecha_vencimiento', '<', now('America/Guayaquil')->toDateString())
             ->where('v.estado', '<>', 'ANULADA')
             ->whereRaw("{$saldoSql} > 0")
             ->whereRaw('COALESCE(c.sede_id, m.sede_id) IS NOT NULL')
@@ -210,7 +213,10 @@ class AlertaOperativaServicio
     {
         return DB::table('membresias.membresia_periodos as mp')
             ->join('membresias.membresias as m', 'm.id', '=', 'mp.membresia_id')
-            ->whereBetween('mp.fecha_fin', [now()->toDateString(), now()->addDays(7)->toDateString()])
+            ->join('membresias.planes as plan', 'plan.id', '=', 'm.plan_id')
+            // El pase se vende cada día: no es una renovación ni un contrato por vencer.
+            ->whereRaw("COALESCE(plan.tipo_producto, 'MEMBRESIA') <> 'PASE_DIARIO'")
+            ->whereBetween('mp.fecha_fin', [now('America/Guayaquil')->toDateString(), FechaNegocio::ahora()->addDays(7)->toDateString()])
             ->whereNotExists(function ($sub): void {
                 $sub->selectRaw('1')
                     ->from('membresias.membresia_periodos as siguiente')
@@ -234,6 +240,45 @@ class AlertaOperativaServicio
                 'referencia_id' => (int) $fila->sede_id,
                 'vista' => 'REPORTES-MEMBRESIAS-POR-VENCER',
                 'contexto' => ['cantidad' => (int) $fila->cantidad],
+            ]);
+    }
+
+    private function detectarNoRetornoPostCongelacion(): Collection
+    {
+        $limite = now('America/Guayaquil')->subDays(3)->toDateString();
+
+        return DB::table('membresias.membresia_suspensiones as ms')
+            ->join('membresias.membresias as m', 'm.id', '=', 'ms.membresia_id')
+            ->join('gimnasio.deportistas as d', 'd.id', '=', 'm.deportista_id')
+            ->leftJoin('seguridad.users as u', 'u.id', '=', 'd.usuario_id')
+            ->join('membresias.membresia_movimientos as mov', 'mov.id', '=', 'ms.movimiento_fin_id')
+            ->where('ms.estado', 'FINALIZADA')
+            ->where('mov.tipo', 'REACTIVAR')
+            ->whereDate('mov.fecha_efectiva', '<=', $limite)
+            ->where('m.estado', 'ACTIVA')
+            ->whereNotNull('m.sede_id')
+            ->whereNotExists(function ($sub): void {
+                $sub->selectRaw('1')->from('acceso.asistencias as a')
+                    ->whereColumn('a.membresia_id', 'm.id')
+                    ->whereRaw('a.fecha_hora::date >= mov.fecha_efectiva')
+                    ->where('a.estado', 'VALIDA');
+            })
+            ->select('m.id as membresia_id', 'm.sede_id', 'mov.fecha_efectiva', 'u.name as deportista')
+            ->get()
+            ->map(fn ($fila) => [
+                'clave' => 'NO_RETORNO-' . $fila->membresia_id,
+                'tipo' => 'NO_RETORNO_POST_CONGELACION',
+                'nivel' => 'WARNING',
+                'sede_id' => (int) $fila->sede_id,
+                'titulo' => 'Deportista sin retorno después de congelación',
+                'mensaje' => ($fila->deportista ?: 'El deportista')
+                    . ' fue reactivado el ' . substr((string) $fila->fecha_efectiva, 0, 10)
+                    . ' y todavía no registra un ingreso válido.',
+                'referencia_tipo' => 'MEMBRESIA',
+                'referencia_id' => (int) $fila->membresia_id,
+                'vista' => 'GIMNASIO-DEPORTISTAS',
+                'contexto' => ['membresia_id' => (int) $fila->membresia_id,
+                    'fecha_reactivacion' => substr((string) $fila->fecha_efectiva, 0, 10)],
             ]);
     }
 
@@ -265,7 +310,7 @@ class AlertaOperativaServicio
     {
         return DB::table('ventas.turnos_caja')
             ->where('estado', 'CERRADA')
-            ->whereDate('fecha_cierre', now()->toDateString())
+            ->whereRaw(FechaNegocio::diaSql('fecha_cierre').' = ?', [FechaNegocio::hoy()])
             ->whereRaw('ABS(COALESCE(diferencia, 0)) > 0.01')
             ->whereNotNull('sede_id')
             ->groupBy('sede_id')

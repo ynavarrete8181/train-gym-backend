@@ -75,7 +75,7 @@ class CarteraControlador extends Controller
     {
         $datos = $request->validate([
             'monto' => 'required|numeric|min:0.01',
-            'fecha_compromiso' => 'required|date|after_or_equal:today',
+            'fecha_compromiso' => 'required|date|after_or_equal:'.now('America/Guayaquil')->toDateString(),
             'observaciones' => 'nullable|string|max:2000',
         ]);
 

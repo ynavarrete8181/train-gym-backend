@@ -50,7 +50,8 @@ class AlcanceOperativoService
             ->where('u.id', $usuarioId)
             ->where('u.usr_estado', 1)
             ->where('r.activo', true)
-            ->whereIn('r.role', ['ROOT', 'SUPERADMINISTRADOR'])
+            // El resto de roles opera únicamente en las sedes asignadas a su usuario.
+            ->whereIn('r.role', ['ROOT', 'SUPERADMINISTRADOR', 'ADMINISTRADOR'])
             ->exists();
     }
 

@@ -112,6 +112,7 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
             'search_path' => 'public',
+            'timezone' => 'America/Guayaquil',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 

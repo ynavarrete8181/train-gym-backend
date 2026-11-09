@@ -2,6 +2,7 @@
 
 namespace App\Services\Resultados;
 
+use App\Support\FechaNegocio;
 use Illuminate\Support\Facades\DB;
 
 class ResultadoServicio
@@ -11,13 +12,13 @@ class ResultadoServicio
         return [
             'clientes_activos' => DB::table('clientes.deportistas')->where('estado', 'ACTIVO')->count(),
             'membresias_activas' => DB::table('membresias.membresias')->where('estado', 'ACTIVA')->count(),
-            'asistencias_hoy' => DB::table('acceso.asistencias')->whereDate('fecha_hora', now()->toDateString())->count(),
+            'asistencias_hoy' => DB::table('acceso.asistencias')->whereRaw(FechaNegocio::diaSql('fecha_hora').' = ?', [FechaNegocio::hoy()])->count(),
             'ventas_mes' => (float) DB::table('ventas.ventas')
-                ->whereMonth('fecha_venta', now()->month)
-                ->whereYear('fecha_venta', now()->year)
+                ->whereMonth('fecha_venta', FechaNegocio::ahora()->month)
+                ->whereYear('fecha_venta', FechaNegocio::ahora()->year)
                 ->where('estado', '<>', 'ANULADA')
                 ->sum('total'),
-            'reservas_hoy' => DB::table('agenda.reservas_dia')->whereDate('fecha', now()->toDateString())->count(),
+            'reservas_hoy' => DB::table('agenda.reservas_dia')->whereDate('fecha', now('America/Guayaquil')->toDateString())->count(),
             'planes_entrenamiento_activos' => DB::table('entrenamiento.planes')->where('estado', 'ACTIVO')->count(),
         ];
     }
@@ -28,8 +29,8 @@ class ResultadoServicio
             ->join('clientes.deportistas', 'acceso.asistencias.cliente_id', '=', 'clientes.deportistas.id')
             ->join('seguridad.users', 'clientes.deportistas.usuario_id', '=', 'seguridad.users.id')
             ->leftJoin('institucional.sedes', 'acceso.asistencias.sede_id', '=', 'institucional.sedes.id_sede')
-            ->selectRaw("DATE(acceso.asistencias.fecha_hora) as fecha, COALESCE(institucional.sedes.nombre, 'Sin sede') as sede, COUNT(*) as asistencias, COUNT(DISTINCT acceso.asistencias.cliente_id) as clientes")
-            ->groupByRaw("DATE(acceso.asistencias.fecha_hora), COALESCE(institucional.sedes.nombre, 'Sin sede')");
+            ->selectRaw(FechaNegocio::diaSql('acceso.asistencias.fecha_hora')." as fecha, COALESCE(institucional.sedes.nombre, 'Sin sede') as sede, COUNT(*) as asistencias, COUNT(DISTINCT acceso.asistencias.cliente_id) as clientes")
+            ->groupByRaw(FechaNegocio::diaSql('acceso.asistencias.fecha_hora').", COALESCE(institucional.sedes.nombre, 'Sin sede')");
 
         $this->buscar($query, $filtros['busqueda'] ?? null, ['institucional.sedes.nombre']);
         $this->filtrarTexto($query, 'institucional.sedes.nombre', $filtros['sede'] ?? null);

@@ -7,6 +7,10 @@ use Illuminate\Support\Facades\DB;
 
 class VentasPeriodoServicio
 {
+    use FiltraColumnasReporte;
+
+    private const COLUMNAS = ['fecha', 'venta_numero', 'cliente', 'responsable_comercial', 'total_venta', 'total_cobrado', 'saldo_pendiente'];
+
     public function __construct(private readonly AlcanceOperativoService $alcance)
     {
     }
@@ -22,8 +26,8 @@ class VentasPeriodoServicio
             ->all();
         $sedes = $sedesSolicitadas ?: $sedesPermitidas;
 
-        $desde = $filtros['desde'] ?? now()->startOfMonth()->toDateString();
-        $hasta = $filtros['hasta'] ?? now()->toDateString();
+        $desde = $filtros['desde'] ?? now('America/Guayaquil')->startOfMonth()->toDateString();
+        $hasta = $filtros['hasta'] ?? now('America/Guayaquil')->toDateString();
 
         $pagadoSql = "(SELECT COALESCE(SUM(pg.monto), 0) FROM ventas.pagos pg WHERE pg.venta_id = v.id AND pg.estado = 'CONFIRMADO')";
         $saldoSql = "GREATEST(v.total - {$pagadoSql}, 0)";
@@ -42,7 +46,7 @@ class VentasPeriodoServicio
             ->selectRaw("v.id, DATE(v.fecha_venta) as fecha, COALESCE(s.nombre, 'Sin sede') as sede")
             ->addSelect('v.numero as venta_numero', 'v.tipo_venta', 'v.estado')
             ->selectRaw("COALESCE(NULLIF(TRIM(persona.nombre_completo), ''), NULLIF(TRIM(cliente_user.name), ''), 'Consumidor final') as cliente")
-            ->selectRaw("COALESCE(NULLIF(TRIM(persona.identificacion), ''), NULLIF(TRIM(cliente_user.cedula), '') as identificacion")
+            ->selectRaw("COALESCE(NULLIF(TRIM(persona.identificacion), ''), NULLIF(TRIM(cliente_user.cedula), '')) as identificacion")
             ->selectRaw("COALESCE(responsable.name, 'Sin responsable') as responsable_comercial")
             ->selectRaw("v.total as total_venta, {$pagadoSql} as total_cobrado, {$saldoSql} as saldo_pendiente");
 
@@ -57,26 +61,6 @@ class VentasPeriodoServicio
             });
         }
 
-        if (! empty($filtros['fecha'])) {
-            $valor = '%' . trim((string) $filtros['fecha']) . '%';
-            $query->where(function ($q) use ($valor): void {
-                $q->whereRaw('CAST(DATE(v.fecha_venta) AS TEXT) LIKE ?', [$valor])
-                    ->orWhereRaw("TO_CHAR(DATE(v.fecha_venta), 'DD/MM/YYYY') LIKE ?", [$valor]);
-            });
-        }
-
-        if (! empty($filtros['venta_numero'])) {
-            $query->whereRaw('LOWER(v.numero) LIKE ?', ['%' . mb_strtolower((string) $filtros['venta_numero']) . '%']);
-        }
-
-        if (! empty($filtros['cliente'])) {
-            $texto = '%' . mb_strtolower((string) $filtros['cliente']) . '%';
-            $query->where(function ($q) use ($texto): void {
-                $q->whereRaw("LOWER(COALESCE(persona.nombre_completo, cliente_user.name, '')) LIKE ?", [$texto])
-                    ->orWhereRaw("LOWER(COALESCE(persona.identificacion, cliente_user.cedula, '')) LIKE ?", [$texto]);
-            });
-        }
-
         if (! empty($filtros['tipo_venta'])) {
             $valores = is_array($filtros['tipo_venta']) ? $filtros['tipo_venta'] : [$filtros['tipo_venta']];
             $query->whereIn('v.tipo_venta', array_filter($valores));
@@ -87,33 +71,18 @@ class VentasPeriodoServicio
             $query->whereIn('v.estado', array_filter($valores));
         }
 
-        if (! empty($filtros['responsable'])) {
-            $query->whereRaw("LOWER(COALESCE(responsable.name, 'Sin responsable')) LIKE ?", ['%' . mb_strtolower((string) $filtros['responsable']) . '%']);
-        }
+        [$reporte, $opcionesFiltro] = $this->filtrarColumnas($query, $filtros, self::COLUMNAS);
 
-        if (! empty($filtros['total'])) {
-            $query->whereRaw('CAST(v.total AS TEXT) LIKE ?', ['%' . trim((string) $filtros['total']) . '%']);
-        }
-
-        if (! empty($filtros['cobrado'])) {
-            $query->whereRaw("CAST({$pagadoSql} AS TEXT) LIKE ?", ['%' . trim((string) $filtros['cobrado']) . '%']);
-        }
-
-        if (! empty($filtros['saldo'])) {
-            $query->whereRaw("CAST({$saldoSql} AS TEXT) LIKE ?", ['%' . trim((string) $filtros['saldo']) . '%']);
-        }
-
-        $resumen = DB::query()
-            ->fromSub(clone $query, 'reporte')
+        $resumen = (clone $reporte)
             ->selectRaw('COUNT(*) as transacciones')
             ->selectRaw('COALESCE(SUM(total_venta), 0) as total_ventas')
             ->selectRaw('COALESCE(SUM(total_cobrado), 0) as total_cobrado')
             ->selectRaw('COALESCE(SUM(saldo_pendiente), 0) as saldo_pendiente')
             ->first();
 
-        $paginador = $query
-            ->orderByDesc('v.fecha_venta')
-            ->orderByDesc('v.id')
+        $paginador = $reporte
+            ->orderByDesc('fecha')
+            ->orderByDesc('id')
             ->paginate($filtros['per_page'] ?? 10, ['*'], 'page', $filtros['page'] ?? 1);
 
         return [
@@ -130,6 +99,7 @@ class VentasPeriodoServicio
                     'total_cobrado' => round((float) ($resumen->total_cobrado ?? 0), 2),
                     'saldo_pendiente' => round((float) ($resumen->saldo_pendiente ?? 0), 2),
                 ],
+                'opciones_filtro' => $opcionesFiltro,
                 'catalogos' => [
                     'sedes' => DB::table('institucional.sedes')
                         ->whereIn('id_sede', $sedesPermitidas)

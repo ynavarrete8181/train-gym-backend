@@ -157,28 +157,6 @@ class PlanControlador extends Controller
         return ApiResponse::exito('Modalidad actualizada correctamente.', (array) $modalidad);
     }
 
-    public function destroyModalidad(int $id, int $modalidadId)
-    {
-        $this->planServicio->eliminarModalidad($id, $modalidadId);
-        return ApiResponse::exito('Modalidad eliminada correctamente.');
-    }
-
-    public function destroy($id)
-    {
-        $plan = DB::table('membresias.planes')->where('id', $id)->first();
-        if (!$plan) {
-            return response()->json(['mensaje' => 'Plan no encontrado'], 404);
-        }
-
-        $enUso = DB::table('membresias.membresias')->where('plan_id', $id)->exists();
-        if ($enUso) {
-            return response()->json(['mensaje' => 'El plan no se puede eliminar porque tiene membresías asociadas.'], 409);
-        }
-
-        DB::table('membresias.planes')->where('id', $id)->delete();
-        return ApiResponse::exito('Plan eliminado exitosamente.');
-    }
-
     private function validar(Request $request, ?int $id = null): array
     {
         $datos = $request->validate([
@@ -194,7 +172,6 @@ class PlanControlador extends Controller
             'generar_venta' => 'boolean',
             'requiere_pago' => 'boolean',
             'requiere_entrenador' => 'boolean',
-            'requiere_ficha_inicial' => 'boolean',
             'renovable' => 'boolean',
             'requiere_modalidades' => 'boolean',
             'activo' => 'boolean',

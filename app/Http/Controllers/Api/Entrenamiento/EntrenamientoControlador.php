@@ -6,19 +6,41 @@ use App\Http\Controllers\Controller;
 use App\Services\Entrenamiento\EntrenamientoServicio;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class EntrenamientoControlador extends Controller
 {
-    public function __construct(private readonly EntrenamientoServicio $entrenamiento)
-    {
-    }
+    public function __construct(private readonly EntrenamientoServicio $entrenamiento) {}
 
     public function ejercicios(Request $request)
     {
         return $this->respuestaPaginada('Ejercicios consultados.', $this->entrenamiento->listarEjercicios($request->all()));
+    }
+
+    public function sesiones(Request $request)
+    {
+        return $this->respuestaPaginada('Sesiones de entrenamiento consultadas.', $this->entrenamiento->listarSesiones($request->all()));
+    }
+
+    public function pizarra(Request $request)
+    {
+        $datos = $request->validate([
+            'plan_id' => 'required|integer|exists:pgsql.entrenamiento.planes,id',
+            'semana' => 'required|integer|min:1|max:52',
+            'dia' => 'required|in:LUNES,MARTES,MIERCOLES,JUEVES,VIERNES,SABADO,DOMINGO',
+        ]);
+
+        return ApiResponse::exito('Pizarra de entrenamiento consultada.', $this->entrenamiento->obtenerPizarra((int) $datos['plan_id'], (int) $datos['semana'], $datos['dia']));
+    }
+
+    public function pizarraGeneral(Request $request)
+    {
+        $datos = $request->validate(['sede_id' => 'required|integer|exists:pgsql.institucional.sedes,id_sede', 'fecha' => 'required|date']);
+
+        return ApiResponse::exito('Pizarra general consultada.', $this->entrenamiento->obtenerPizarraGeneral((int) $datos['sede_id'], $datos['fecha']));
     }
 
     public function guardarEjercicio(Request $request, ?int $id = null)
@@ -29,17 +51,22 @@ class EntrenamientoControlador extends Controller
             'equipamiento' => 'required|string|max:80',
             'tipo_entrenamiento' => 'nullable|string|max:80',
             'instrucciones' => 'nullable|string',
-            'url_recurso' => ['nullable','url','max:2000', 'regex:/^https:\/\//i'],
+            'url_recurso' => ['nullable', 'url', 'max:2000', 'regex:/^https:\/\//i'],
             'activo' => 'boolean',
         ]);
 
-        $anterior = $id ? DB::table('entrenamiento.ejercicios')->where('id',$id)->first() : null;
-        if ($id) abort_unless($anterior,404);
-        if (!empty($datos['url_recurso'])) $datos['video_path'] = null;
+        $anterior = $id ? DB::table('entrenamiento.ejercicios')->where('id', $id)->first() : null;
+        if ($id) {
+            abort_unless($anterior, 404);
+        }
+        if (! empty($datos['url_recurso'])) {
+            $datos['video_path'] = null;
+        }
         $ejercicio = $this->entrenamiento->guardarEjercicio($datos, $id);
-        if ($anterior?->video_path && !empty($datos['url_recurso'])) {
+        if ($anterior?->video_path && ! empty($datos['url_recurso'])) {
             Storage::disk('public')->delete($anterior->video_path);
         }
+
         return ApiResponse::exito('Ejercicio guardado correctamente.', (array) $ejercicio, [], $id ? 200 : 201);
     }
 
@@ -48,20 +75,23 @@ class EntrenamientoControlador extends Controller
         $datos = $request->validate([
             'video' => 'required|file|mimes:mp4,webm,mov|max:51200',
         ]);
-        $ejercicio = DB::table('entrenamiento.ejercicios')->where('id',$id)->first();
-        abort_unless($ejercicio,404);
+        $ejercicio = DB::table('entrenamiento.ejercicios')->where('id', $id)->first();
+        abort_unless($ejercicio, 404);
         $ruta = $datos['video']->store('entrenamiento/ejercicios', 'public');
         try {
-            DB::table('entrenamiento.ejercicios')->where('id',$id)->update([
-                'video_path'=>$ruta, 'url_recurso'=>null, 'updated_at'=>now(),
+            DB::table('entrenamiento.ejercicios')->where('id', $id)->update([
+                'video_path' => $ruta, 'url_recurso' => null, 'updated_at' => now(),
             ]);
         } catch (\Throwable $e) {
             Storage::disk('public')->delete($ruta);
             throw $e;
         }
-        if ($ejercicio->video_path) Storage::disk('public')->delete($ejercicio->video_path);
+        if ($ejercicio->video_path) {
+            Storage::disk('public')->delete($ejercicio->video_path);
+        }
+
         return ApiResponse::exito('Video del ejercicio subido correctamente.', [
-            'video_url'=>Storage::disk('public')->url($ruta),
+            'video_url' => Storage::disk('public')->url($ruta),
         ]);
     }
 
@@ -131,13 +161,13 @@ class EntrenamientoControlador extends Controller
 
         if ($datos['tipo_registro'] === 'ESTIMADO') {
             if (empty($datos['repeticiones'])) {
-                throw \Illuminate\Validation\ValidationException::withMessages(['repeticiones' => 'Indica de 1 a 10 repeticiones para estimar la RM.']);
+                throw ValidationException::withMessages(['repeticiones' => 'Indica de 1 a 10 repeticiones para estimar la RM.']);
             }
             // Fórmula de Epley: aproximación para series submáximas (1 a 10 repeticiones).
             $datos['rm_estimado'] = round((float) $datos['peso'] * (1 + $datos['repeticiones'] / 30), 2);
         } else {
             if (isset($datos['repeticiones']) && $datos['repeticiones'] !== 1) {
-                throw \Illuminate\Validation\ValidationException::withMessages(['repeticiones' => 'La 1RM directa requiere una repetición.']);
+                throw ValidationException::withMessages(['repeticiones' => 'La 1RM directa requiere una repetición.']);
             }
             $datos['repeticiones'] = 1;
             $datos['rm_estimado'] = (float) $datos['peso'];
@@ -149,7 +179,7 @@ class EntrenamientoControlador extends Controller
     public function ultimosRm(Request $request)
     {
         $clienteId = (int) $request->query('cliente_id');
-        if (!$clienteId) {
+        if (! $clienteId) {
             return response()->json(['mensaje' => 'cliente_id es requerido'], 422);
         }
 
@@ -175,13 +205,6 @@ class EntrenamientoControlador extends Controller
         ]);
 
         return ApiResponse::exito('Progreso guardado correctamente.', (array) $this->entrenamiento->guardarProgreso($datos, $id), [], $id ? 200 : 201);
-    }
-
-    public function eliminarProgreso($id)
-    {
-        $this->entrenamiento->eliminarProgreso((int) $id);
-
-        return ApiResponse::exito('Registro de progreso eliminado correctamente.');
     }
 
     private function respuestaPaginada(string $mensaje, $paginador)

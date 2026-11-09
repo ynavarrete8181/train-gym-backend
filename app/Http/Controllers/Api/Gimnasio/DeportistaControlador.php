@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Gimnasio;
 
 use App\Http\Controllers\Controller;
 use App\Services\Gimnasio\DeportistaServicio;
+use App\Services\Gimnasio\TutorServicio;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +21,21 @@ class DeportistaControlador extends Controller
 
     public function index(Request $request)
     {
+        // Solo el directorio de Clientes pide tutores; los selectores de
+        // deportistas del resto del sistema nunca los reciben.
+        if ($request->boolean('incluir_tutores')) {
+            $directorio = app(TutorServicio::class)->directorio($request->all());
+            $paginador = $directorio['paginador'];
+
+            return ApiResponse::exito('Clientes consultados', $paginador->items(), [
+                'pagina_actual' => $paginador->currentPage(),
+                'por_pagina' => $paginador->perPage(),
+                'total' => $paginador->total(),
+                'ultima_pagina' => $paginador->lastPage(),
+                'opciones_filtro' => $directorio['opciones_filtro'],
+            ]);
+        }
+
         $porPagina = $request->input('per_page', 15);
         $pagina = $request->input('page', 1);
         $busqueda = $request->input('busqueda');
@@ -195,6 +211,7 @@ class DeportistaControlador extends Controller
             ->where('m.deportista_id', (int) $id)
             ->select(
                 'm.*',
+                DB::raw("(SELECT v.id IS NOT NULL AND v.estado <> 'ANULADA' FROM membresias.membresia_periodos mp LEFT JOIN ventas.ventas v ON v.id = mp.venta_id WHERE mp.membresia_id = m.id ORDER BY mp.numero_periodo DESC LIMIT 1) as uso_con_venta"),
                 'p.nombre as plan_nombre',
                 'p.requiere_entrenador',
                 'p.tipo_producto',
@@ -249,7 +266,33 @@ class DeportistaControlador extends Controller
                 'h.condiciones', 'h.motivo', 'h.registrado_at', 'autor.name as autor_nombre'])
             ->groupBy('membresia_id');
 
+        // La ficha integral debe entregar la misma configuración persistida que
+        // el detalle individual de Membresías. Sin estos datos la edición
+        // pierde sedes secundarias y no precarga el beneficio comercial.
+        $sedesAutorizadas = DB::table('membresias.membresia_sedes as ms')
+            ->join('institucional.sedes as s', 's.id_sede', '=', 'ms.sede_id')
+            ->whereIn('ms.membresia_id', $membresias->pluck('id')->all())
+            ->where('ms.activo', true)
+            ->orderByDesc('ms.es_principal')->orderBy('s.nombre')
+            ->get(['ms.membresia_id', 'ms.sede_id', 'ms.es_principal', 'ms.activo',
+                's.nombre as sede_nombre'])
+            ->groupBy('membresia_id');
+
+        $descuentosVigentes = DB::table('membresias.descuentos_deportistas')
+            ->where('deportista_id', (int) $id)
+            ->whereIn('plan_id', $membresias->pluck('plan_id')->unique()->all())
+            ->where('activo', true)
+            ->orderByDesc('fecha_inicio')->orderByDesc('id')
+            ->get(['id', 'plan_id', 'modalidad_id', 'tipo', 'valor', 'motivo',
+                'fecha_inicio', 'fecha_fin']);
+
         foreach ($membresias as $membresia) {
+            $membresia->sedes_habilitadas = $sedesAutorizadas
+                ->get($membresia->id, collect())->values();
+            $membresia->descuento_vigente = $descuentosVigentes->first(fn ($descuento) =>
+                (int) $descuento->plan_id === (int) $membresia->plan_id
+                && (int) ($descuento->modalidad_id ?? 0) === (int) ($membresia->modalidad_id ?? 0)
+            );
             $membresia->cuotas = $cuotas->get($membresia->id, collect())->values();
             $membresia->periodos = $periodos->get($membresia->id, collect())->values();
             $membresia->historial_condiciones = $historial->get($membresia->id, collect())
@@ -333,9 +376,11 @@ class DeportistaControlador extends Controller
             'observaciones_medicas' => 'nullable|string',
             'sede_principal_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
             'estado' => 'string|in:PROSPECTO,ACTIVO,INACTIVO,SUSPENDIDO',
+            'tipo_cliente' => 'nullable|string|in:DEPORTISTA,DEPORTISTA_TUTOR',
             'requiere_representante_legal' => 'boolean',
 
             'representante_legal' => 'nullable|array',
+            'representante_legal.persona_id' => 'nullable|integer|exists:pgsql.personas.personas,id',
             'representante_legal.tipo_identificacion' => 'nullable|string|max:30',
             'representante_legal.identificacion' => 'nullable|string|max:50',
             'representante_legal.nombres' => 'nullable|string|max:150',
@@ -369,14 +414,33 @@ class DeportistaControlador extends Controller
 
         $validados['requiere_representante_legal'] = (bool) ($validados['requiere_representante_legal'] ?? false);
 
+        $fechaNacimiento = $validados['persona']['fecha_nacimiento'] ?? null;
+        $esMenor = $fechaNacimiento && $fechaNacimiento > now('America/Guayaquil')->subYears(18)->toDateString();
+        if ($esMenor && ! $validados['requiere_representante_legal']) {
+            throw ValidationException::withMessages([
+                'representante_legal.persona_id' => 'El cliente es menor de edad: selecciona su tutor.',
+            ]);
+        }
+        if ($esMenor && ($validados['tipo_cliente'] ?? null) === 'DEPORTISTA_TUTOR') {
+            throw ValidationException::withMessages([
+                'tipo_cliente' => 'Un menor de edad no puede registrarse como tutor.',
+            ]);
+        }
+
+        if (($validados['tipo_cliente'] ?? null) === 'DEPORTISTA_TUTOR' && $validados['requiere_representante_legal']) {
+            throw ValidationException::withMessages([
+                'representante_legal.persona_id' => 'Un tutor no puede tener tutor.',
+            ]);
+        }
+
         if ($validados['requiere_representante_legal'] === true) {
             $representante = $validados['representante_legal'] ?? [];
             $nombre = trim((string) ($representante['nombres'] ?? ''));
             $apellidos = trim((string) ($representante['apellidos'] ?? ''));
 
-            if ($nombre === '' && $apellidos === '') {
+            if (empty($representante['persona_id']) && $nombre === '' && $apellidos === '') {
                 throw ValidationException::withMessages([
-                    'representante_legal.nombres' => 'Ingresa los nombres o apellidos del representante legal.',
+                    'representante_legal.persona_id' => 'Selecciona el tutor del cliente.',
                 ]);
             }
         } else {

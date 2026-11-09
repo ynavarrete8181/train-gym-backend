@@ -2,11 +2,16 @@
 
 namespace App\Services\Ventas\Reportes;
 
+use App\Support\FechaNegocio;
 use App\Services\Seguridad\AlcanceOperativoService;
 use Illuminate\Support\Facades\DB;
 
 class MembresiasNuevasRenovacionesServicio
 {
+    use FiltraColumnasReporte;
+
+    private const COLUMNAS = ['fecha_movimiento', 'codigo_contrato', 'cliente', 'plan', 'modalidad', 'numero_periodo', 'precio', 'total_cobrado', 'saldo_pendiente'];
+
     public function __construct(private readonly AlcanceOperativoService $alcance)
     {
     }
@@ -22,10 +27,10 @@ class MembresiasNuevasRenovacionesServicio
             ->all();
         $sedes = $sedesSolicitadas ?: $sedesPermitidas;
 
-        $desde = $filtros['desde'] ?? now()->startOfMonth()->toDateString();
-        $hasta = $filtros['hasta'] ?? now()->toDateString();
+        $desde = $filtros['desde'] ?? now('America/Guayaquil')->startOfMonth()->toDateString();
+        $hasta = $filtros['hasta'] ?? now('America/Guayaquil')->toDateString();
 
-        $fechaMovimientoSql = 'COALESCE(DATE(mp.generado_at), DATE(mp.created_at), mp.fecha_inicio)';
+        $fechaMovimientoSql = 'COALESCE('.FechaNegocio::diaSql('mp.generado_at').', '.FechaNegocio::diaSql('mp.created_at').', mp.fecha_inicio)';
         $pagadoSql = "(SELECT COALESCE(SUM(pg.monto), 0) FROM ventas.pagos pg WHERE pg.venta_id = mp.venta_id AND pg.estado = 'CONFIRMADO')";
         $saldoSql = "GREATEST(COALESCE(v.total, mp.precio, 0) - {$pagadoSql}, 0)";
         $tipoMovimientoSql = "CASE WHEN mp.numero_periodo = 1 THEN 'NUEVA' ELSE 'RENOVACION' END";
@@ -41,6 +46,8 @@ class MembresiasNuevasRenovacionesServicio
             ->leftJoin('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
             ->whereBetween(DB::raw($fechaMovimientoSql), [$desde, $hasta])
             ->whereIn('m.sede_id', $sedes)
+            // El pase se vende cada día: no es una renovación ni un contrato por vencer.
+            ->whereRaw("COALESCE(plan.tipo_producto, 'MEMBRESIA') <> 'PASE_DIARIO'")
             ->selectRaw("mp.id, {$fechaMovimientoSql} as fecha_movimiento")
             ->selectRaw("{$tipoMovimientoSql} as tipo_movimiento")
             ->addSelect(
@@ -57,7 +64,7 @@ class MembresiasNuevasRenovacionesServicio
             )
             ->selectRaw("COALESCE(s.nombre, 'Sin sede') as sede")
             ->selectRaw("COALESCE(NULLIF(TRIM(persona.nombre_completo), ''), NULLIF(TRIM(cliente_user.name), ''), 'Cliente sin nombre') as cliente")
-            ->selectRaw("COALESCE(NULLIF(TRIM(persona.identificacion), ''), NULLIF(TRIM(cliente_user.cedula), '') as identificacion")
+            ->selectRaw("COALESCE(NULLIF(TRIM(persona.identificacion), ''), NULLIF(TRIM(cliente_user.cedula), '')) as identificacion")
             ->selectRaw('plan.nombre as plan')
             ->selectRaw("COALESCE(modalidad.nombre, 'Sin modalidad') as modalidad")
             ->selectRaw("{$pagadoSql} as total_cobrado")
@@ -74,41 +81,9 @@ class MembresiasNuevasRenovacionesServicio
             });
         }
 
-        if (! empty($filtros['fecha_movimiento'])) {
-            $valor = '%' . trim((string) $filtros['fecha_movimiento']) . '%';
-            $query->where(function ($q) use ($valor, $fechaMovimientoSql): void {
-                $q->whereRaw("CAST({$fechaMovimientoSql} AS TEXT) LIKE ?", [$valor])
-                    ->orWhereRaw("TO_CHAR({$fechaMovimientoSql}, 'DD/MM/YYYY') LIKE ?", [$valor]);
-            });
-        }
-
         if (! empty($filtros['tipo_movimiento'])) {
             $valores = is_array($filtros['tipo_movimiento']) ? $filtros['tipo_movimiento'] : [$filtros['tipo_movimiento']];
             $query->whereIn(DB::raw($tipoMovimientoSql), array_filter($valores));
-        }
-
-        if (! empty($filtros['codigo_contrato'])) {
-            $query->whereRaw('LOWER(m.codigo_contrato) LIKE ?', ['%' . mb_strtolower((string) $filtros['codigo_contrato']) . '%']);
-        }
-
-        if (! empty($filtros['cliente'])) {
-            $texto = '%' . mb_strtolower((string) $filtros['cliente']) . '%';
-            $query->where(function ($q) use ($texto): void {
-                $q->whereRaw("LOWER(COALESCE(persona.nombre_completo, cliente_user.name, '')) LIKE ?", [$texto])
-                    ->orWhereRaw("LOWER(COALESCE(persona.identificacion, cliente_user.cedula, '')) LIKE ?", [$texto]);
-            });
-        }
-
-        if (! empty($filtros['plan'])) {
-            $query->whereRaw('LOWER(plan.nombre) LIKE ?', ['%' . mb_strtolower((string) $filtros['plan']) . '%']);
-        }
-
-        if (! empty($filtros['modalidad'])) {
-            $query->whereRaw("LOWER(COALESCE(modalidad.nombre, 'Sin modalidad')) LIKE ?", ['%' . mb_strtolower((string) $filtros['modalidad']) . '%']);
-        }
-
-        if (! empty($filtros['numero_periodo'])) {
-            $query->whereRaw('CAST(mp.numero_periodo AS TEXT) LIKE ?', ['%' . trim((string) $filtros['numero_periodo']) . '%']);
         }
 
         if (! empty($filtros['estado_periodo'])) {
@@ -116,20 +91,9 @@ class MembresiasNuevasRenovacionesServicio
             $query->whereIn('mp.estado', array_filter($valores));
         }
 
-        if (! empty($filtros['precio'])) {
-            $query->whereRaw('CAST(mp.precio AS TEXT) LIKE ?', ['%' . trim((string) $filtros['precio']) . '%']);
-        }
+        [$reporte, $opcionesFiltro] = $this->filtrarColumnas($query, $filtros, self::COLUMNAS);
 
-        if (! empty($filtros['cobrado'])) {
-            $query->whereRaw("CAST({$pagadoSql} AS TEXT) LIKE ?", ['%' . trim((string) $filtros['cobrado']) . '%']);
-        }
-
-        if (! empty($filtros['saldo'])) {
-            $query->whereRaw("CAST({$saldoSql} AS TEXT) LIKE ?", ['%' . trim((string) $filtros['saldo']) . '%']);
-        }
-
-        $resumen = DB::query()
-            ->fromSub(clone $query, 'reporte')
+        $resumen = (clone $reporte)
             ->selectRaw("SUM(CASE WHEN tipo_movimiento = 'NUEVA' THEN 1 ELSE 0 END) as nuevas")
             ->selectRaw("SUM(CASE WHEN tipo_movimiento = 'RENOVACION' THEN 1 ELSE 0 END) as renovaciones")
             ->selectRaw('COUNT(*) as total_periodos')
@@ -138,9 +102,9 @@ class MembresiasNuevasRenovacionesServicio
             ->selectRaw('COALESCE(SUM(saldo_pendiente), 0) as saldo_pendiente')
             ->first();
 
-        $paginador = $query
-            ->orderByDesc(DB::raw($fechaMovimientoSql))
-            ->orderByDesc('mp.id')
+        $paginador = $reporte
+            ->orderByDesc('fecha_movimiento')
+            ->orderByDesc('id')
             ->paginate($filtros['per_page'] ?? 10, ['*'], 'page', $filtros['page'] ?? 1);
 
         return [
@@ -159,6 +123,7 @@ class MembresiasNuevasRenovacionesServicio
                     'total_cobrado' => round((float) ($resumen->total_cobrado ?? 0), 2),
                     'saldo_pendiente' => round((float) ($resumen->saldo_pendiente ?? 0), 2),
                 ],
+                'opciones_filtro' => $opcionesFiltro,
                 'catalogos' => [
                     'sedes' => DB::table('institucional.sedes')
                         ->whereIn('id_sede', $sedesPermitidas)

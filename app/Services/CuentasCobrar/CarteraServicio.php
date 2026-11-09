@@ -555,7 +555,7 @@ class CarteraServicio
         DB::table('cuentas_cobrar.compromisos_pago')
             ->where('cuenta_id', $cuentaId)
             ->where('estado', 'PENDIENTE')
-            ->whereDate('fecha_compromiso', '<=', now()->toDateString())
+            ->whereDate('fecha_compromiso', '<=', now('America/Guayaquil')->toDateString())
             ->update([
                 'estado' => 'CUMPLIDO',
                 'pago_id' => $ultimoPagoId,

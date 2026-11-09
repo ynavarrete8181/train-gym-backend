@@ -16,6 +16,10 @@ class MembresiaControlador extends Controller
     public function __construct(
         protected MembresiaServicio $membresiaServicio,
         protected \App\Services\Gimnasio\ContratoCuotasServicio $contratoCuotas,
+        protected \App\Services\Gimnasio\RenovacionContratoProgramadoServicio $renovacionProgramada,
+        protected \App\Services\Gimnasio\HistorialIntegralMembresiaServicio $historialIntegral,
+        protected \App\Services\Gimnasio\ExpedienteMembresiaServicio $expedienteServicio,
+        protected \App\Services\Seguridad\AlcanceOperativoService $alcanceOperativo,
         protected VentaServicio $ventaServicio,
         protected \App\Services\Gimnasio\DescuentoDeportistaServicio $descuentos,
     ) {
@@ -107,6 +111,7 @@ class MembresiaControlador extends Controller
             'asignaciones_entrenador.*.entrenador_id' => 'required|integer|exists:pgsql.entrenamiento.entrenadores,id',
             'asignaciones_entrenador.*.horario_bloque_id' => 'required|integer|exists:pgsql.agenda.horario_bloques,id',
             'fecha_inicio' => 'required|date',
+            'vigencia_fin' => 'nullable|date',
             'cantidad_periodos_contratados' => 'sometimes|integer|min:1|max:36',
             'fecha_primer_pago' => 'nullable|date',
             // Contratos nuevos pueden enviar solo dia_pago. Las integraciones
@@ -125,6 +130,15 @@ class MembresiaControlador extends Controller
             'descuento.fecha_fin' => 'nullable|date|after_or_equal:descuento.fecha_inicio',
         ]);
 
+        // El pase necesita fecha de fin; la venta directa desde caja no pasa por aquí.
+        if (empty($validados['vigencia_fin'])
+            && DB::table('membresias.planes')->where('id', $validados['plan_id'])->value('tipo_producto') === 'PASE_DIARIO') {
+            throw ValidationException::withMessages(['vigencia_fin' => 'Indica la fecha de fin de la vigencia del pase.']);
+        }
+        if (! empty($validados['vigencia_fin']) && $validados['vigencia_fin'] < $validados['fecha_inicio']) {
+            throw ValidationException::withMessages(['vigencia_fin' => 'La fecha de fin no puede ser anterior a la fecha de inicio.']);
+        }
+
         $validados['sede_id'] = (int) collect($validados['sedes_habilitadas'])->first();
         $this->validarDeportistaActual((int) $validados['deportista_id']);
         $this->validarConfiguracionMembresia(
@@ -134,8 +148,7 @@ class MembresiaControlador extends Controller
             $validados['sedes_habilitadas'],
             $validados['asignaciones_entrenador'] ?? [],
             isset($validados['modalidad_id']) ? (int) $validados['modalidad_id'] : null,
-            true,
-            false // La ficha inicial se completa después; no bloquea la contratación.
+            true
         );
         $planConfigurado = DB::table('membresias.planes')->where('id', $validados['plan_id'])->first();
         $duplicada = DB::table('membresias.membresias')
@@ -204,7 +217,7 @@ class MembresiaControlador extends Controller
                 $beneficio = $this->descuentos->resolver(
                     (int) $membresia->deportista_id, (int) $membresia->plan_id,
                     $membresia->modalidad_id ? (int) $membresia->modalidad_id : null,
-                    now()->toDateString(), (float) $membresia->precio_aplicado
+                    now('America/Guayaquil')->toDateString(), (float) $membresia->precio_aplicado
                 );
                 $venta = $this->ventaServicio->guardarVenta([
                     'cliente_id' => $membresia->deportista_id,
@@ -273,6 +286,49 @@ class MembresiaControlador extends Controller
         );
     }
 
+    public function historialIntegral(Request $request, int $id)
+    {
+        // Historial de solo lectura: permiso de membresías validado por la ruta.
+        // Renovaciones y demás cambios continúan sujetos al alcance de sede.
+        return ApiResponse::exito(
+            'Historial integral del contrato.',
+            $this->historialIntegral->consultar($id)
+        );
+    }
+
+    public function expediente(Request $request, int $id)
+    {
+        $this->validarAlcanceRenovacion($request, $id);
+        return ApiResponse::exito('Expediente integral del contrato.',
+            $this->expedienteServicio->consultar($id));
+    }
+
+    private function validarAlcanceRenovacion(Request $request, int $id): void
+    {
+        $usuarioId = (int) $request->user()->id;
+        $sedeId = $this->alcanceOperativo->sedeDeMembresia($id);
+        if (! $sedeId || ! in_array($sedeId, $this->alcanceOperativo->sedesPermitidas($usuarioId), true)) {
+            throw ValidationException::withMessages([
+                'sede_id' => 'No tienes acceso operativo a la sede del contrato para renovar.',
+            ]);
+        }
+        $this->alcanceOperativo->validarSede($usuarioId, $sedeId);
+    }
+
+    public function previsualizarRenovacionProgramada(Request $request, int $id)
+    {
+        $this->validarAlcanceRenovacion($request, $id);
+        return ApiResponse::exito('Vista previa de renovación del contrato.',
+            $this->renovacionProgramada->previsualizar($id));
+    }
+
+    public function registrarRenovacionProgramada(Request $request, int $id)
+    {
+        $this->validarAlcanceRenovacion($request, $id);
+        return ApiResponse::exito('Período y cuota nuevos registrados en el contrato original.',
+            $this->renovacionProgramada->registrar($id, (int) $request->user()->id));
+    }
+
     public function renovar(Request $request, int $id)
     {
         $membresia = DB::table('membresias.membresias')->where('id', $id)->first();
@@ -323,7 +379,7 @@ class MembresiaControlador extends Controller
                 $beneficio = $this->descuentos->resolver(
                     (int) $membresiaActualizada->deportista_id, (int) $membresiaActualizada->plan_id,
                     $membresiaActualizada->modalidad_id ? (int) $membresiaActualizada->modalidad_id : null,
-                    now()->toDateString(), (float) $periodo->precio
+                    now('America/Guayaquil')->toDateString(), (float) $periodo->precio
                 );
                 $venta = $this->ventaServicio->guardarVenta([
                     'cliente_id' => $membresiaActualizada->deportista_id,
@@ -395,6 +451,21 @@ class MembresiaControlador extends Controller
             $request->merge(['estado' => strtoupper((string) $request->input('estado'))]);
         }
 
+        // La edición administrativa nunca debe simular una congelación o reactivación.
+        // Ambas operaciones requieren movimiento, suspensión y trazabilidad transaccional.
+        $estadoSolicitado = strtoupper((string) $request->input('estado', $membresia->estado));
+        $estadoActual = strtoupper((string) $membresia->estado);
+        if ($estadoSolicitado !== $estadoActual) {
+            throw ValidationException::withMessages([
+                'estado' => 'El estado contractual no se edita directamente. Utiliza Gestión del ciclo de vida, pagos, renovación o cancelación según corresponda.',
+            ]);
+        }
+        if ($request->filled('fecha_congelacion_inicio') || $request->filled('fecha_congelacion_fin')) {
+            throw ValidationException::withMessages([
+                'fecha_congelacion_inicio' => 'La congelación se realiza en Gestión del ciclo de vida, no mediante edición administrativa.',
+            ]);
+        }
+
         $validados = $request->validate([
             'sede_id' => 'nullable|exists:pgsql.institucional.sedes,id_sede',
             'modalidad_id' => 'nullable|integer|exists:pgsql.membresias.plan_modalidades,id',
@@ -462,8 +533,7 @@ class MembresiaControlador extends Controller
             $validados['sedes_habilitadas'],
             $validados['asignaciones_entrenador'] ?? [],
             $modalidadValidacion,
-            false,
-            false // La ficha inicial se exige al contratar, no al editar el contrato existente.
+            false
         );
 
         $membresiaActualizada = DB::transaction(function () use ($id, $validados, $generarVenta, $request, $membresia) {
@@ -684,14 +754,6 @@ class MembresiaControlador extends Controller
         return (bool) ($plan->generar_venta ?? false) && (bool) ($plan->requiere_pago ?? true);
     }
 
-    public function destroy($id)
-    {
-        $membresia = DB::table('membresias.membresias')->where('id', $id)->first();
-        if (!$membresia) return response()->json(['mensaje' => 'Membresía no encontrada'], 404);
-        $this->membresiaServicio->eliminar((int) $id);
-        return ApiResponse::exito('Membresía eliminada correctamente.');
-    }
-
     private function validarConfiguracionMembresia(
         int $planId,
         int $deportistaId,
@@ -699,8 +761,7 @@ class MembresiaControlador extends Controller
         array $sedesHabilitadas,
         array $asignaciones,
         ?int $modalidadId = null,
-        bool $exigirModalidad = true,
-        bool $exigirFichaInicial = true
+        bool $exigirModalidad = true
     ): void
     {
         $sedes = collect($sedesHabilitadas)->map(fn ($id) => (int) $id)->unique()->values();
@@ -714,12 +775,6 @@ class MembresiaControlador extends Controller
         $plan = DB::table('membresias.planes')->where('id', $planId)->first();
         if (! $plan) {
             throw ValidationException::withMessages(['plan_id' => 'El plan seleccionado no existe.']);
-        }
-
-        if ($exigirFichaInicial && ($plan->requiere_ficha_inicial ?? false) && ! DB::table('clientes.fichas_iniciales')->where('deportista_id', $deportistaId)->exists()) {
-            throw ValidationException::withMessages([
-                'deportista_id' => 'Completa la ficha inicial del cliente antes de asignar este plan.',
-            ]);
         }
 
         if ($plan->requiere_modalidades ?? false) {

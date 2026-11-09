@@ -7,6 +7,10 @@ use Illuminate\Support\Facades\DB;
 
 class MembresiasPorVencerServicio
 {
+    use FiltraColumnasReporte;
+
+    private const COLUMNAS = ['codigo_contrato', 'cliente', 'plan', 'modalidad', 'numero_periodo', 'fecha_fin', 'dias_restantes', 'saldo_pendiente'];
+
     public function __construct(private readonly AlcanceOperativoService $alcance)
     {
     }
@@ -22,8 +26,8 @@ class MembresiasPorVencerServicio
             ->all();
         $sedes = $sedesSolicitadas ?: $sedesPermitidas;
 
-        $venceDesde = $filtros['vence_desde'] ?? now()->toDateString();
-        $venceHasta = $filtros['vence_hasta'] ?? now()->addDays(30)->toDateString();
+        $venceDesde = $filtros['vence_desde'] ?? now('America/Guayaquil')->toDateString();
+        $venceHasta = $filtros['vence_hasta'] ?? now('America/Guayaquil')->addDays(30)->toDateString();
 
         $pagadoSql = "(SELECT COALESCE(SUM(pg.monto), 0) FROM ventas.pagos pg WHERE pg.venta_id = mp.venta_id AND pg.estado = 'CONFIRMADO')";
         $saldoSql = "GREATEST(COALESCE(v.total, mp.precio, 0) - {$pagadoSql}, 0)";
@@ -39,6 +43,8 @@ class MembresiasPorVencerServicio
             ->leftJoin('institucional.sedes as s', 's.id_sede', '=', 'm.sede_id')
             ->leftJoin('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
             ->whereIn('m.sede_id', $sedes)
+            // El pase se vende cada día: no es una renovación ni un contrato por vencer.
+            ->whereRaw("COALESCE(plan.tipo_producto, 'MEMBRESIA') <> 'PASE_DIARIO'")
             ->whereBetween('mp.fecha_fin', [$venceDesde, $venceHasta])
             ->whereNotExists(function ($sub): void {
                 $sub->selectRaw('1')
@@ -49,7 +55,7 @@ class MembresiasPorVencerServicio
             ->whereNotIn(DB::raw("UPPER(COALESCE(m.estado, ''))"), ['ANULADA', 'CANCELADA', 'FINALIZADA'])
             ->selectRaw("mp.id, m.id as membresia_id, m.codigo_contrato, COALESCE(s.nombre, 'Sin sede') as sede")
             ->selectRaw("COALESCE(NULLIF(TRIM(persona.nombre_completo), ''), NULLIF(TRIM(cliente_user.name), ''), 'Cliente sin nombre') as cliente")
-            ->selectRaw("COALESCE(NULLIF(TRIM(persona.identificacion), ''), NULLIF(TRIM(cliente_user.cedula), '') as identificacion")
+            ->selectRaw("COALESCE(NULLIF(TRIM(persona.identificacion), ''), NULLIF(TRIM(cliente_user.cedula), '')) as identificacion")
             ->selectRaw('plan.nombre as plan, plan.renovable')
             ->selectRaw("COALESCE(modalidad.nombre, 'Sin modalidad') as modalidad")
             ->addSelect(
@@ -76,42 +82,6 @@ class MembresiasPorVencerServicio
             });
         }
 
-        if (! empty($filtros['codigo_contrato'])) {
-            $query->whereRaw('LOWER(m.codigo_contrato) LIKE ?', ['%' . mb_strtolower((string) $filtros['codigo_contrato']) . '%']);
-        }
-
-        if (! empty($filtros['cliente'])) {
-            $texto = '%' . mb_strtolower((string) $filtros['cliente']) . '%';
-            $query->where(function ($q) use ($texto): void {
-                $q->whereRaw("LOWER(COALESCE(persona.nombre_completo, cliente_user.name, '')) LIKE ?", [$texto])
-                    ->orWhereRaw("LOWER(COALESCE(persona.identificacion, cliente_user.cedula, '')) LIKE ?", [$texto]);
-            });
-        }
-
-        if (! empty($filtros['plan'])) {
-            $query->whereRaw('LOWER(plan.nombre) LIKE ?', ['%' . mb_strtolower((string) $filtros['plan']) . '%']);
-        }
-
-        if (! empty($filtros['modalidad'])) {
-            $query->whereRaw("LOWER(COALESCE(modalidad.nombre, 'Sin modalidad')) LIKE ?", ['%' . mb_strtolower((string) $filtros['modalidad']) . '%']);
-        }
-
-        if (! empty($filtros['numero_periodo'])) {
-            $query->whereRaw('CAST(mp.numero_periodo AS TEXT) LIKE ?', ['%' . trim((string) $filtros['numero_periodo']) . '%']);
-        }
-
-        if (! empty($filtros['fecha_fin'])) {
-            $valor = '%' . trim((string) $filtros['fecha_fin']) . '%';
-            $query->where(function ($q) use ($valor): void {
-                $q->whereRaw('CAST(mp.fecha_fin AS TEXT) LIKE ?', [$valor])
-                    ->orWhereRaw("TO_CHAR(mp.fecha_fin, 'DD/MM/YYYY') LIKE ?", [$valor]);
-            });
-        }
-
-        if (! empty($filtros['dias_restantes'])) {
-            $query->whereRaw("CAST({$diasRestantesSql} AS TEXT) LIKE ?", ['%' . trim((string) $filtros['dias_restantes']) . '%']);
-        }
-
         if (! empty($filtros['renovable'])) {
             $valores = collect(is_array($filtros['renovable']) ? $filtros['renovable'] : [$filtros['renovable']])
                 ->map(fn ($valor) => filter_var($valor, FILTER_VALIDATE_BOOLEAN))
@@ -125,12 +95,9 @@ class MembresiasPorVencerServicio
             $query->whereIn('mp.estado', array_filter($valores));
         }
 
-        if (! empty($filtros['saldo'])) {
-            $query->whereRaw("CAST({$saldoSql} AS TEXT) LIKE ?", ['%' . trim((string) $filtros['saldo']) . '%']);
-        }
+        [$reporte, $opcionesFiltro] = $this->filtrarColumnas($query, $filtros, self::COLUMNAS);
 
-        $resumen = DB::query()
-            ->fromSub(clone $query, 'reporte')
+        $resumen = (clone $reporte)
             ->selectRaw('COUNT(*) as total_por_vencer')
             ->selectRaw('SUM(CASE WHEN dias_restantes BETWEEN 0 AND 7 THEN 1 ELSE 0 END) as vence_7_dias')
             ->selectRaw('SUM(CASE WHEN dias_restantes BETWEEN 0 AND 15 THEN 1 ELSE 0 END) as vence_15_dias')
@@ -138,8 +105,8 @@ class MembresiasPorVencerServicio
             ->selectRaw('COALESCE(SUM(saldo_pendiente), 0) as saldo_pendiente')
             ->first();
 
-        $paginador = $query
-            ->orderBy('mp.fecha_fin')
+        $paginador = $reporte
+            ->orderBy('fecha_fin')
             ->orderBy('cliente')
             ->paginate($filtros['per_page'] ?? 10, ['*'], 'page', $filtros['page'] ?? 1);
 
@@ -161,6 +128,7 @@ class MembresiasPorVencerServicio
                     'renovables' => (int) ($resumen->renovables ?? 0),
                     'saldo_pendiente' => round((float) ($resumen->saldo_pendiente ?? 0), 2),
                 ],
+                'opciones_filtro' => $opcionesFiltro,
                 'catalogos' => [
                     'sedes' => DB::table('institucional.sedes')
                         ->whereIn('id_sede', $sedesPermitidas)

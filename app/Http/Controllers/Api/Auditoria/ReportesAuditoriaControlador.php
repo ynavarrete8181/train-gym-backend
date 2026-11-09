@@ -42,6 +42,9 @@ class ReportesAuditoriaControlador extends Controller
             'busqueda' => 'nullable|string|max:160',
             'desde' => 'nullable|date',
             'hasta' => 'nullable|date|after_or_equal:desde',
+            'columnas' => 'nullable|array',
+            'columnas.*' => 'nullable|array',
+            'columnas.*.*' => 'nullable|string|max:500',
         ];
 
         if ($paginado) {

@@ -116,7 +116,7 @@ class InventarioServicio
                         $this->sincronizarEstadoLote((int) $lote['id']);
                         $idsConservados[] = (int) $lote['id'];
                     } else {
-                        $payload['fecha_ingreso_inventario'] = now()->toDateString();
+                        $payload['fecha_ingreso_inventario'] = now('America/Guayaquil')->toDateString();
                         $payload['estado_id'] = $this->estadoLoteId($payload['fecha_vencimiento'] ?? null, (float) ($payload['stock_actual'] ?? 0));
                         $payload['created_at'] = now();
                         $idsConservados[] = DB::table('inventario.lotes_producto')->insertGetId($payload);
@@ -150,14 +150,15 @@ class InventarioServicio
             ->leftJoin('institucional.sedes', 'inventario.movimientos.sede_id', '=', 'institucional.sedes.id_sede')
             ->leftJoin('seguridad.users', 'inventario.movimientos.usuario_id', '=', 'seguridad.users.id')
             ->leftJoin('configuracion.estados_catalogo as estado_mov', 'estado_mov.id', '=', 'inventario.movimientos.estado_id')
-            ->select('inventario.movimientos.*', 'inventario.productos.codigo as producto_codigo', 'inventario.productos.nombre as producto_nombre', 'institucional.sedes.nombre as sede_nombre', 'seguridad.users.name as usuario_nombre', 'estado_mov.valor_interno as estado_valor', 'estado_mov.nombre as estado_nombre', 'estado_mov.color as estado_color');
+            ->leftJoin('ventas.ventas as venta_mov', 'venta_mov.id', '=', 'inventario.movimientos.venta_id')
+            ->select('inventario.movimientos.*', 'venta_mov.numero as venta_numero', 'venta_mov.estado as venta_estado', 'inventario.productos.codigo as producto_codigo', 'inventario.productos.nombre as producto_nombre', 'institucional.sedes.nombre as sede_nombre', 'seguridad.users.name as usuario_nombre', 'estado_mov.valor_interno as estado_valor', 'estado_mov.nombre as estado_nombre', 'estado_mov.color as estado_color');
 
-        $this->buscar($query, $filtros['busqueda'] ?? null, ['inventario.productos.codigo', 'inventario.productos.nombre', 'inventario.movimientos.tipo_movimiento', 'inventario.movimientos.referencia']);
+        $this->buscar($query, $filtros['busqueda'] ?? null, ['inventario.productos.codigo', 'inventario.productos.nombre', 'inventario.movimientos.tipo_movimiento', 'inventario.movimientos.referencia', 'venta_mov.numero']);
         $this->filtrarTexto($query, 'inventario.productos.nombre', $filtros['producto'] ?? null);
         $this->filtrarTexto($query, 'inventario.movimientos.tipo_movimiento', $filtros['tipo'] ?? null);
         $this->filtrarTexto($query, 'institucional.sedes.nombre', $filtros['sede'] ?? null);
 
-        return $query->orderByDesc('inventario.movimientos.fecha_movimiento')->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
+        return $query->orderByDesc('inventario.movimientos.fecha_movimiento')->orderByDesc('inventario.movimientos.id')->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
     }
 
     public function guardarMovimiento(array $datos, ?int $usuarioId = null): object
@@ -234,7 +235,7 @@ class InventarioServicio
                         ->where('estado_id', $estadoDisponibleId)
                         ->where('stock_actual', '>', 0)
                         ->where(function ($q): void {
-                            $q->whereNull('fecha_vencimiento')->orWhereDate('fecha_vencimiento', '>=', now()->toDateString());
+                            $q->whereNull('fecha_vencimiento')->orWhereDate('fecha_vencimiento', '>=', now('America/Guayaquil')->toDateString());
                         })
                         ->orderByRaw('fecha_vencimiento asc nulls last')
                         ->orderBy('fecha_ingreso_inventario')
@@ -267,6 +268,23 @@ class InventarioServicio
                         throw new \InvalidArgumentException('No existe stock suficiente en los lotes activos de la sede.');
                     }
 
+                    $loteId = $asignacionesLote[0]['lote_id'] ?? null;
+                } elseif (! empty($datos['lotes_reverso'])) {
+                    // Reverso: vuelve a los mismos lotes de la salida original, aunque hoy estén vencidos o agotados.
+                    foreach ($datos['lotes_reverso'] as $asignacion) {
+                        $lote = DB::table('inventario.lotes_producto')
+                            ->where('id', $asignacion['lote_id'])->where('producto_id', $producto->id)->where('sede_id', $sedeId)
+                            ->lockForUpdate()->first();
+                        if (! $lote) {
+                            throw new \InvalidArgumentException('El lote de la salida original ya no existe para este producto y sede.');
+                        }
+                        DB::table('inventario.lotes_producto')->where('id', $lote->id)->update([
+                            'stock_actual' => (float) $lote->stock_actual + (float) $asignacion['cantidad'],
+                            'updated_at' => now(),
+                        ]);
+                        $this->sincronizarEstadoLote((int) $lote->id);
+                        $asignacionesLote[] = ['lote_id' => (int) $lote->id, 'cantidad' => (float) $asignacion['cantidad']];
+                    }
                     $loteId = $asignacionesLote[0]['lote_id'] ?? null;
                 } else {
                     if (! $loteId) {
@@ -332,27 +350,91 @@ class InventarioServicio
         });
     }
 
-    public function registrarSalidaVenta(int $productoId, int $sedeId, float $cantidad, int $ventaId, ?int $usuarioId = null): object
-    {
-        $existente = DB::table('inventario.movimientos')
-            ->where('venta_id', $ventaId)
-            ->where('producto_id', $productoId)
-            ->where('tipo_movimiento', 'SALIDA')
-            ->first();
+    /** Movimientos que devuelven al stock lo que salió por una venta. */
+    public const REVERSOS_VENTA = ['REVERSO_VENTA', 'REVERSO_ANULACION'];
 
-        if ($existente) {
-            return $this->obtenerMovimiento((int) $existente->id);
+    /**
+     * Cantidad que una venta tiene descontada hoy de un producto, en total y por lote
+     * (salidas menos reversos), en el orden en que se tomó de cada lote.
+     */
+    public function netoVenta(int $ventaId, int $productoId): array
+    {
+        $movimientos = DB::table('inventario.movimientos')
+            ->where('venta_id', $ventaId)->where('producto_id', $productoId)
+            ->whereIn('tipo_movimiento', array_merge(['SALIDA'], self::REVERSOS_VENTA))
+            ->orderBy('id')->get(['id', 'tipo_movimiento', 'cantidad', 'sede_id']);
+
+        $total = 0.0;
+        $lotes = [];
+        foreach ($movimientos as $movimiento) {
+            $signo = $movimiento->tipo_movimiento === 'SALIDA' ? 1 : -1;
+            $total += $signo * (float) $movimiento->cantidad;
+            foreach (DB::table('inventario.movimiento_lotes')->where('movimiento_id', $movimiento->id)->orderBy('id')->get(['lote_id', 'cantidad']) as $lote) {
+                $lotes[(int) $lote->lote_id] = ($lotes[(int) $lote->lote_id] ?? 0) + $signo * (float) $lote->cantidad;
+            }
+        }
+
+        return [
+            'total' => round($total, 2),
+            'lotes' => array_filter($lotes, fn ($cantidad) => $cantidad > 0.00001),
+            'sede_id' => $movimientos->first()?->sede_id,
+        ];
+    }
+
+    /**
+     * Deja descontada de una venta exactamente la cantidad indicada de un producto:
+     * si falta, registra una SALIDA (por FEFO); si sobra, devuelve a los mismos lotes
+     * con el tipo de reverso indicado (REVERSO_VENTA al editar, REVERSO_ANULACION al anular).
+     */
+    public function ajustarVenta(int $ventaId, int $productoId, ?int $sedeId, float $deseado, ?int $usuarioId, string $tipoReverso, string $detalle): ?object
+    {
+        $neto = $this->netoVenta($ventaId, $productoId);
+        $diferencia = round($deseado - $neto['total'], 2);
+        if (abs($diferencia) < 0.00001) {
+            return null;
+        }
+
+        if ($diferencia > 0) {
+            return $this->guardarMovimiento([
+                'producto_id' => $productoId,
+                'venta_id' => $ventaId,
+                'sede_id' => $sedeId,
+                'tipo_movimiento' => 'SALIDA',
+                'cantidad' => $diferencia,
+                'referencia' => 'VENTA-'.$ventaId,
+                'observaciones' => $detalle,
+            ], $usuarioId);
+        }
+
+        // Devuelve primero a los últimos lotes tomados.
+        $pendiente = -$diferencia;
+        $lotes = [];
+        foreach (array_reverse($neto['lotes'], true) as $loteId => $cantidad) {
+            if ($pendiente <= 0.00001) {
+                break;
+            }
+            $devolver = min($cantidad, $pendiente);
+            $lotes[] = ['lote_id' => $loteId, 'cantidad' => round($devolver, 2)];
+            $pendiente -= $devolver;
         }
 
         return $this->guardarMovimiento([
             'producto_id' => $productoId,
             'venta_id' => $ventaId,
-            'sede_id' => $sedeId,
-            'tipo_movimiento' => 'SALIDA',
-            'cantidad' => $cantidad,
-            'referencia' => 'VENTA-' . $ventaId,
-            'observaciones' => 'Salida automática por venta pagada #' . $ventaId . '.',
+            'sede_id' => $neto['sede_id'] ?? $sedeId,
+            'tipo_movimiento' => $tipoReverso,
+            'cantidad' => -$diferencia,
+            'lotes_reverso' => $lotes,
+            'referencia' => 'VENTA-'.$ventaId,
+            'observaciones' => $detalle,
         ], $usuarioId);
+    }
+
+    /** Productos con stock descontado por una venta. */
+    public function productosDescontadosVenta(int $ventaId): array
+    {
+        return DB::table('inventario.movimientos')->where('venta_id', $ventaId)->where('tipo_movimiento', 'SALIDA')
+            ->distinct()->pluck('producto_id')->map(fn ($id) => (int) $id)->all();
     }
 
     public function catalogos(): array
@@ -485,7 +567,8 @@ class InventarioServicio
             ->leftJoin('institucional.sedes', 'inventario.movimientos.sede_id', '=', 'institucional.sedes.id_sede')
             ->leftJoin('seguridad.users', 'inventario.movimientos.usuario_id', '=', 'seguridad.users.id')
             ->leftJoin('configuracion.estados_catalogo as estado_mov', 'estado_mov.id', '=', 'inventario.movimientos.estado_id')
-            ->select('inventario.movimientos.*', 'inventario.productos.codigo as producto_codigo', 'inventario.productos.nombre as producto_nombre', 'institucional.sedes.nombre as sede_nombre', 'seguridad.users.name as usuario_nombre', 'estado_mov.valor_interno as estado_valor', 'estado_mov.nombre as estado_nombre', 'estado_mov.color as estado_color')
+            ->leftJoin('ventas.ventas as venta_mov', 'venta_mov.id', '=', 'inventario.movimientos.venta_id')
+            ->select('inventario.movimientos.*', 'venta_mov.numero as venta_numero', 'venta_mov.estado as venta_estado', 'inventario.productos.codigo as producto_codigo', 'inventario.productos.nombre as producto_nombre', 'institucional.sedes.nombre as sede_nombre', 'seguridad.users.name as usuario_nombre', 'estado_mov.valor_interno as estado_valor', 'estado_mov.nombre as estado_nombre', 'estado_mov.color as estado_color')
             ->where('inventario.movimientos.id', $id)->first();
     }
 
@@ -593,7 +676,7 @@ class InventarioServicio
 
     private function estadoLoteId(?string $fechaVencimiento, float $stockActual): int
     {
-        if ($fechaVencimiento && $fechaVencimiento < now()->toDateString()) {
+        if ($fechaVencimiento && $fechaVencimiento < now('America/Guayaquil')->toDateString()) {
             return $this->estados->idPorValor('INVENTARIO_LOTE', 'VENCIDO');
         }
 

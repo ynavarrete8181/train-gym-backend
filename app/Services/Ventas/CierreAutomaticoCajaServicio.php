@@ -2,6 +2,7 @@
 
 namespace App\Services\Ventas;
 
+use App\Support\FechaNegocio;
 use App\Services\Notificaciones\ExpoPushService;
 use App\Services\Seguridad\AvisoUsuarioService;
 use Carbon\Carbon;
@@ -10,6 +11,9 @@ use Illuminate\Support\Facades\Log;
 
 class CierreAutomaticoCajaServicio
 {
+    /** Hora de Ecuador en que la caja diaria se cierra sola. */
+    public const HORA_CIERRE = '22:00';
+
     public function __construct(
         private readonly AvisoUsuarioService $avisos,
         private readonly ExpoPushService $push,
@@ -17,14 +21,17 @@ class CierreAutomaticoCajaServicio
 
     public function procesar(?string $fecha = null): array
     {
-        $fechaProceso = $fecha ? Carbon::parse($fecha)->startOfDay() : now()->startOfDay();
+        $fechaProceso = Carbon::parse($fecha ?: FechaNegocio::hoy())->startOfDay();
+        // Sin fecha: después de las 22:00 también se cierran los turnos abiertos hoy antes de esa hora.
+        $corteHoy = $fechaProceso->copy()->setTimeFromTimeString(self::HORA_CIERRE);
+        $limite = ! $fecha && now()->greaterThanOrEqualTo($corteHoy) ? $corteHoy : $fechaProceso;
 
         $turnos = DB::table('ventas.turnos_caja as t')
             ->join('ventas.cajas as c', 'c.id', '=', 't.caja_id')
             ->join('institucional.sedes as s', 's.id_sede', '=', 't.sede_id')
             ->join('seguridad.users as u', 'u.id', '=', 't.usuario_id')
             ->where('t.estado', 'ABIERTA')
-            ->whereDate('t.fecha_apertura', '<', $fechaProceso->toDateString())
+            ->where('t.fecha_apertura', '<', $limite->toDateTimeString())
             ->select(
                 't.*',
                 'c.codigo as caja_codigo',
@@ -63,7 +70,9 @@ class CierreAutomaticoCajaServicio
 
                 $efectivoCobrado = round((float) ($resumen->efectivo ?? 0), 2);
                 $esperado = round((float) $actual->saldo_inicial + $efectivoCobrado, 2);
-                $fechaCierre = Carbon::parse($actual->fecha_apertura)->endOfDay();
+                $apertura = Carbon::parse($actual->fecha_apertura);
+                $corteDia = $apertura->copy()->setTimeFromTimeString(self::HORA_CIERRE);
+                $fechaCierre = $apertura->lessThan($corteDia) ? $corteDia : $apertura->copy()->endOfDay();
 
                 DB::table('ventas.turnos_caja')
                     ->where('id', $actual->id)
@@ -83,7 +92,7 @@ class CierreAutomaticoCajaServicio
                         'tipo_cierre' => 'AUTOMATICO',
                         'requiere_arqueo' => true,
                         'cierre_automatico_at' => now(),
-                        'observaciones_cierre' => 'Cierre automático por fin de jornada. Pendiente de arqueo y conciliación.',
+                        'observaciones_cierre' => 'Cierre automático de la caja diaria a las '.self::HORA_CIERRE.'. Pendiente de arqueo y conciliación.',
                         'cerrado_por' => null,
                         'updated_at' => now(),
                     ]);

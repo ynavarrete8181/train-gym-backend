@@ -207,13 +207,6 @@ class EntrenamientoControlador extends Controller
         return ApiResponse::exito('Progreso guardado correctamente.', (array) $this->entrenamiento->guardarProgreso($datos, $id), [], $id ? 200 : 201);
     }
 
-    public function eliminarProgreso($id)
-    {
-        $this->entrenamiento->eliminarProgreso((int) $id);
-
-        return ApiResponse::exito('Registro de progreso eliminado correctamente.');
-    }
-
     private function respuestaPaginada(string $mensaje, $paginador)
     {
         return ApiResponse::exito($mensaje, $paginador->items(), [

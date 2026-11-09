@@ -21,6 +21,7 @@ final class PoliticaCicloVidaMembresia
     public const CERRAR = 'CERRAR';
     public const REAPERTURA_EXCEPCIONAL = 'REAPERTURA_EXCEPCIONAL';
     public const RECONTRATAR = 'RECONTRATAR';
+    public const EDITAR_VIGENCIA = 'EDITAR_VIGENCIA';
 
     public const TIEMPO = 'TIEMPO';
     public const FACTURACION = 'FACTURACION';
@@ -94,9 +95,10 @@ final class PoliticaCicloVidaMembresia
         }
     }
 
-    public function validarCierre(string $estado, string $motivo): void
+    public function validarCierre(string $estado, string $motivo, bool $esPase = false): void
     {
-        if (in_array(strtoupper($estado), ['CANCELADA', 'VENCIDA'], true)) {
+        // El pase sigue disponible aunque termine su fecha de uso: se puede cerrar.
+        if (in_array(strtoupper($estado), $esPase ? ['CANCELADA'] : ['CANCELADA', 'VENCIDA'], true)) {
             throw ValidationException::withMessages([
                 'estado' => 'El contrato ya finalizó. Requiere recontratación o reapertura excepcional.',
             ]);

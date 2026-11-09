@@ -160,10 +160,8 @@ class PlanServicio
             }
         }
 
-        $eliminar = array_values(array_diff($existentes, $conservar));
-
-        foreach ($eliminar as $modalidadId) {
-            $this->eliminarModalidad($planId, (int) $modalidadId);
+        foreach (array_diff($existentes, $conservar) as $modalidadId) {
+            $this->inactivarModalidad($planId, (int) $modalidadId);
         }
     }
 
@@ -306,46 +304,27 @@ class PlanServicio
         return json_encode($datos, JSON_THROW_ON_ERROR);
     }
 
-    public function eliminarModalidad(int $planId, int $modalidadId): void
+    /** Una modalidad nunca se elimina: deja de ofrecerse y conserva su historial. */
+    private function inactivarModalidad(int $planId, int $modalidadId): void
     {
-        $enUso = DB::table('membresias.membresias')
-            ->where('modalidad_id', $modalidadId)
-            ->exists();
-
-        if ($enUso) {
-            throw \Illuminate\Validation\ValidationException::withMessages([
-                'modalidad_id' => 'La modalidad no se puede eliminar porque ya tiene membresías asociadas. Inactívala para conservar el historial.',
-            ]);
-        }
-
-        // Una modalidad con versiones históricas no se destruye: se
-        // desactiva para nuevas contrataciones y conserva su trazabilidad.
-        $tieneHistorial = DB::table('membresias.plan_modalidad_versiones')
-            ->where('modalidad_id', $modalidadId)->exists();
-        if ($tieneHistorial) {
-            $modalidad = DB::table('membresias.plan_modalidades')
-                ->where('plan_id', $planId)->where('id', $modalidadId)->first();
-            if ($modalidad && $modalidad->activo) {
-                DB::table('membresias.plan_modalidades')
-                    ->where('id', $modalidadId)->update(['activo' => false, 'updated_at' => now()]);
-                $antes = (array) $modalidad;
-                $antes['precios_sede'] = DB::table('membresias.plan_modalidad_precios_sede')
-                    ->where('modalidad_id', $modalidadId)->orderBy('sede_id')->get()->all();
-                $despues = $antes;
-                $despues['activo'] = false;
-                app(HistorialComercialMembresiaServicio::class)->registrarModalidad(
-                    $planId, $modalidadId, 'DESACTIVAR', $antes, $despues
-                );
-                $this->auditar('membresias', 'DESACTIVAR', 'membresias.plan_modalidades',
-                    $modalidadId, $antes, $despues);
-            }
+        $modalidad = DB::table('membresias.plan_modalidades')
+            ->where('plan_id', $planId)->where('id', $modalidadId)->first();
+        if (! $modalidad || ! $modalidad->activo) {
             return;
         }
 
         DB::table('membresias.plan_modalidades')
-            ->where('plan_id', $planId)
-            ->where('id', $modalidadId)
-            ->delete();
+            ->where('id', $modalidadId)->update(['activo' => false, 'updated_at' => now()]);
+        $antes = (array) $modalidad;
+        $antes['precios_sede'] = DB::table('membresias.plan_modalidad_precios_sede')
+            ->where('modalidad_id', $modalidadId)->orderBy('sede_id')->get()->all();
+        $despues = $antes;
+        $despues['activo'] = false;
+        app(HistorialComercialMembresiaServicio::class)->registrarModalidad(
+            $planId, $modalidadId, 'DESACTIVAR', $antes, $despues
+        );
+        $this->auditar('membresias', 'DESACTIVAR', 'membresias.plan_modalidades',
+            $modalidadId, $antes, $despues);
     }
 
     private function generarCodigoModalidad(int $planId, string $nombre): string

@@ -2,6 +2,7 @@
 
 namespace App\Services\Reportes;
 
+use App\Support\FechaNegocio;
 use Illuminate\Support\Facades\DB;
 
 class ReporteServicio
@@ -10,6 +11,8 @@ class ReporteServicio
     {
         $query = DB::table('reportes.definiciones');
         $this->buscar($query, $filtros['busqueda'] ?? null, ['codigo', 'nombre', 'categoria', 'descripcion']);
+        $this->filtrarTexto($query, 'codigo', $filtros['codigo'] ?? null);
+        $this->filtrarTexto($query, 'nombre', $filtros['nombre'] ?? null);
         $this->filtrarTexto($query, 'categoria', $filtros['categoria'] ?? null);
         $this->filtrarBooleano($query, 'activo', $filtros['activo'] ?? null);
 
@@ -33,6 +36,13 @@ class ReporteServicio
         $this->filtrarTexto($query, 'reportes.definiciones.categoria', $filtros['categoria'] ?? null);
         $this->filtrarTexto($query, 'reportes.ejecuciones.estado', $filtros['estado'] ?? null);
         $this->filtrarTexto($query, 'reportes.ejecuciones.formato', $filtros['formato'] ?? null);
+        $this->filtrarTexto($query, 'reportes.definiciones.nombre', $filtros['reporte'] ?? null);
+        if (! empty($filtros['usuario'])) {
+            $query->whereIn(DB::raw("COALESCE(seguridad.users.name, 'Sistema')"), array_filter((array) $filtros['usuario']));
+        }
+        if (! empty($filtros['generado'])) {
+            $query->whereIn(DB::raw('DATE(reportes.ejecuciones.generado_at)::text'), array_filter((array) $filtros['generado']));
+        }
 
         return $query->orderByDesc('reportes.ejecuciones.generado_at')->orderByDesc('reportes.ejecuciones.id')->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
     }
@@ -68,6 +78,18 @@ class ReporteServicio
             'categoria' => DB::table('reportes.definiciones')->distinct()->orderBy('categoria')->pluck('categoria')->values(),
             'estado' => DB::table('reportes.ejecuciones')->distinct()->orderBy('estado')->pluck('estado')->values(),
             'formato' => DB::table('reportes.ejecuciones')->distinct()->orderBy('formato')->pluck('formato')->values(),
+            'codigo' => DB::table('reportes.definiciones')->distinct()->orderBy('codigo')->pluck('codigo')->values(),
+            'nombre' => DB::table('reportes.definiciones')->distinct()->orderBy('nombre')->pluck('nombre')->values(),
+            'reporte' => DB::table('reportes.ejecuciones')
+                ->join('reportes.definiciones', 'reportes.ejecuciones.definicion_id', '=', 'reportes.definiciones.id')
+                ->distinct()->orderBy('reportes.definiciones.nombre')->pluck('reportes.definiciones.nombre')->values(),
+            'usuario' => DB::table('reportes.ejecuciones')
+                ->leftJoin('seguridad.users', 'reportes.ejecuciones.usuario_id', '=', 'seguridad.users.id')
+                ->selectRaw("DISTINCT COALESCE(seguridad.users.name, 'Sistema') as valor")
+                ->orderBy('valor')->pluck('valor')->values(),
+            'generado' => DB::table('reportes.ejecuciones')->whereNotNull('generado_at')
+                ->selectRaw('DISTINCT DATE(generado_at)::text as valor')
+                ->orderByDesc('valor')->pluck('valor')->values(),
         ];
     }
 
@@ -77,7 +99,7 @@ class ReporteServicio
             'MEMBRESIAS-VIGENCIA' => [
                 'activas' => DB::table('membresias.membresias')->where('estado', 'ACTIVA')->count(),
                 'vencidas' => DB::table('membresias.membresias')->where('estado', 'VENCIDA')->count(),
-                'por_vencer' => DB::table('membresias.membresias')->where('estado', 'ACTIVA')->whereDate('fecha_fin', '<=', now()->addDays(7))->count(),
+                'por_vencer' => DB::table('membresias.membresias')->where('estado', 'ACTIVA')->whereDate('fecha_fin', '<=', FechaNegocio::ahora()->addDays(7)->toDateString())->count(),
             ],
             'VENTAS-PERIODO' => [
                 'transacciones' => DB::table('ventas.ventas')->where('estado', '<>', 'ANULADA')->count(),
@@ -94,8 +116,8 @@ class ReporteServicio
             default => [
                 'clientes_activos' => DB::table('clientes.deportistas')->where('estado', 'ACTIVO')->count(),
                 'membresias_activas' => DB::table('membresias.membresias')->where('estado', 'ACTIVA')->count(),
-                'ventas_mes' => (float) DB::table('ventas.ventas')->whereMonth('fecha_venta', now()->month)->whereYear('fecha_venta', now()->year)->where('estado', '<>', 'ANULADA')->sum('total'),
-                'asistencias_hoy' => DB::table('acceso.asistencias')->whereDate('fecha_hora', now()->toDateString())->count(),
+                'ventas_mes' => (float) DB::table('ventas.ventas')->whereMonth('fecha_venta', FechaNegocio::ahora()->month)->whereYear('fecha_venta', FechaNegocio::ahora()->year)->where('estado', '<>', 'ANULADA')->sum('total'),
+                'asistencias_hoy' => DB::table('acceso.asistencias')->whereRaw(FechaNegocio::diaSql('fecha_hora').' = ?', [FechaNegocio::hoy()])->count(),
             ],
         };
     }
@@ -117,7 +139,9 @@ class ReporteServicio
 
     private function filtrarBooleano($query, string $columna, mixed $valor): void
     {
-        if ($valor === null || $valor === '') return;
-        $query->where($columna, filter_var($valor, FILTER_VALIDATE_BOOLEAN));
+        // Con ambos valores marcados en el filtro no se excluye ningún registro.
+        $valores = array_values(array_unique(array_filter((array) $valor, fn ($v) => $v !== null && $v !== '')));
+        if (count($valores) !== 1) return;
+        $query->where($columna, filter_var($valores[0], FILTER_VALIDATE_BOOLEAN));
     }
 }

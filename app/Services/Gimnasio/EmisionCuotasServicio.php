@@ -116,7 +116,7 @@ class EmisionCuotasServicio
                     'total' => $cuota->monto,
                     'estado' => 'PENDIENTE',
                     'estado_id' => $estadoId,
-                    'fecha_venta' => now(),
+                    'fecha_venta' => now('America/Guayaquil'),
                     'observaciones' => 'Venta automática del calendario contractual.',
                     'created_at' => now(),
                     'updated_at' => now(),

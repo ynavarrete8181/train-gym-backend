@@ -19,16 +19,14 @@ class ProductosServiciosVendidosControlador extends Controller
     public function index(Request $request)
     {
         $filtros = $request->validate([
+            'columnas' => 'nullable|array',
+            'columnas.*' => 'nullable|array',
+            'columnas.*.*' => 'nullable|string|max:255',
             'busqueda' => 'nullable|string|max:120',
             'desde' => 'nullable|date',
             'hasta' => 'nullable|date|after_or_equal:desde',
             'sede_id' => 'nullable',
             'tipo_item' => 'nullable',
-            'item' => 'nullable|string|max:180',
-            'ventas' => 'nullable|string|max:20',
-            'cantidad' => 'nullable|string|max:30',
-            'precio_promedio' => 'nullable|string|max:30',
-            'total_vendido' => 'nullable|string|max:30',
             'page' => 'nullable|integer|min:1',
             'per_page' => 'nullable|integer|in:5,10,25,50',
         ]);
@@ -45,16 +43,14 @@ class ProductosServiciosVendidosControlador extends Controller
     public function excel(Request $request)
     {
         $filtros = $request->validate([
+            'columnas' => 'nullable|array',
+            'columnas.*' => 'nullable|array',
+            'columnas.*.*' => 'nullable|string|max:255',
             'busqueda' => 'nullable|string|max:120',
             'desde' => 'nullable|date',
             'hasta' => 'nullable|date|after_or_equal:desde',
             'sede_id' => 'nullable',
             'tipo_item' => 'nullable',
-            'item' => 'nullable|string|max:180',
-            'ventas' => 'nullable|string|max:20',
-            'cantidad' => 'nullable|string|max:30',
-            'precio_promedio' => 'nullable|string|max:30',
-            'total_vendido' => 'nullable|string|max:30'
         ]);
 
         return $this->exportacion->excel($filtros, (int) $request->user()->id);

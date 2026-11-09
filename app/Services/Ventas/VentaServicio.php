@@ -224,6 +224,7 @@ class VentaServicio
                 'm.plan_id as membresia_plan_id',
                 'pm.nombre as membresia_plan_nombre',
                 'pm.tipo_producto as membresia_tipo_producto',
+                'm.estado as membresia_estado',
                 'modalidad.nombre as membresia_modalidad_nombre',
                 'm.fecha_inicio as membresia_fecha_inicio',
                 'm.fecha_fin as membresia_fecha_fin',
@@ -259,6 +260,19 @@ class VentaServicio
         $venta->comprobante = DB::table('ventas.comprobantes')
             ->where('venta_id', $ventaId)
             ->first();
+
+        // Período que cobra esta venta: su tarifa, descuento y fechas son los del
+        // comprobante (la membresía guarda solo el precio con el que se contrató).
+        $venta->membresia_periodo = $venta->membresia_id
+            ? DB::table('membresias.membresia_periodos')->where('venta_id', $ventaId)->orderByDesc('numero_periodo')
+                ->first(['numero_periodo', 'fecha_inicio', 'fecha_fin', 'precio', 'descuento_importe', 'descuento_id'])
+            : null;
+        $venta->descuento_detalle = ! empty($venta->membresia_periodo?->descuento_id)
+            ? DB::table('membresias.descuentos_deportistas as dd')
+                ->leftJoin('membresias.planes as pl', 'pl.id', '=', 'dd.plan_id')
+                ->where('dd.id', $venta->membresia_periodo->descuento_id)
+                ->first(['dd.tipo', 'dd.valor', 'dd.motivo', 'dd.fecha_fin', 'pl.nombre as plan_nombre'])
+            : null;
 
         $venta->sedes_membresia = collect();
         $venta->entrenadores_membresia = collect();
@@ -341,6 +355,7 @@ class VentaServicio
             ->selectRaw('MAX(p.codigo_cobro) as codigo_cobro')
             ->selectRaw('MAX(p.fecha_pago) as fecha_pago')
             ->selectRaw('MAX(v.numero) as venta_numero')
+            ->selectRaw('(SELECT c.numero FROM ventas.comprobantes c WHERE c.venta_id = MAX(v.id) ORDER BY c.id DESC LIMIT 1) as comprobante_numero')
             ->selectRaw('MAX(v.concepto) as venta_concepto')
             ->selectRaw("COALESCE(MAX(NULLIF(TRIM(persona.nombre_completo), '')), MAX(NULLIF(TRIM(cliente_user.name), '')), 'Consumidor final') as cliente_nombre")
             ->selectRaw("COALESCE(MAX(NULLIF(TRIM(persona.identificacion), '')), MAX(NULLIF(TRIM(cliente_user.cedula), ''))) as cliente_identificacion")
@@ -382,7 +397,8 @@ class VentaServicio
                     ->orWhereRaw('LOWER(COALESCE(cobrador.name, \'\')) LIKE ?', [$texto])
                     ->orWhereRaw('LOWER(COALESCE(creador_venta.name, \'\')) LIKE ?', [$texto])
                     ->orWhereRaw('LOWER(COALESCE(p.codigo_cobro, \'\')) LIKE ?', [$texto])
-                    ->orWhereRaw('LOWER(COALESCE(p.operacion_cobro_id, \'\')) LIKE ?', [$texto]);
+                    ->orWhereRaw('LOWER(COALESCE(p.operacion_cobro_id, \'\')) LIKE ?', [$texto])
+                    ->orWhereExists(fn ($c) => $c->from('ventas.comprobantes as cb')->whereColumn('cb.venta_id', 'v.id')->whereRaw('LOWER(cb.numero) LIKE ?', [$texto]));
             });
         }
 
@@ -511,10 +527,13 @@ class VentaServicio
                 'ventas.comprobantes.*',
                 'ventas.ventas.numero as venta_numero',
                 'ventas.ventas.concepto',
+                'ventas.ventas.estado as venta_estado',
+                'ventas.ventas.total as venta_total',
                 DB::raw("COALESCE(NULLIF(TRIM(persona_cliente.nombre_completo), ''), NULLIF(TRIM(cliente_user.name), ''), 'Consumidor final') as cliente_nombre"),
                 DB::raw("COALESCE(NULLIF(TRIM(persona_cliente.identificacion), ''), NULLIF(TRIM(cliente_user.cedula), '')) as cliente_identificacion"),
                 DB::raw("COALESCE(NULLIF(TRIM(persona_cliente.email), ''), NULLIF(TRIM(cliente_user.email), '')) as cliente_email"),
-                DB::raw('COALESCE(caja_venta.sede_id, membresia_sede.sede_id) as sede_id')
+                DB::raw('COALESCE(caja_venta.sede_id, membresia_sede.sede_id) as sede_id'),
+                DB::raw("(ventas.ventas.estado = 'PAGADA' AND NOT EXISTS (SELECT 1 FROM membresias.membresia_cuotas mc WHERE mc.venta_id = ventas.ventas.id) AND (ventas.ventas.membresia_id IS NULL OR EXISTS (SELECT 1 FROM membresias.membresias mm JOIN membresias.planes mp ON mp.id = mm.plan_id WHERE mm.id = ventas.ventas.membresia_id AND mp.tipo_producto = 'PASE_DIARIO'))) as anulable")
             );
 
         $this->aplicarAlcanceVenta($query, $usuarioId, 'caja_venta.sede_id');
@@ -542,6 +561,7 @@ class VentaServicio
             'ventas_pendientes' => $this->ventasPendientesCatalogo($sedes),
             'estados_venta' => $this->estadosEntidad('VENTA'),
             'estados_pago' => $this->estadosEntidad('PAGO'),
+            'puede_anular_pagadas' => $this->alcance->puedeGestionarCartera($usuarioId),
         ];
     }
 
@@ -687,35 +707,9 @@ class VentaServicio
             'updated_at' => now(),
         ]);
 
-        if ($estado === 'PAGADA' && ! $venta->inventario_aplicado_at) {
-            $sedeId = $this->alcance->sedeDeVenta($ventaId);
-            if (! $sedeId) {
-                throw ValidationException::withMessages([
-                    'venta_id' => 'No se pudo determinar la sede de la venta para descontar inventario.',
-                ]);
-            }
-
-            $productos = DB::table('ventas.venta_detalles')
-                ->where('venta_id', $ventaId)
-                ->whereNotNull('producto_id')
-                ->select('producto_id', DB::raw('SUM(cantidad) as cantidad'))
-                ->groupBy('producto_id')
-                ->get();
-
-            foreach ($productos as $detalle) {
-                $this->inventario->registrarSalidaVenta(
-                    (int) $detalle->producto_id,
-                    (int) $sedeId,
-                    (float) $detalle->cantidad,
-                    $ventaId,
-                    $usuarioId,
-                );
-            }
-
-            DB::table('ventas.ventas')->where('id', $ventaId)->update([
-                'inventario_aplicado_at' => now(),
-                'updated_at' => now(),
-            ]);
+        if ($estado === 'PAGADA') {
+            // Las ventas guardadas antes de reservar stock se descuentan al pagarse.
+            $this->sincronizarInventarioVenta($ventaId, $usuarioId);
         }
 
         if ($estado === 'PAGADA' && $venta->membresia_id) {
@@ -736,7 +730,7 @@ class VentaServicio
             // La venta de la solicitud actual todavía podría mostrar estado
             // antiguo dentro del objeto $venta, pero la fila DB ya se
             // actualizó arriba a PAGADA antes de consultar este bloqueo.
-            if (! $renovacionImpaga) {
+            if (! $renovacionImpaga && $this->ventaHabilitaMembresia((int) $venta->membresia_id, $ventaId)) {
                 $estadoMembresiaId = $this->estados->idPorValor('MEMBRESIA', 'ACTIVA');
                 DB::table('membresias.membresias')
                     ->where('id', $venta->membresia_id)
@@ -751,6 +745,8 @@ class VentaServicio
             DB::table('membresias.membresia_periodos')
                 ->where('membresia_id', $venta->membresia_id)
                 ->where('venta_id', $ventaId)
+                ->whereExists(fn ($q) => $q->selectRaw('1')->from('membresias.membresias as mc')
+                    ->where('mc.id', $venta->membresia_id)->where('mc.estado', '!=', 'CANCELADA'))
                 ->update([
                     'estado' => 'ACTIVA',
                     'updated_at' => now(),
@@ -758,6 +754,268 @@ class VentaServicio
         }
 
         $this->cartera->sincronizarVenta($ventaId);
+    }
+
+    /**
+     * Pagar la deuda de un día anterior no habilita el pase: solo la venta
+     * de su fecha de uso actual concede acceso.
+     */
+    /**
+     * Anula una venta pendiente sin pagos. La venta y su historial se conservan. Un pase
+     * queda libre para volver a venderse; un contrato con cuotas se corrige desde su contrato.
+     */
+    public function anularVentaPendiente(int $ventaId, string $motivo, int $usuarioId): object
+    {
+        // Aplica las mismas reglas de sede y de cajero que abrir el detalle de la venta.
+        $this->detalleVenta($ventaId, $usuarioId);
+
+        return DB::transaction(function () use ($ventaId, $motivo, $usuarioId): object {
+            $venta = DB::table('ventas.ventas')->where('id', $ventaId)->lockForUpdate()->first();
+            if (! $venta || strtoupper((string) $venta->estado) !== 'PENDIENTE') {
+                throw ValidationException::withMessages(['venta_id' => 'Solo se pueden anular ventas pendientes.']);
+            }
+            if (DB::table('ventas.pagos')->where('venta_id', $ventaId)->where('estado', 'CONFIRMADO')->exists()) {
+                throw ValidationException::withMessages(['venta_id' => 'La venta tiene pagos registrados: no se puede anular.']);
+            }
+            if (DB::table('membresias.membresia_cuotas')->where('venta_id', $ventaId)->exists()) {
+                throw ValidationException::withMessages(['venta_id' => 'Esta venta es una cuota de un contrato: no se anula desde Ventas.']);
+            }
+
+            $membresia = $venta->membresia_id
+                ? DB::table('membresias.membresias as m')
+                    ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
+                    ->where('m.id', $venta->membresia_id)->lockForUpdate()
+                    ->first(['m.id', 'm.estado', 'p.tipo_producto'])
+                : null;
+            $esPase = $membresia?->tipo_producto === 'PASE_DIARIO';
+            // Se consulta antes de anular: compara con la venta del último período.
+            $esUsoActual = $esPase && $this->ventaHabilitaMembresia((int) $membresia->id, $ventaId);
+
+            $observacion = 'Anulada: '.trim($motivo);
+            $this->sincronizarInventarioVenta($ventaId, $usuarioId, true, $motivo);
+            DB::table('ventas.ventas')->where('id', $ventaId)->update($this->estados->aplicar([
+                'estado' => 'ANULADA',
+                'observaciones' => trim(($venta->observaciones ? $venta->observaciones.' ' : '').$observacion),
+                'updated_at' => now(),
+            ], 'VENTA'));
+            DB::table('ventas.comprobantes')->where('venta_id', $ventaId)
+                ->update(['estado' => 'ANULADO', 'updated_at' => now()]);
+
+            if ($esPase) {
+                DB::table('membresias.membresia_periodos')
+                    ->where('membresia_id', $membresia->id)->where('venta_id', $ventaId)
+                    ->update(['estado' => 'CANCELADA', 'updated_at' => now()]);
+                if ($esUsoActual && $membresia->estado === 'PENDIENTE_PAGO') {
+                    DB::table('membresias.membresias')->where('id', $membresia->id)
+                        ->update($this->estados->aplicar(['estado' => 'VENCIDA', 'updated_at' => now()], 'MEMBRESIA'));
+                }
+            } elseif ($membresia) {
+                // El período queda libre para la nueva venta del contrato.
+                DB::table('membresias.membresia_periodos')
+                    ->where('membresia_id', $membresia->id)->where('venta_id', $ventaId)
+                    ->update(['venta_id' => null, 'updated_at' => now()]);
+            }
+
+            $this->cartera->sincronizarVenta($ventaId);
+            $cuentaId = DB::table('cuentas_cobrar.cuentas')->where('venta_id', $ventaId)->value('id');
+            if ($cuentaId) {
+                DB::table('cuentas_cobrar.compromisos_pago')->where('cuenta_id', $cuentaId)->where('estado', 'PENDIENTE')
+                    ->update(['estado' => 'CANCELADO', 'updated_at' => now()]);
+            }
+
+            $despues = DB::table('ventas.ventas')->where('id', $ventaId)->first();
+            $this->auditar('ventas', 'ANULAR', 'ventas.ventas', $ventaId, $venta, $despues);
+
+            return $despues;
+        });
+    }
+
+    /**
+     * Anula una venta ya pagada: devuelve el dinero desde el turno abierto de quien anula
+     * (un pago negativo por cada método, que descuenta del arqueo), regresa el inventario
+     * a los mismos lotes con un movimiento REVERSO_ANULACION y anula el comprobante.
+     * La venta no se borra: queda ANULADA con su motivo e historial.
+     */
+    public function anularVentaPagada(int $ventaId, string $motivo, int $usuarioId): object
+    {
+        if (! $this->alcance->puedeGestionarCartera($usuarioId)) {
+            throw ValidationException::withMessages(['venta_id' => 'Solo un administrador o supervisor de ventas puede anular una venta cobrada.']);
+        }
+        // Aplica las mismas reglas de sede que abrir el detalle de la venta.
+        $this->detalleVenta($ventaId, $usuarioId);
+
+        return DB::transaction(function () use ($ventaId, $motivo, $usuarioId): object {
+            $venta = DB::table('ventas.ventas')->where('id', $ventaId)->lockForUpdate()->first();
+            if (! $venta || strtoupper((string) $venta->estado) !== 'PAGADA') {
+                throw ValidationException::withMessages(['venta_id' => 'Solo se pueden anular aquí ventas pagadas.']);
+            }
+            if (DB::table('membresias.membresia_cuotas')->where('venta_id', $ventaId)->exists()) {
+                throw ValidationException::withMessages(['venta_id' => 'Esta venta es una cuota de un contrato: se gestiona desde la membresía.']);
+            }
+
+            $membresia = $venta->membresia_id
+                ? DB::table('membresias.membresias as m')
+                    ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
+                    ->where('m.id', $venta->membresia_id)->lockForUpdate()
+                    ->first(['m.id', 'm.estado', 'p.tipo_producto'])
+                : null;
+            $esPase = $membresia?->tipo_producto === 'PASE_DIARIO';
+            if ($membresia && ! $esPase) {
+                throw ValidationException::withMessages(['venta_id' => 'Las ventas de membresías se gestionan desde el contrato (cancelación o cambio), no desde aquí.']);
+            }
+
+            $turno = DB::table('ventas.turnos_caja')->where('usuario_id', $usuarioId)->where('estado', 'ABIERTA')->lockForUpdate()->first();
+            if (! $turno) {
+                throw ValidationException::withMessages(['venta_id' => 'Abre tu turno de caja: la devolución del dinero sale de tu caja.']);
+            }
+
+            $pagosOriginales = DB::table('ventas.pagos')
+                ->where('venta_id', $ventaId)->where('estado', 'CONFIRMADO')
+                ->select('metodo_pago', DB::raw('SUM(monto) as monto'))
+                ->groupBy('metodo_pago')->get()
+                ->filter(fn ($pago) => round((float) $pago->monto, 2) > 0);
+
+            $efectivoDevolver = round((float) ($pagosOriginales->firstWhere('metodo_pago', 'EFECTIVO')->monto ?? 0), 2);
+            if ($efectivoDevolver > 0) {
+                $efectivoEnCaja = round((float) $turno->saldo_inicial + (float) DB::table('ventas.pagos')
+                    ->where('turno_caja_id', $turno->id)->where('estado', 'CONFIRMADO')->where('metodo_pago', 'EFECTIVO')->sum('monto'), 2);
+                if ($efectivoEnCaja + 0.00001 < $efectivoDevolver) {
+                    throw ValidationException::withMessages(['venta_id' => sprintf(
+                        'Tu caja tiene $%s en efectivo y la devolución es de $%s.',
+                        number_format($efectivoEnCaja, 2, '.', ''),
+                        number_format($efectivoDevolver, 2, '.', ''),
+                    )]);
+                }
+            }
+
+            $esUsoActual = $esPase && $this->ventaHabilitaMembresia((int) $membresia->id, $ventaId);
+            $observacion = 'Anulada (cobrada): '.trim($motivo);
+            $operacion = 'DEVOLUCION-OP-'.now()->format('YmdHis').'-'.random_int(1000, 9999);
+            $codigo = $this->siguienteCodigoCobro();
+            $estadoPagoId = $this->estados->idPorValor('PAGO', 'CONFIRMADO');
+
+            foreach ($pagosOriginales as $pago) {
+                DB::table('ventas.pagos')->insert([
+                    'venta_id' => $ventaId,
+                    'caja_id' => (int) $turno->caja_id,
+                    'turno_caja_id' => (int) $turno->id,
+                    'usuario_id' => $usuarioId,
+                    'numero_comprobante' => $this->secuencia('PAGO'),
+                    'operacion_cobro_id' => $operacion,
+                    'codigo_cobro' => $codigo,
+                    'metodo_pago' => $pago->metodo_pago,
+                    'monto' => -round((float) $pago->monto, 2),
+                    'estado' => 'CONFIRMADO',
+                    'estado_id' => $estadoPagoId,
+                    'fecha_pago' => now(),
+                    'referencia' => 'DEVOLUCION-VENTA-'.$ventaId,
+                    'observaciones' => "Devolución por anulación de la venta {$venta->numero}: ".trim($motivo),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
+            $this->sincronizarInventarioVenta($ventaId, $usuarioId, true, $motivo);
+
+            DB::table('ventas.ventas')->where('id', $ventaId)->update($this->estados->aplicar([
+                'estado' => 'ANULADA',
+                'observaciones' => trim(($venta->observaciones ? $venta->observaciones.' ' : '').$observacion),
+                'updated_at' => now(),
+            ], 'VENTA'));
+            DB::table('ventas.comprobantes')->where('venta_id', $ventaId)
+                ->update(['estado' => 'ANULADO', 'updated_at' => now()]);
+
+            if ($esPase) {
+                DB::table('membresias.membresia_periodos')
+                    ->where('membresia_id', $membresia->id)->where('venta_id', $ventaId)
+                    ->update(['estado' => 'CANCELADA', 'updated_at' => now()]);
+                if ($esUsoActual && in_array($membresia->estado, ['ACTIVA', 'PENDIENTE_PAGO'], true)) {
+                    DB::table('membresias.membresias')->where('id', $membresia->id)
+                        ->update($this->estados->aplicar(['estado' => 'VENCIDA', 'updated_at' => now()], 'MEMBRESIA'));
+                }
+            }
+
+            $this->cartera->sincronizarVenta($ventaId);
+
+            $despues = DB::table('ventas.ventas')->where('id', $ventaId)->first();
+            $despues->devolucion = [
+                'codigo_cobro' => $codigo,
+                'turno_caja_id' => (int) $turno->id,
+                'pagos' => $pagosOriginales->map(fn ($p) => ['metodo_pago' => $p->metodo_pago, 'monto' => round((float) $p->monto, 2)])->values(),
+                'inventario_revertido' => (bool) $venta->inventario_aplicado_at,
+            ];
+            $this->auditar('ventas', 'ANULAR_PAGADA', 'ventas.ventas', $ventaId, $venta, $despues);
+
+            return $despues;
+        });
+    }
+
+    /**
+     * Deja el stock descontado igual al detalle de la venta. Se usa al guardar una cuenta
+     * (pendiente o cobrada), al editarla y al pagarla. Con $anular devuelve todo.
+     */
+    public function sincronizarInventarioVenta(int $ventaId, ?int $usuarioId, bool $anular = false, string $motivo = ''): void
+    {
+        $venta = DB::table('ventas.ventas')->where('id', $ventaId)->first();
+        if (! $venta) {
+            return;
+        }
+
+        $deseado = $anular ? collect() : DB::table('ventas.venta_detalles')
+            ->where('venta_id', $ventaId)->whereNotNull('producto_id')
+            ->select('producto_id', DB::raw('SUM(cantidad) as cantidad'))->groupBy('producto_id')
+            ->pluck('cantidad', 'producto_id')->map(fn ($c) => (float) $c);
+
+        $productos = collect($this->inventario->productosDescontadosVenta($ventaId))
+            ->merge($deseado->keys()->map(fn ($id) => (int) $id))->unique();
+        if ($productos->isEmpty()) {
+            return;
+        }
+
+        $sedeId = $this->alcance->sedeDeVenta($ventaId);
+        if (! $sedeId && $deseado->sum() > 0) {
+            throw ValidationException::withMessages(['venta_id' => 'No se pudo determinar la sede de la venta para descontar inventario.']);
+        }
+
+        $tipoReverso = $anular ? 'REVERSO_ANULACION' : 'REVERSO_VENTA';
+        $detalle = $anular
+            ? "Reverso por anulación de la venta {$venta->numero}: ".trim($motivo)
+            : "Venta {$venta->numero} (".strtolower((string) $venta->estado).').';
+
+        foreach ($productos as $productoId) {
+            try {
+                $this->inventario->ajustarVenta($ventaId, (int) $productoId, $sedeId, (float) ($deseado[$productoId] ?? 0), $usuarioId, $tipoReverso, $detalle);
+            } catch (\InvalidArgumentException $e) {
+                $producto = DB::table('inventario.productos')->where('id', $productoId)->value('nombre');
+                $disponible = (float) DB::table('inventario.producto_stock_sede')->where('producto_id', $productoId)->where('sede_id', $sedeId)->value('stock_actual');
+                throw ValidationException::withMessages(['detalles' => sprintf(
+                    'No hay stock suficiente de %s en esta sede: quedan %s.',
+                    $producto ?: 'el producto',
+                    rtrim(rtrim(number_format($disponible, 2, '.', ''), '0'), '.'),
+                )]);
+            }
+        }
+
+        $descontado = collect($this->inventario->productosDescontadosVenta($ventaId))
+            ->contains(fn ($id) => $this->inventario->netoVenta($ventaId, $id)['total'] > 0);
+        DB::table('ventas.ventas')->where('id', $ventaId)->update([
+            'inventario_aplicado_at' => $descontado ? ($venta->inventario_aplicado_at ?? now()) : null,
+            'updated_at' => now(),
+        ]);
+    }
+
+    public function ventaHabilitaMembresia(int $membresiaId, int $ventaId): bool
+    {
+        $esPase = DB::table('membresias.membresias as m')
+            ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
+            ->where('m.id', $membresiaId)
+            ->where('p.tipo_producto', 'PASE_DIARIO')
+            ->exists();
+
+        return ! $esPase || (int) DB::table('membresias.membresia_periodos')
+            ->where('membresia_id', $membresiaId)
+            ->orderByDesc('numero_periodo')
+            ->value('venta_id') === $ventaId;
     }
 
     private function guardar(string $tabla, array $datos, ?int $id): object

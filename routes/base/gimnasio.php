@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Gimnasio\DeportistaControlador;
+use App\Http\Controllers\Api\Gimnasio\TutorControlador;
 use App\Http\Controllers\Api\Geografia\CatalogoGeograficoController;
 use App\Http\Controllers\Api\Gimnasio\FichaInicialControlador;
 use App\Http\Controllers\Api\Gimnasio\ValoracionDeportistaControlador;
@@ -52,8 +53,6 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::get('planes/{id}/modalidades', [PlanControlador::class, 'modalidades'])->name('gimnasio.planes.modalidades.index');
         Route::post('planes/{id}/modalidades', [PlanControlador::class, 'storeModalidad'])->name('gimnasio.planes.modalidades.store');
         Route::put('planes/{id}/modalidades/{modalidadId}', [PlanControlador::class, 'updateModalidad'])->name('gimnasio.planes.modalidades.update');
-        Route::delete('planes/{id}/modalidades/{modalidadId}', [PlanControlador::class, 'destroyModalidad'])->name('gimnasio.planes.modalidades.destroy');
-        Route::delete('planes/{id}', [PlanControlador::class, 'destroy'])->name('gimnasio.planes.destroy');
     });
 
     // Clientes / deportistas: rutas estáticas antes de {id} para evitar que Laravel
@@ -66,6 +65,11 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
             ->name('gimnasio.clientes.diagnostico-identidad');
         Route::get('clientes/usuarios-disponibles', [ClienteCatalogoControlador::class, 'usuariosDeportistasDisponibles'])
             ->name('gimnasio.clientes.usuarios-disponibles');
+        Route::get('tutores/buscar', [TutorControlador::class, 'buscar'])->name('gimnasio.tutores.buscar');
+        Route::post('tutores', [TutorControlador::class, 'store'])->name('gimnasio.tutores.store');
+        Route::get('tutores/{id}', [TutorControlador::class, 'show'])->whereNumber('id')->name('gimnasio.tutores.show');
+        Route::put('tutores/{id}', [TutorControlador::class, 'update'])->whereNumber('id')->name('gimnasio.tutores.update');
+        Route::post('clientes/{id}/tutor/quitar', [TutorControlador::class, 'quitarDeCliente'])->whereNumber('id')->name('gimnasio.clientes.tutor.quitar');
         Route::post('clientes', [DeportistaControlador::class, 'store'])->name('gimnasio.clientes.store');
         Route::put('clientes/{id}', [DeportistaControlador::class, 'update'])->name('gimnasio.clientes.update');
         Route::post('deportistas', [DeportistaControlador::class, 'store'])->name('gimnasio.deportistas.store');
@@ -100,7 +104,7 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
     Route::get('clientes/{id}/valoraciones', [ValoracionDeportistaControlador::class, 'listar'])->whereNumber('id');
     Route::post('clientes/{id}/valoraciones', [ValoracionDeportistaControlador::class, 'crear'])->whereNumber('id');
     Route::put('clientes/{id}/valoraciones/{registro}', [ValoracionDeportistaControlador::class, 'actualizar'])->whereNumber('id')->whereNumber('registro');
-    Route::delete('clientes/{id}/valoraciones/{registro}', [ValoracionDeportistaControlador::class, 'eliminar'])->whereNumber('id')->whereNumber('registro');
+    Route::patch('clientes/{id}/valoraciones/{registro}/estado', [ValoracionDeportistaControlador::class, 'cambiarEstado'])->whereNumber('id')->whereNumber('registro');
     Route::get('valoraciones/controles-pendientes', [ValoracionDeportistaControlador::class, 'controles']);
 
     Route::get('membresias/ciclo-vida/motivos', [MotivoCicloVidaControlador::class, 'index'])
@@ -129,11 +133,21 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::post('membresias/{id}/reactivacion', [CicloVidaMembresiaControlador::class, 'reactivar'])->whereNumber('id')->name('gimnasio.membresias.reactivacion');
         Route::get('membresias/{id}/cancelacion/preview', [CicloVidaMembresiaControlador::class, 'previsualizarCancelacion'])->whereNumber('id');
         Route::post('membresias/{id}/cancelacion', [CicloVidaMembresiaControlador::class, 'cancelarContrato'])->whereNumber('id');
+        Route::put('membresias/{id}/vigencia', [CicloVidaMembresiaControlador::class, 'editarVigencia'])->whereNumber('id');
+        Route::put('membresias/{id}/sedes', [CicloVidaMembresiaControlador::class, 'actualizarSedes'])->whereNumber('id');
+        Route::put('membresias/{id}/configuracion', [CicloVidaMembresiaControlador::class, 'actualizarConfiguracion'])->whereNumber('id');
+        Route::get('membresias/{id}/resumen-pdf', [CicloVidaMembresiaControlador::class, 'resumenPdf'])->whereNumber('id');
+        Route::get('membresias/{id}/descuentos', [CicloVidaMembresiaControlador::class, 'descuentos'])->whereNumber('id');
+        Route::post('membresias/{id}/descuentos', [CicloVidaMembresiaControlador::class, 'registrarDescuento'])->whereNumber('id');
+        Route::put('membresias/{id}/descuentos/{descuentoId}', [CicloVidaMembresiaControlador::class, 'actualizarDescuento'])->whereNumber('id')->whereNumber('descuentoId');
+        Route::post('membresias/{id}/descuentos/{descuentoId}/finalizar', [CicloVidaMembresiaControlador::class, 'finalizarDescuento'])->whereNumber('id')->whereNumber('descuentoId');
+        Route::get('membresias/{id}/reapertura/preview', [CicloVidaMembresiaControlador::class, 'previsualizarReapertura'])->whereNumber('id');
+        Route::post('membresias/{id}/reapertura', [CicloVidaMembresiaControlador::class, 'reabrirContrato'])->whereNumber('id');
+        Route::get('membresias/{id}/expediente', [MembresiaControlador::class, 'expediente'])->whereNumber('id')->name('gimnasio.membresias.expediente');
         Route::get('membresias/{id}/historial-integral', [MembresiaControlador::class, 'historialIntegral'])->whereNumber('id')->name('gimnasio.membresias.historial-integral');
         Route::get('membresias/{id}/renovacion-programada/preview', [MembresiaControlador::class, 'previsualizarRenovacionProgramada'])->whereNumber('id')->name('gimnasio.membresias.renovacion-programada.preview');
         Route::post('membresias/{id}/renovacion-programada', [MembresiaControlador::class, 'registrarRenovacionProgramada'])->whereNumber('id')->name('gimnasio.membresias.renovacion-programada.store');
         Route::post('membresias/{id}/renovar', [MembresiaControlador::class, 'renovar'])->name('gimnasio.membresias.renovar');
-        Route::delete('membresias/{id}', [MembresiaControlador::class, 'destroy'])->name('gimnasio.membresias.destroy');
     });
 
     // Beneficios personalizados: solo administradores de planes.

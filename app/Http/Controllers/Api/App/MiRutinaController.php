@@ -30,8 +30,8 @@ class MiRutinaController extends Controller
             ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
             ->where('m.deportista_id', $deportista->id)
             ->where('m.estado', 'ACTIVA')
-            ->whereDate('m.fecha_inicio', '<=', now()->toDateString())
-            ->whereDate('m.fecha_fin', '>=', now()->toDateString())
+            ->whereDate('m.fecha_inicio', '<=', now('America/Guayaquil')->toDateString())
+            ->whereDate('m.fecha_fin', '>=', now('America/Guayaquil')->toDateString())
             ->orderByRaw("CASE WHEN p.tipo_producto = 'MEMBRESIA' THEN 0 ELSE 1 END")
             ->orderByDesc('m.fecha_inicio')
             ->first(['m.id', 'm.plan_id', 'm.fecha_inicio', 'm.fecha_fin', 'p.nombre as membresia_nombre']);
@@ -46,9 +46,9 @@ class MiRutinaController extends Controller
         $plan = DB::table('entrenamiento.planes as pl')
             ->where('pl.cliente_id', $deportista->id)
             ->where('pl.estado', 'ACTIVO')
-            ->whereDate('pl.fecha_inicio', '<=', now()->toDateString())
+            ->whereDate('pl.fecha_inicio', '<=', now('America/Guayaquil')->toDateString())
             ->where(function ($q): void {
-                $q->whereNull('pl.fecha_fin')->orWhereDate('pl.fecha_fin', '>=', now()->toDateString());
+                $q->whereNull('pl.fecha_fin')->orWhereDate('pl.fecha_fin', '>=', now('America/Guayaquil')->toDateString());
             })
             ->orderByDesc('pl.fecha_inicio')
             ->orderByDesc('pl.id')

@@ -2,6 +2,7 @@
 
 namespace App\Services\Metas;
 
+use App\Support\FechaNegocio;
 use App\Services\Concerns\RegistraAuditoria;
 use App\Services\Seguridad\AlcanceOperativoService;
 use App\Services\Ventas\Reportes\ResumenComercialServicio;
@@ -314,7 +315,7 @@ class MetaComercialServicio
             'cumplimiento_cobros' => $this->porcentaje($cobros, (float) $meta->meta_cobros),
             'cumplimiento_membresias_nuevas' => $this->porcentaje((float) $movimientos['nuevas'], (float) $meta->meta_membresias_nuevas),
             'cumplimiento_renovaciones' => $this->porcentaje((float) $movimientos['renovaciones'], (float) $meta->meta_renovaciones),
-            'dias_transcurridos' => now()->year === (int) $meta->anio && now()->month === (int) $meta->mes ? now()->day : null,
+            'dias_transcurridos' => FechaNegocio::ahora()->year === (int) $meta->anio && FechaNegocio::ahora()->month === (int) $meta->mes ? FechaNegocio::ahora()->day : null,
             'dias_mes' => Carbon::create((int) $meta->anio, (int) $meta->mes, 1)->daysInMonth,
         ];
     }
@@ -392,10 +393,13 @@ class MetaComercialServicio
     {
         $query = DB::table('membresias.membresia_periodos as mp')
             ->join('membresias.membresias as m', 'm.id', '=', 'mp.membresia_id')
+            ->join('membresias.planes as plan', 'plan.id', '=', 'm.plan_id')
+            // El pase se vende cada día: no es una renovación ni un contrato por vencer.
+            ->whereRaw("COALESCE(plan.tipo_producto, 'MEMBRESIA') <> 'PASE_DIARIO'")
             ->leftJoin('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
             ->where('m.sede_id', $sedeId)
             ->whereBetween(
-                DB::raw('COALESCE(DATE(mp.generado_at), DATE(mp.created_at), mp.fecha_inicio)'),
+                DB::raw('COALESCE('.FechaNegocio::diaSql('mp.generado_at').', '.FechaNegocio::diaSql('mp.created_at').', mp.fecha_inicio)'),
                 [$desde, $hasta]
             );
 
@@ -455,7 +459,7 @@ class MetaComercialServicio
     {
         $inicio = Carbon::create($anio, $mes, 1)->startOfDay();
         $finMes = $inicio->copy()->endOfMonth();
-        $hoy = now();
+        $hoy = Carbon::parse(FechaNegocio::hoy());
 
         if ($inicio->isAfter($hoy)) {
             return [

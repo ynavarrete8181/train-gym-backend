@@ -173,7 +173,7 @@ class CampaniaNotificacionController extends Controller
     {
         $campania = DB::table('notificaciones.campanias')->find($id);
         abort_unless($campania, 404, 'La campaña no existe.');
-        $destinatarios = DB::table('notificaciones.campania_destinatarios')->where('campania_id', $id)->orderBy('nombre_destinatario')->paginate(20);
+        $destinatarios = DB::table('notificaciones.campania_destinatarios')->where('campania_id', $id)->orderBy('nombre_destinatario')->get();
 
         return ApiResponse::exito('Detalle consultado.', compact('campania', 'destinatarios'));
     }

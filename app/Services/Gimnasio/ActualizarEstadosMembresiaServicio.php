@@ -55,12 +55,15 @@ class ActualizarEstadosMembresiaServicio
                     ->whereNotIn('estado', ['CANCELADA', 'VENCIDA'])
                     ->update(['estado' => 'VENCIDA', 'updated_at' => now()]);
 
-                $finalizadas = DB::table('entrenamiento.asignaciones_entrenador_cliente')
+                // Un pase vuelve a venderse otro día y conserva su entrenador y horario.
+                $esPase = DB::table('membresias.planes')->where('id', $antes->plan_id)
+                    ->value('tipo_producto') === 'PASE_DIARIO';
+                $finalizadas = $esPase ? 0 : DB::table('entrenamiento.asignaciones_entrenador_cliente')
                     ->where('membresia_id', $id)
                     ->where('estado', 'ACTIVO')
                     ->update([
                         'estado' => 'FINALIZADO',
-                        'fecha_fin' => now()->toDateString(),
+                        'fecha_fin' => now('America/Guayaquil')->toDateString(),
                         'updated_at' => now(),
                     ]);
 

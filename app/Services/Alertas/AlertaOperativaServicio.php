@@ -2,6 +2,7 @@
 
 namespace App\Services\Alertas;
 
+use App\Support\FechaNegocio;
 use App\Services\Seguridad\AlcanceOperativoService;
 use App\Services\Seguridad\AvisoUsuarioService;
 use Illuminate\Support\Collection;
@@ -181,7 +182,7 @@ class AlertaOperativaServicio
             ->join('ventas.ventas as v', 'v.id', '=', 'cc.venta_id')
             ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
             ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
-            ->whereDate('cc.fecha_vencimiento', '<', now()->toDateString())
+            ->whereDate('cc.fecha_vencimiento', '<', now('America/Guayaquil')->toDateString())
             ->where('v.estado', '<>', 'ANULADA')
             ->whereRaw("{$saldoSql} > 0")
             ->whereRaw('COALESCE(c.sede_id, m.sede_id) IS NOT NULL')
@@ -212,7 +213,10 @@ class AlertaOperativaServicio
     {
         return DB::table('membresias.membresia_periodos as mp')
             ->join('membresias.membresias as m', 'm.id', '=', 'mp.membresia_id')
-            ->whereBetween('mp.fecha_fin', [now()->toDateString(), now()->addDays(7)->toDateString()])
+            ->join('membresias.planes as plan', 'plan.id', '=', 'm.plan_id')
+            // El pase se vende cada día: no es una renovación ni un contrato por vencer.
+            ->whereRaw("COALESCE(plan.tipo_producto, 'MEMBRESIA') <> 'PASE_DIARIO'")
+            ->whereBetween('mp.fecha_fin', [now('America/Guayaquil')->toDateString(), FechaNegocio::ahora()->addDays(7)->toDateString()])
             ->whereNotExists(function ($sub): void {
                 $sub->selectRaw('1')
                     ->from('membresias.membresia_periodos as siguiente')
@@ -306,7 +310,7 @@ class AlertaOperativaServicio
     {
         return DB::table('ventas.turnos_caja')
             ->where('estado', 'CERRADA')
-            ->whereDate('fecha_cierre', now()->toDateString())
+            ->whereRaw(FechaNegocio::diaSql('fecha_cierre').' = ?', [FechaNegocio::hoy()])
             ->whereRaw('ABS(COALESCE(diferencia, 0)) > 0.01')
             ->whereNotNull('sede_id')
             ->groupBy('sede_id')

@@ -7,6 +7,10 @@ use Illuminate\Support\Facades\DB;
 
 class ConciliacionCajaServicio
 {
+    use FiltraColumnasReporte;
+
+    private const COLUMNAS = ['fecha', 'caja_nombre', 'cajero', 'hora_apertura', 'hora_cierre', 'saldo_inicial', 'efectivo_cobrado', 'efectivo_esperado', 'efectivo_contado', 'diferencia', 'transferencia_cobrada', 'tarjeta_cobrada', 'deposito_cobrado', 'otros_cobrado'];
+
     public function __construct(private readonly AlcanceOperativoService $alcance)
     {
     }
@@ -22,8 +26,8 @@ class ConciliacionCajaServicio
             ->all();
         $sedes = $sedesSolicitadas ?: $sedesPermitidas;
 
-        $desde = $filtros['desde'] ?? now()->startOfMonth()->toDateString();
-        $hasta = $filtros['hasta'] ?? now()->toDateString();
+        $desde = $filtros['desde'] ?? now('America/Guayaquil')->startOfMonth()->toDateString();
+        $hasta = $filtros['hasta'] ?? now('America/Guayaquil')->toDateString();
 
         $query = DB::table('ventas.turnos_caja as t')
             ->join('ventas.cajas as c', 'c.id', '=', 't.caja_id')
@@ -57,7 +61,8 @@ class ConciliacionCajaServicio
                 's.nombre as sede',
                 'cajero.name as cajero',
                 'conciliador.name as conciliado_por_nombre',
-            ]);
+            ])
+            ->selectRaw("DATE(t.fecha_cierre) as fecha, TO_CHAR(t.fecha_apertura, 'HH24:MI') as hora_apertura, TO_CHAR(t.fecha_cierre, 'HH24:MI') as hora_cierre");
 
         if (! empty($filtros['busqueda'])) {
             $texto = '%' . mb_strtolower((string) $filtros['busqueda']) . '%';
@@ -67,46 +72,6 @@ class ConciliacionCajaServicio
                     ->orWhereRaw('LOWER(s.nombre) LIKE ?', [$texto])
                     ->orWhereRaw('LOWER(cajero.name) LIKE ?', [$texto]);
             });
-        }
-
-        if (! empty($filtros['fecha'])) {
-            $valor = '%' . trim((string) $filtros['fecha']) . '%';
-            $query->where(function ($q) use ($valor): void {
-                $q->whereRaw('CAST(DATE(t.fecha_cierre) AS TEXT) LIKE ?', [$valor])
-                    ->orWhereRaw("TO_CHAR(DATE(t.fecha_cierre), 'DD/MM/YYYY') LIKE ?", [$valor]);
-            });
-        }
-
-        if (! empty($filtros['apertura'])) {
-            $query->whereRaw("TO_CHAR(t.fecha_apertura, 'HH24:MI') LIKE ?", ['%' . trim((string) $filtros['apertura']) . '%']);
-        }
-
-        if (! empty($filtros['cierre'])) {
-            $query->whereRaw("TO_CHAR(t.fecha_cierre, 'HH24:MI') LIKE ?", ['%' . trim((string) $filtros['cierre']) . '%']);
-        }
-
-        if (! empty($filtros['caja'])) {
-            $query->whereRaw('LOWER(c.nombre) LIKE ?', ['%' . mb_strtolower((string) $filtros['caja']) . '%']);
-        }
-
-        if (! empty($filtros['cajero'])) {
-            $query->whereRaw('LOWER(cajero.name) LIKE ?', ['%' . mb_strtolower((string) $filtros['cajero']) . '%']);
-        }
-
-        foreach ([
-            'saldo_inicial' => 't.saldo_inicial',
-            'efectivo_cobrado' => 't.efectivo_cobrado',
-            'efectivo_esperado' => 't.efectivo_esperado',
-            'efectivo_contado' => 't.efectivo_contado',
-            'diferencia' => 't.diferencia',
-            'transferencia' => 't.transferencia_cobrada',
-            'tarjeta' => 't.tarjeta_cobrada',
-            'deposito' => 't.deposito_cobrado',
-            'otros' => 't.otros_cobrado',
-        ] as $filtro => $columna) {
-            if (! empty($filtros[$filtro])) {
-                $query->whereRaw("CAST(COALESCE({$columna}, 0) AS TEXT) LIKE ?", ['%' . trim((string) $filtros[$filtro]) . '%']);
-            }
         }
 
         if (! empty($filtros['tipo_cierre'])) {
@@ -126,8 +91,9 @@ class ConciliacionCajaServicio
             });
         }
 
-        $resumen = DB::query()
-            ->fromSub(clone $query, 'reporte')
+        [$reporte, $opcionesFiltro] = $this->filtrarColumnas($query, $filtros, self::COLUMNAS);
+
+        $resumen = (clone $reporte)
             ->selectRaw('COUNT(*) as turnos_cerrados')
             ->selectRaw('COALESCE(SUM(efectivo_esperado), 0) as efectivo_esperado')
             ->selectRaw('COALESCE(SUM(efectivo_contado), 0) as efectivo_contado')
@@ -136,9 +102,9 @@ class ConciliacionCajaServicio
             ->selectRaw('SUM(CASE WHEN requiere_arqueo = true THEN 1 ELSE 0 END) as pendientes_conciliacion')
             ->first();
 
-        $paginador = $query
-            ->orderByDesc('t.fecha_cierre')
-            ->orderByDesc('t.id')
+        $paginador = $reporte
+            ->orderByDesc('fecha_cierre')
+            ->orderByDesc('id')
             ->paginate($filtros['per_page'] ?? 10, ['*'], 'page', $filtros['page'] ?? 1);
 
         return [
@@ -157,6 +123,7 @@ class ConciliacionCajaServicio
                     'no_efectivo' => round((float) ($resumen->no_efectivo ?? 0), 2),
                     'pendientes_conciliacion' => (int) ($resumen->pendientes_conciliacion ?? 0),
                 ],
+                'opciones_filtro' => $opcionesFiltro,
                 'catalogos' => [
                     'sedes' => DB::table('institucional.sedes')
                         ->whereIn('id_sede', $sedesPermitidas)

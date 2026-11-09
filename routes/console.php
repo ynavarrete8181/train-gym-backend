@@ -139,6 +139,21 @@ Artisan::command('revive:actualizar-estados-membresias {--fecha=}', function (Ac
     return 0;
 })->purpose('Vence membresías fuera de vigencia y finaliza sus asignaciones de entrenador.');
 
+Artisan::command('revive:renovar-membresias-automaticas {--fecha=}', function (\App\Services\Gimnasio\RenovacionAutomaticaMembresiaServicio $servicio) {
+    $resultado = $servicio->procesar($this->option('fecha') ?: null);
+    $this->info("Renovación automática {$resultado['fecha']}: candidatas {$resultado['candidatas']}, renovadas " . count($resultado['renovadas']) . ', omitidas ' . count($resultado['omitidas']));
+    foreach ($resultado['omitidas'] as $id => $motivo) {
+        $this->line("  Membresía {$id}: {$motivo}");
+    }
+    return 0;
+})->purpose('Programa un período más en los contratos con renovación automática y cuotas al día.');
+
+// Antes de los cobros (00:05): un período que inicia hoy emite su venta en la misma jornada.
+Schedule::command('revive:renovar-membresias-automaticas')
+    ->dailyAt('00:03')
+    ->timezone('America/Guayaquil')
+    ->withoutOverlapping();
+
 Schedule::command('revive:actualizar-estados-membresias')
     ->dailyAt('00:15')
     ->timezone('America/Guayaquil')
@@ -192,10 +207,17 @@ Artisan::command('revive:cerrar-turnos-caja-vencidos {--fecha=}', function (Cier
     );
 
     return 0;
-})->purpose('Cierra automáticamente turnos de caja de días anteriores y deja el arqueo pendiente de conciliación.');
+})->purpose('Cierra la caja diaria a las 22:00 (y los turnos de días anteriores) y deja el arqueo pendiente de conciliación.');
+
+// 22:00 cierra la caja diaria; 00:01 recoge lo que quedó abierto (por ejemplo, turnos abiertos después de las 22:00).
+Schedule::command('revive:cerrar-turnos-caja-vencidos')
+    ->dailyAt(CierreAutomaticoCajaServicio::HORA_CIERRE)
+    ->timezone('America/Guayaquil')
+    ->withoutOverlapping();
 
 Schedule::command('revive:cerrar-turnos-caja-vencidos')
     ->dailyAt('00:01')
+    ->timezone('America/Guayaquil')
     ->withoutOverlapping();
 
 

@@ -31,6 +31,7 @@ Route::middleware(['base.auth'])->prefix('ventas')->group(function (): void {
         Route::put('pos/{id}', [VentaControlador::class, 'actualizarVentaPos'])->name('ventas.pos.update');
         Route::post('pos/cobrar', [VentaControlador::class, 'cobrarVentaPos'])->name('ventas.pos.cobrar');
         Route::post('pos/{id}/cobrar', [VentaControlador::class, 'cobrarVentaPosExistente'])->name('ventas.pos.cobrar-existente');
+        Route::post('pos/{id}/anular', [VentaControlador::class, 'anularVentaPos'])->whereNumber('id')->name('ventas.pos.anular');
         Route::post('ventas', [VentaControlador::class, 'guardarVenta'])->name('ventas.ventas.store');
         Route::put('ventas/{id}', [VentaControlador::class, 'guardarVenta'])->name('ventas.ventas.update');
     });
@@ -42,6 +43,7 @@ Route::middleware(['base.auth'])->prefix('ventas')->group(function (): void {
 
     Route::middleware(['base.permiso:VENTAS-COMPROBANTES'])->group(function (): void {
         Route::get('comprobantes', [VentaControlador::class, 'comprobantes'])->name('ventas.comprobantes.index');
+        Route::post('ventas/{id}/anular-pagada', [VentaControlador::class, 'anularVentaPagada'])->whereNumber('id')->name('ventas.ventas.anular-pagada');
         Route::post('comprobantes/{id}/reenviar', [VentaControlador::class, 'reenviarComprobante'])->name('ventas.comprobantes.reenviar');
     });
 

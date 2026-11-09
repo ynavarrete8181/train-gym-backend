@@ -30,8 +30,8 @@ class DashboardEjecutivoServicio
 
     public function consultar(array $filtros, int $usuarioId): array
     {
-        $desde = $filtros['desde'] ?? now()->startOfMonth()->toDateString();
-        $hasta = $filtros['hasta'] ?? now()->toDateString();
+        $desde = $filtros['desde'] ?? now('America/Guayaquil')->startOfMonth()->toDateString();
+        $hasta = $filtros['hasta'] ?? now('America/Guayaquil')->toDateString();
         $sedeId = $filtros['sede_id'] ?? [];
 
         $base = [
@@ -44,8 +44,8 @@ class DashboardEjecutivoServicio
         $cartera = $this->carteraVencida->consultar(array_merge($base, ['page' => 1, 'per_page' => 5]), $usuarioId);
         $movimientos = $this->membresiasMovimientos->consultar(array_merge($base, ['page' => 1, 'per_page' => 5]), $usuarioId);
         $porVencer = $this->membresiasPorVencer->consultar([
-            'vence_desde' => now()->toDateString(),
-            'vence_hasta' => now()->addDays(30)->toDateString(),
+            'vence_desde' => now('America/Guayaquil')->toDateString(),
+            'vence_hasta' => now('America/Guayaquil')->addDays(30)->toDateString(),
             'sede_id' => $sedeId,
             'page' => 1,
             'per_page' => 5,

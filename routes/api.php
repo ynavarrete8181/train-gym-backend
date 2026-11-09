@@ -2,14 +2,19 @@
 
 use App\Http\Controllers\Api\App\DashboardDeportistaController;
 use App\Http\Controllers\Api\App\EjercicioDetalleController;
+use App\Http\Controllers\Api\App\MiAccesoController;
 use App\Http\Controllers\Api\App\MiActividadController;
 use App\Http\Controllers\Api\App\MiPortalController;
 use App\Http\Controllers\Api\App\MiRutinaController;
 use App\Http\Controllers\Api\App\MisFacturasController;
 use App\Http\Controllers\Api\App\MisMembresiasController;
+use App\Http\Controllers\Api\App\MisNotificacionesController;
 use App\Http\Controllers\Api\App\MisReservasController;
 use App\Http\Controllers\Api\App\PlanesDisponiblesController;
+use App\Http\Controllers\Api\App\RmTemporalController;
 use App\Http\Controllers\Api\App\TiendaProductosController;
+use App\Http\Controllers\Api\Auth\CambiarClaveTemporalController;
+use App\Http\Controllers\Api\Notificaciones\DispositivoPushController;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
@@ -86,6 +91,29 @@ Route::middleware('base.auth')
 Route::middleware('base.auth')
     ->get('app/tienda/productos', TiendaProductosController::class)
     ->name('app.tienda.productos');
+
+// RM estimado temporal: solo recalcula cargas en pantalla, no persiste.
+Route::middleware('base.auth')->controller(RmTemporalController::class)->group(function (): void {
+    Route::post('app/rutinas/calcular-rm-temporal', 'calcular')->name('app.rutinas.rm-temporal.calcular');
+    Route::delete('app/rutinas/rm-temporal', 'limpiar')->name('app.rutinas.rm-temporal.limpiar');
+});
+
+// QR de acceso temporal (10 min, un solo uso) del deportista autenticado.
+Route::middleware('base.auth')
+    ->get('app/acceso', MiAccesoController::class)
+    ->name('app.acceso');
+
+// Bandeja personal de avisos y registro del dispositivo push.
+Route::middleware('base.auth')->group(function (): void {
+    Route::get('app/notificaciones', [MisNotificacionesController::class, 'index'])->name('app.notificaciones.index');
+    Route::post('app/notificaciones/dispositivos', [DispositivoPushController::class, 'guardar'])->name('app.notificaciones.dispositivos');
+    Route::post('app/notificaciones/{id}/leer', [MisNotificacionesController::class, 'leer'])->whereNumber('id')->name('app.notificaciones.leer');
+});
+
+// Cambio de clave temporal desde la app (conserva la sesión actual).
+Route::middleware(['base.auth', 'throttle:10,1'])
+    ->post('auth/cambiar-password-temporal', CambiarClaveTemporalController::class)
+    ->name('app.auth.cambiar-password-temporal');
 
 Route::prefix('base')->group(function (): void {
     require __DIR__.'/base/base.php';

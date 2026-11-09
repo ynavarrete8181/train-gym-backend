@@ -13,6 +13,7 @@ class RecopilaReportePaginadoServicio
             $consulta = $consultar(array_merge($filtros, [
                 'page' => $pagina,
                 'per_page' => $porPagina,
+                'sin_opciones' => true,
             ]), $usuarioId);
 
             $resultado = array_merge($resultado, $consulta['datos'] ?? []);
@@ -75,6 +76,8 @@ class RecopilaReportePaginadoServicio
         $ignorar = ['page', 'per_page', 'busqueda', 'desde', 'hasta', 'vence_desde', 'vence_hasta', 'sede_id'];
 
         return collect($filtros)
+            ->except('columnas')
+            ->merge($filtros['columnas'] ?? [])
             ->reject(fn ($valor, $clave) => in_array($clave, $ignorar, true) || $valor === null || $valor === '' || $valor === [])
             ->map(function ($valor, $clave): string {
                 $valorTexto = is_array($valor) ? implode(', ', $valor) : (string) $valor;

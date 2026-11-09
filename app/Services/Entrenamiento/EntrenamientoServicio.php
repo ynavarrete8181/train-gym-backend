@@ -2,6 +2,7 @@
 
 namespace App\Services\Entrenamiento;
 
+use App\Support\FechaNegocio;
 use App\Services\Concerns\RegistraAuditoria;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -126,7 +127,7 @@ class EntrenamientoServicio
             ->join('clientes.deportistas as d', 'd.id', '=', 'm.deportista_id')
             ->join('seguridad.users as u', 'u.id', '=', 'd.usuario_id')
             ->leftJoin('acceso.asistencias as a', function ($join) use ($fecha): void {
-                $join->on('a.membresia_id', '=', 'm.id')->whereDate('a.fecha_hora', $fecha);
+                $join->on('a.membresia_id', '=', 'm.id')->whereRaw(FechaNegocio::diaSql('a.fecha_hora').' = ?', [$fecha]);
             })
             ->where('m.sede_id', $sedeId)->whereDate('m.fecha_inicio', '<=', $fecha)->whereDate('m.fecha_fin', '>=', $fecha)
             ->where(function ($q): void {
@@ -257,13 +258,6 @@ class EntrenamientoServicio
         $datos = $this->conMetricasCorporales($datos);
 
         return $this->obtenerProgreso($this->guardarRetornandoId('entrenamiento.progresos_corporales', $datos, $id));
-    }
-
-    public function eliminarProgreso(int $id): void
-    {
-        $antes = $this->obtenerProgreso($id);
-        DB::table('entrenamiento.progresos_corporales')->where('id', $id)->delete();
-        $this->auditar('entrenamiento', 'ELIMINAR', 'entrenamiento.progresos_corporales', $id, $antes, null);
     }
 
     public function obtenerProgreso(int $id): object

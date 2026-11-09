@@ -177,9 +177,9 @@ final class RenovacionContratoProgramadoServicio
         ];
     }
 
-    public function registrar(int $id, int $usuarioId): array
+    public function registrar(int $id, ?int $usuarioId, string $accion = 'RENOVACION_MANUAL', string $motivo = 'Renovación manual del mismo contrato, sin venta anticipada.'): array
     {
-        return DB::transaction(function () use ($id, $usuarioId): array {
+        return DB::transaction(function () use ($id, $usuarioId, $accion, $motivo): array {
             $p = $this->previsualizar($id, true);
             $ahora = now();
             $periodoId = DB::table('membresias.membresia_periodos')->insertGetId([
@@ -214,11 +214,11 @@ final class RenovacionContratoProgramadoServicio
             // El snapshot de condiciones pactadas es INMUTABLE. La ampliación
             // vive en periodos/cuotas e historial comercial, no altera el original.
             app(HistorialComercialMembresiaServicio::class)->registrarContrato(
-                $id, 'RENOVACION_MANUAL', $p + [
+                $id, $accion, $p + [
                     'periodo_id' => $periodoId, 'cuota_id' => $cuotaId,
                     'usuario_id' => $usuarioId, 'fecha_fin_anterior' => $p['vigencia_actual'],
                     'fecha_fin_nueva' => $p['fecha_fin'],
-                ], 'Renovación manual del mismo contrato, sin venta anticipada.'
+                ], $motivo
             );
             return $p + ['periodo_id' => $periodoId, 'cuota_id' => $cuotaId];
         });

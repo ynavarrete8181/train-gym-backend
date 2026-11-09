@@ -8,6 +8,10 @@ use Illuminate\Support\Facades\DB;
 
 class ResumenComercialServicio
 {
+    use FiltraColumnasReporte;
+
+    private const COLUMNAS = ['transacciones', 'total_ventas'];
+
     public function __construct(private readonly AlcanceOperativoService $alcance)
     {
     }
@@ -15,8 +19,8 @@ class ResumenComercialServicio
     public function consultar(array $filtros, int $usuarioId): array
     {
         $sedes = $this->resolverSedes($filtros, $usuarioId);
-        $desde = Carbon::parse($filtros['desde'] ?? now()->startOfMonth()->toDateString())->startOfDay();
-        $hasta = Carbon::parse($filtros['hasta'] ?? now()->toDateString())->endOfDay();
+        $desde = Carbon::parse($filtros['desde'] ?? now('America/Guayaquil')->startOfMonth()->toDateString())->startOfDay();
+        $hasta = Carbon::parse($filtros['hasta'] ?? now('America/Guayaquil')->toDateString())->endOfDay();
         $dias = $desde->copy()->startOfDay()->diffInDays($hasta->copy()->startOfDay()) + 1;
         $hastaAnterior = $desde->copy()->subDay()->endOfDay();
         $desdeAnterior = $hastaAnterior->copy()->subDays($dias - 1)->startOfDay();
@@ -39,15 +43,9 @@ class ResumenComercialServicio
             ->selectRaw('SUM(v.total) as total_ventas')
             ->groupByRaw("COALESCE(s.nombre, 'Sin sede')");
 
-        if (! empty($filtros['transacciones'])) {
-            $porSedeQuery->havingRaw('CAST(COUNT(v.id) AS TEXT) LIKE ?', ['%' . trim((string) $filtros['transacciones']) . '%']);
-        }
+        [$reporte, $opcionesFiltro] = $this->filtrarColumnas($porSedeQuery, $filtros, self::COLUMNAS);
 
-        if (! empty($filtros['total_ventas'])) {
-            $porSedeQuery->havingRaw('CAST(SUM(v.total) AS TEXT) LIKE ?', ['%' . trim((string) $filtros['total_ventas']) . '%']);
-        }
-
-        $porSede = $porSedeQuery
+        $porSede = $reporte
             ->orderByDesc('total_ventas')
             ->get()
             ->map(fn ($fila) => [
@@ -74,6 +72,7 @@ class ResumenComercialServicio
                 'variacion_cobros' => $this->variacion($totalCobrado, $cobradoAnterior),
             ],
             'por_sede' => $porSede,
+            'opciones_filtro' => $opcionesFiltro,
             'catalogos' => [
                 'sedes' => DB::table('institucional.sedes')
                     ->whereIn('id_sede', $this->alcance->sedesPermitidas($usuarioId, 'maneja_caja'))

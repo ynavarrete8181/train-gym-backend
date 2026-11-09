@@ -106,10 +106,10 @@ class EntrenadorControlador extends Controller
                 ->where('entrenador_id', $entrenador->id)
                 ->where('activo', true)
                 ->where(function ($query): void {
-                    $query->whereNull('fecha_inicio')->orWhereDate('fecha_inicio', '<=', now()->toDateString());
+                    $query->whereNull('fecha_inicio')->orWhereDate('fecha_inicio', '<=', now('America/Guayaquil')->toDateString());
                 })
                 ->where(function ($query): void {
-                    $query->whereNull('fecha_fin')->orWhereDate('fecha_fin', '>=', now()->toDateString());
+                    $query->whereNull('fecha_fin')->orWhereDate('fecha_fin', '>=', now('America/Guayaquil')->toDateString());
                 })
                 ->count();
             $entrenador->configuracion_completa = count($entrenador->servicio_ids) > 0

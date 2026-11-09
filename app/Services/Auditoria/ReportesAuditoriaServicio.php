@@ -6,6 +6,15 @@ use Illuminate\Support\Facades\DB;
 
 class ReportesAuditoriaServicio
 {
+    // Únicas columnas filtrables por reporte: sus nombres se usan en la consulta.
+    private const COLUMNAS = [
+        'USUARIO' => ['usuario', 'rol', 'eventos', 'modulos', 'ultima_actividad'],
+        'MODULO' => ['modulo', 'eventos', 'usuarios', 'acciones', 'ultima_actividad'],
+        'CRITICOS' => ['created_at', 'usuario', 'rol', 'modulo', 'tabla', 'registro_id', 'accion', 'descripcion', 'ip'],
+        'ACCESOS_FALLIDOS' => ['usuario', 'ip', 'intentos', 'ultimo_intento', 'ultimo_motivo'],
+        'ERRORES_RECURRENTES' => ['modulo', 'accion', 'mensaje', 'ocurrencias', 'ultima_ocurrencia'],
+    ];
+
     public function consultar(array $filtros): array
     {
         $tipo = mb_strtoupper((string) ($filtros['tipo'] ?? 'USUARIO'));
@@ -165,6 +174,40 @@ class ReportesAuditoriaServicio
 
     private function paginar($query, array $filtros): array
     {
+        $tipo = mb_strtoupper((string) ($filtros['tipo'] ?? 'USUARIO'));
+        $columnas = self::COLUMNAS[$tipo] ?? self::COLUMNAS['USUARIO'];
+        $base = DB::query()->fromSub($query, 'reporte');
+        $seleccion = array_filter(
+            $filtros['columnas'] ?? [],
+            fn ($valores, $columna) => in_array($columna, $columnas, true) && ! empty(array_filter((array) $valores)),
+            ARRAY_FILTER_USE_BOTH,
+        );
+
+        // Sin filtros de columna se conserva la consulta y su orden original.
+        if ($seleccion) {
+            $orden = $query->orders;
+            $query = clone $base;
+            foreach ($orden ?? [] as $criterio) {
+                if (isset($criterio['column'])) {
+                    $query->orderBy($criterio['column'], $criterio['direction']);
+                }
+            }
+            foreach ($seleccion as $columna => $valores) {
+                $query->whereIn(DB::raw("\"{$columna}\"::text"), array_values(array_filter((array) $valores)));
+            }
+        }
+
+        $opciones = [];
+        foreach ($columnas as $columna) {
+            $opciones[$columna] = (clone $base)
+                ->selectRaw("DISTINCT \"{$columna}\"::text as valor")
+                ->whereNotNull($columna)
+                ->orderBy('valor')
+                ->limit(500)
+                ->pluck('valor')
+                ->values();
+        }
+
         $paginador = $query->paginate(
             $filtros['per_page'] ?? 10,
             ['*'],
@@ -179,6 +222,7 @@ class ReportesAuditoriaServicio
                 'por_pagina' => $paginador->perPage(),
                 'total' => $paginador->total(),
                 'ultima_pagina' => $paginador->lastPage(),
+                'opciones_filtro' => $opciones,
             ],
         ];
     }

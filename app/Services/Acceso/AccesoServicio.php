@@ -12,6 +12,11 @@ class AccesoServicio
 
     private const TOLERANCIA_MINUTOS_ANTES = 15;
 
+    /** Credencial QR emitida por la app móvil: temporal y de un solo uso. */
+    public const TIPO_QR_APP = 'QR_APP';
+
+    private const MINUTOS_QR_APP = 10;
+
     private const DIAS_SEMANA = ['DOMINGO', 'LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO'];
 
     public function listarDispositivos(array $filtros) { return $this->listarSimple('acceso.dispositivos', $filtros, ['nombre', 'tipo', 'proveedor']); }
@@ -37,6 +42,66 @@ class AccesoServicio
         return $this->guardar('acceso.credenciales', $datos, $id);
     }
 
+    /**
+     * Emite un QR temporal (10 min, un solo uso) para el deportista autenticado
+     * en la app. Invalida los QR de app anteriores que sigan activos. La
+     * membresía se informa solo para mostrarla; la decisión real se toma al
+     * validar el código en recepción (registrarEvento).
+     */
+    public function generarCredencialTemporalApp(int $clienteId): array
+    {
+        return DB::transaction(function () use ($clienteId): array {
+            DB::table('acceso.credenciales')
+                ->where('cliente_id', $clienteId)
+                ->where('tipo', self::TIPO_QR_APP)
+                ->where('estado', 'ACTIVA')
+                ->update(['estado' => 'REEMPLAZADA', 'updated_at' => now()]);
+
+            do {
+                $codigo = 'RV-'.strtoupper(bin2hex(random_bytes(12)));
+            } while (DB::table('acceso.credenciales')->where('codigo', $codigo)->exists());
+
+            $inicio = now();
+            $fin = $inicio->copy()->addMinutes(self::MINUTOS_QR_APP);
+
+            DB::table('acceso.credenciales')->insert([
+                'cliente_id' => $clienteId,
+                'tipo' => self::TIPO_QR_APP,
+                'codigo' => $codigo,
+                'estado' => 'ACTIVA',
+                'vigencia_inicio' => $inicio,
+                'vigencia_fin' => $fin,
+                'metadata' => json_encode(['origen' => 'APP', 'un_solo_uso' => true]),
+                'created_at' => $inicio,
+                'updated_at' => $inicio,
+            ]);
+
+            $membresia = DB::table('membresias.membresias as m')
+                ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
+                ->leftJoin('institucional.sedes as s', 's.id_sede', '=', 'm.sede_id')
+                ->where('m.deportista_id', $clienteId)
+                ->where('m.estado', 'ACTIVA')
+                ->whereDate('m.fecha_inicio', '<=', now('America/Guayaquil')->toDateString())
+                ->whereDate('m.fecha_fin', '>=', now('America/Guayaquil')->toDateString())
+                ->orderByRaw("CASE WHEN p.tipo_producto = 'MEMBRESIA' THEN 0 ELSE 1 END")
+                ->orderByDesc('m.fecha_fin')
+                ->first(['m.id', 'p.nombre', 's.nombre as sede_nombre', 'm.fecha_fin']);
+
+            return [
+                'codigo_qr' => $codigo,
+                'vigencia_inicio' => $inicio->toIso8601String(),
+                'vigencia_fin' => $fin->toIso8601String(),
+                'vence_en_minutos' => self::MINUTOS_QR_APP,
+                'membresia' => $membresia ? [
+                    'id' => (int) $membresia->id,
+                    'nombre' => $membresia->nombre,
+                    'sede_nombre' => $membresia->sede_nombre,
+                    'fecha_fin' => $membresia->fecha_fin ? substr((string) $membresia->fecha_fin, 0, 10) : null,
+                ] : null,
+            ];
+        });
+    }
+
     public function listarEventos(array $filtros)
     {
         $query = DB::table('acceso.eventos')
@@ -56,9 +121,13 @@ class AccesoServicio
     public function registrarEvento(array $datos): object
     {
         return DB::transaction(function () use ($datos): object {
-            $credencial = DB::table('acceso.credenciales')->where('codigo', $datos['codigo_credencial'] ?? '')->first();
+            $credencial = DB::table('acceso.credenciales')->where('codigo', $datos['codigo_credencial'] ?? '')->lockForUpdate()->first();
             $clienteId = $datos['cliente_id'] ?? $credencial?->cliente_id;
             $sedeId = ! empty($datos['sede_id']) ? (int) $datos['sede_id'] : null;
+            if (! $sedeId && ! empty($datos['dispositivo_id'])) {
+                $sedeDispositivo = DB::table('acceso.dispositivos')->where('id', $datos['dispositivo_id'])->value('sede_id');
+                $sedeId = $sedeDispositivo ? (int) $sedeDispositivo : null;
+            }
             $membresia = $clienteId ? $this->membresiaVigente((int) $clienteId, $sedeId) : null;
             [$resultado, $motivo] = $this->evaluarAcceso($credencial, $membresia, $clienteId ? (int) $clienteId : null, $sedeId);
 
@@ -78,7 +147,12 @@ class AccesoServicio
             ]);
 
             if ($credencial) {
-                DB::table('acceso.credenciales')->where('id', $credencial->id)->update(['ultimo_uso_at' => now(), 'updated_at' => now()]);
+                $cambios = ['ultimo_uso_at' => now(), 'updated_at' => now()];
+                // El QR de la app es de un solo uso: se consume con el primer ingreso permitido.
+                if ($credencial->tipo === self::TIPO_QR_APP && $resultado === 'PERMITIDO') {
+                    $cambios['estado'] = 'USADA';
+                }
+                DB::table('acceso.credenciales')->where('id', $credencial->id)->update($cambios);
             }
 
             if ($resultado === 'PERMITIDO' && $clienteId) {
@@ -86,7 +160,7 @@ class AccesoServicio
                     'evento_id' => $eventoId,
                     'cliente_id' => $clienteId,
                     'membresia_id' => $membresia?->id,
-                    'sede_id' => $datos['sede_id'] ?? null,
+                    'sede_id' => $sedeId,
                     'tipo' => $datos['tipo_evento'] ?? 'INGRESO',
                     'metodo' => 'CREDENCIAL',
                     'estado' => 'VALIDA',
@@ -163,10 +237,18 @@ class AccesoServicio
                         ->where('ms.activo', '=', true);
                 });
             })
+            // El pase diario solo sirve en la sede donde se vendió.
+            ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
+            ->where(function ($query) use ($sedeId): void {
+                $query->where('p.tipo_producto', '!=', 'PASE_DIARIO');
+                if ($sedeId) {
+                    $query->orWhere('m.sede_id', $sedeId);
+                }
+            })
             ->where('m.deportista_id', $clienteId)
             ->where('m.estado', 'ACTIVA')
-            ->whereDate('m.fecha_inicio', '<=', now()->toDateString())
-            ->whereDate('m.fecha_fin', '>=', now()->toDateString())
+            ->whereDate('m.fecha_inicio', '<=', now('America/Guayaquil')->toDateString())
+            ->whereDate('m.fecha_fin', '>=', now('America/Guayaquil')->toDateString())
             ->orderByDesc('m.fecha_fin')
             ->select('m.*')
             ->first();
@@ -179,10 +261,14 @@ class AccesoServicio
     private function evaluarAcceso(?object $credencial, ?object $membresia, ?int $clienteId, ?int $sedeId = null): array
     {
         if (! $credencial) return ['DENEGADO', 'Acceso denegado: credencial no encontrada.'];
+        if ($credencial->estado === 'USADA') return ['DENEGADO', 'Acceso denegado: el código QR ya fue utilizado.'];
+        if ($credencial->estado === 'REEMPLAZADA') return ['DENEGADO', 'Acceso denegado: el código QR fue reemplazado por uno más reciente.'];
         if ($credencial->estado !== 'ACTIVA') return ['DENEGADO', 'Acceso denegado: credencial inactiva.'];
         if ($credencial->vigencia_inicio && now()->lessThan($credencial->vigencia_inicio)) return ['DENEGADO', 'Acceso denegado: credencial aún no vigente.'];
         if ($credencial->vigencia_fin && now()->greaterThan($credencial->vigencia_fin)) return ['DENEGADO', 'Acceso denegado: credencial vencida.'];
-        if (! $membresia) return ['DENEGADO', 'Acceso denegado: sin membresía vigente.'];
+        if (! $membresia) return ['DENEGADO', $sedeId
+            ? 'Acceso denegado: sin membresía vigente para esta sede.'
+            : 'Acceso denegado: sin membresía vigente. Si tiene pase diario, indica la sede.'];
         if ($clienteId && $membresia && ! $this->dentroDeHorarioAsignado($clienteId, (int) $membresia->id, $sedeId)) {
             return ['DENEGADO', 'Acceso denegado: fuera del horario asignado con su entrenador.'];
         }

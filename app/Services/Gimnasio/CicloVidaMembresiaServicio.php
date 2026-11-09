@@ -63,7 +63,13 @@ final class CicloVidaMembresiaServicio
                 && $this->motivoBloqueoFinanciero($id, $m) === null
                 && ! $suspensiones->contains(fn ($s) => in_array($s->estado, ['PROGRAMADA', 'VIGENTE'], true)),
             'permite_congelar_facturacion' => false,
-            'puede_cancelar_contrato' => ! in_array(strtoupper((string) $m->estado), ['CANCELADA', 'VENCIDA'], true),
+            'vigencia_inicio' => $m->vigencia_inicio ?? null,
+            'vigencia_fin' => $m->vigencia_fin ?? null,
+            'vigencia_inicio_sugerida' => substr((string) ($m->vigencia_inicio ?? $m->created_at), 0, 10),
+            'dias_vendidos' => $this->esPase($m) ? $this->diasVendidosPase($id) : null,
+            'puede_editar_vigencia' => $this->esPase($m)
+                && ! in_array(strtoupper((string) $m->estado), ['CANCELADA', 'CONGELADA'], true),
+            'puede_cancelar_contrato' => ! in_array(strtoupper((string) $m->estado), $this->esPase($m) ? ['CANCELADA'] : ['CANCELADA', 'VENCIDA'], true),
         ];
     }
 
@@ -146,7 +152,7 @@ final class CicloVidaMembresiaServicio
         if (! $m) {
             throw ValidationException::withMessages(['membresia_id' => 'Membresía no encontrada.']);
         }
-        $this->politica->validarCierre((string) $m->estado, 'vista previa');
+        $this->politica->validarCierre((string) $m->estado, 'vista previa', $this->esPase($m));
         $ventas = DB::table('ventas.ventas')->where('membresia_id', $id)->where('estado', '!=', 'ANULADA');
         return [
             'confirmable' => true,
@@ -171,7 +177,7 @@ final class CicloVidaMembresiaServicio
             if (! $m) {
                 throw ValidationException::withMessages(['membresia_id' => 'Membresía no encontrada.']);
             }
-            $this->politica->validarCierre((string) $m->estado, (string) $datos['motivo']);
+            $this->politica->validarCierre((string) $m->estado, (string) $datos['motivo'], $this->esPase($m));
             $codigo = $this->validarMotivoCatalogado($datos['motivo_codigo'] ?? null, 'CERRAR');
             $previa = $this->previsualizarCancelacion($id);
             $abiertas = DB::table('membresias.membresia_suspensiones')
@@ -203,14 +209,192 @@ final class CicloVidaMembresiaServicio
         });
     }
 
+    /** Corrige, alarga o acorta la vigencia del pase sin cobrar: cada día de uso se vende por separado. */
+    public function editarVigencia(int $id, array $datos, int $usuarioId): array
+    {
+        return DB::transaction(function () use ($id, $datos, $usuarioId): array {
+            $m = DB::table('membresias.membresias')->where('id', $id)->lockForUpdate()->first();
+            if (! $m || ! $this->esPase($m)) {
+                throw ValidationException::withMessages(['membresia_id' => 'La vigencia solo se edita en el Pase Diario.']);
+            }
+            $estado = strtoupper((string) $m->estado);
+            if ($estado === 'CANCELADA') {
+                throw ValidationException::withMessages(['estado' => 'El pase está cancelado: reábrelo antes de editar su vigencia.']);
+            }
+            if ($estado === 'CONGELADA') {
+                throw ValidationException::withMessages(['estado' => 'El pase está congelado: reactívalo antes de editar su vigencia.']);
+            }
+
+            $inicio = substr((string) $datos['fecha_inicio'], 0, 10);
+            $fin = substr((string) $datos['fecha_fin'], 0, 10);
+            if ($fin < $inicio) {
+                throw ValidationException::withMessages(['fecha_fin' => 'La fecha de fin no puede ser anterior a la fecha de inicio.']);
+            }
+
+            $inicioAnterior = $m->vigencia_inicio ? substr((string) $m->vigencia_inicio, 0, 10) : null;
+            $finAnterior = $m->vigencia_fin ? substr((string) $m->vigencia_fin, 0, 10) : null;
+            if ($inicio === $inicioAnterior && $fin === $finAnterior) {
+                throw ValidationException::withMessages(['fecha_fin' => 'La vigencia no tiene cambios.']);
+            }
+
+            $vendidos = $this->diasVendidosPase($id);
+            $legible = fn (string $fecha) => implode('/', array_reverse(explode('-', $fecha)));
+            if ($vendidos['primero'] && $inicio > $vendidos['primero']) {
+                throw ValidationException::withMessages(['fecha_inicio' => 'Hay una venta para el '.$legible($vendidos['primero']).'; la vigencia no puede iniciar después.']);
+            }
+            if ($vendidos['ultimo'] && $fin < $vendidos['ultimo']) {
+                throw ValidationException::withMessages(['fecha_fin' => 'Hay una venta para el '.$legible($vendidos['ultimo']).'; la vigencia no puede terminar antes.']);
+            }
+
+            $movimientoId = DB::table('membresias.membresia_movimientos')->insertGetId([
+                'membresia_id' => $id, 'tipo' => PoliticaCicloVidaMembresia::EDITAR_VIGENCIA,
+                'estado' => 'CONFIRMADO', 'fecha_efectiva' => now()->toDateString(),
+                'motivo' => trim($datos['motivo']), 'usuario_id' => $usuarioId,
+                'autorizado_por' => $usuarioId,
+                'detalle' => json_encode([
+                    'vigencia_inicio_anterior' => $inicioAnterior, 'vigencia_fin_anterior' => $finAnterior,
+                    'vigencia_inicio_nueva' => $inicio, 'vigencia_fin_nueva' => $fin,
+                ], JSON_THROW_ON_ERROR),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+
+            $cambios = ['vigencia_inicio' => $inicio, 'vigencia_fin' => $fin, 'updated_at' => now()];
+            // Un día de uso sin venta que queda fuera de la vigencia pasa a su nuevo inicio.
+            $uso = substr((string) $m->fecha_inicio, 0, 10);
+            if (($uso < $inicio || $uso > $fin) && ! $this->ultimoUsoConVenta($id)) {
+                $cambios += ['fecha_inicio' => $inicio, 'fecha_fin' => $inicio];
+                DB::table('membresias.membresia_periodos')->where('membresia_id', $id)
+                    ->whereNull('venta_id')->orderByDesc('numero_periodo')->limit(1)
+                    ->update(['fecha_inicio' => $inicio, 'fecha_fin' => $inicio, 'updated_at' => now()]);
+            }
+            DB::table('membresias.membresias')->where('id', $id)->update($cambios);
+
+            // Un descuento no puede quedar fuera del contrato.
+            app(ContratoMembresiaServicio::class)->ajustarDescuentosAlContrato($id, $usuarioId);
+
+            return ['movimiento_id' => $movimientoId, 'vigencia_inicio' => $inicio, 'vigencia_fin' => $fin];
+        });
+    }
+
+    /** @return array{primero: ?string, ultimo: ?string} */
+    private function diasVendidosPase(int $id): array
+    {
+        $fila = DB::table('membresias.membresia_periodos as mp')
+            ->join('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
+            ->where('mp.membresia_id', $id)->where('v.estado', '!=', 'ANULADA')
+            ->selectRaw('MIN(mp.fecha_inicio) as primero, MAX(mp.fecha_fin) as ultimo')
+            ->first();
+
+        return [
+            'primero' => $fila?->primero ? substr((string) $fila->primero, 0, 10) : null,
+            'ultimo' => $fila?->ultimo ? substr((string) $fila->ultimo, 0, 10) : null,
+        ];
+    }
+
+    private function ultimoUsoConVenta(int $id): bool
+    {
+        $ultimo = DB::table('membresias.membresia_periodos as mp')
+            ->leftJoin('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
+            ->where('mp.membresia_id', $id)->orderByDesc('mp.numero_periodo')
+            ->first(['mp.venta_id', 'v.estado']);
+
+        return $ultimo && $ultimo->venta_id && $ultimo->estado !== 'ANULADA';
+    }
+
+    public function previsualizarReapertura(int $id): array
+    {
+        $m = DB::table('membresias.membresias')->where('id', $id)->first();
+        if (! $m) {
+            throw ValidationException::withMessages(['membresia_id' => 'Membresía no encontrada.']);
+        }
+        if (strtoupper((string) $m->estado) !== 'CANCELADA') {
+            throw ValidationException::withMessages(['estado' => 'Solo puede reabrirse un contrato cancelado.']);
+        }
+
+        $hoy = now('America/Guayaquil')->toDateString();
+        $vigente = substr((string) $m->fecha_fin, 0, 10) >= $hoy;
+        $deuda = DB::table('ventas.ventas')->where('membresia_id', $id)
+            ->whereNotIn('estado', ['PAGADA', 'ANULADA'])->exists();
+
+        // Un pase sin fecha de uso vigente vuelve a estar disponible para venderse.
+        if ($this->esPase($m) && ! $vigente) {
+            return [
+                'membresia_id' => $id,
+                'confirmable' => true,
+                'fecha_efectiva' => $hoy,
+                'estado_actual' => 'CANCELADA',
+                'estado_resultante' => 'VENCIDA',
+                'tiene_deuda' => $deuda,
+                'requiere_reasignar_entrenador' => false,
+                'motivo_bloqueo' => null,
+            ];
+        }
+
+        return [
+            'membresia_id' => $id,
+            'confirmable' => $vigente,
+            'fecha_efectiva' => $hoy,
+            'estado_actual' => 'CANCELADA',
+            'estado_resultante' => $deuda ? 'PENDIENTE_PAGO' : 'ACTIVA',
+            'tiene_deuda' => $deuda,
+            'requiere_reasignar_entrenador' => DB::table('entrenamiento.asignaciones_entrenador_cliente')
+                ->where('membresia_id', $id)->where('estado', 'FINALIZADO')->exists(),
+            'motivo_bloqueo' => $vigente ? null
+                : 'La vigencia ya terminó. Debe registrarse una nueva contratación vinculada al historial anterior.',
+        ];
+    }
+
+    public function reabrirContrato(int $id, array $datos, int $usuarioId): array
+    {
+        return DB::transaction(function () use ($id, $datos, $usuarioId): array {
+            $m = DB::table('membresias.membresias')->where('id', $id)->lockForUpdate()->first();
+            if (! $m) {
+                throw ValidationException::withMessages(['membresia_id' => 'Membresía no encontrada.']);
+            }
+            $previa = $this->previsualizarReapertura($id);
+            if (! $previa['confirmable']) {
+                throw ValidationException::withMessages(['estado' => $previa['motivo_bloqueo']]);
+            }
+            $codigo = $this->validarMotivoCatalogado($datos['motivo_codigo'] ?? null, 'REABRIR');
+            $estado = $previa['estado_resultante'];
+            $movimientoId = DB::table('membresias.membresia_movimientos')->insertGetId([
+                'membresia_id' => $id,
+                'tipo' => PoliticaCicloVidaMembresia::REAPERTURA_EXCEPCIONAL,
+                'estado' => 'CONFIRMADO',
+                'fecha_efectiva' => $previa['fecha_efectiva'],
+                'motivo' => trim($datos['motivo']),
+                'usuario_id' => $usuarioId,
+                'autorizado_por' => $usuarioId,
+                'detalle' => json_encode($previa + [
+                    'motivo_codigo' => $codigo,
+                    'estado_anterior' => 'CANCELADA',
+                    'estado_nuevo' => $estado,
+                    'restaura_reservas' => false,
+                    'restaura_entrenador' => false,
+                ], JSON_THROW_ON_ERROR),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            DB::table('membresias.membresias')->where('id', $id)->update([
+                'estado' => $estado,
+                'estado_id' => $this->estados->idPorValor('MEMBRESIA', $estado),
+                'updated_at' => now(),
+            ]);
+            return $previa + ['movimiento_id' => $movimientoId, 'estado' => $estado];
+        });
+    }
+
     /**
      * TIEMPO: contratos sin cobro recurrente con ventas emitidas pagadas.
      * Las cuotas futuras conservan el día de pago; no se reprograman.
      */
+    private function esPase(object $m): bool
+    {
+        return DB::table('membresias.planes')->where('id', $m->plan_id)->value('tipo_producto') === 'PASE_DIARIO';
+    }
+
     private function motivoBloqueoFinanciero(int $id, object $m): ?string
     {
-        if ((bool) ($m->generar_venta_automatica ?? false)
-            || (bool) ($m->renovacion_automatica ?? false)) {
+        if ((bool) ($m->generar_venta_automatica ?? false)) {
             return 'Desactiva los cobros recurrentes mediante el proceso financiero de Fase 3.';
         }
 
@@ -283,7 +467,6 @@ final class CicloVidaMembresiaServicio
         if ($tipo === PoliticaCicloVidaMembresia::FACTURACION) {
             $bloqueo = null;
             if ((bool) ($m->generar_venta_automatica ?? false)
-                || (bool) ($m->renovacion_automatica ?? false)
                 || $m->cantidad_periodos_contratados === null) {
                 $bloqueo = 'Este contrato utiliza cobros recurrentes sin calendario de cuotas fijo.';
             } elseif ($financiero['requiere_revision_cartera']) {

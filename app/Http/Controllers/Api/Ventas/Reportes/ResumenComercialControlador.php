@@ -19,11 +19,12 @@ class ResumenComercialControlador extends Controller
     public function index(Request $request)
     {
         $filtros = $request->validate([
+            'columnas' => 'nullable|array',
+            'columnas.*' => 'nullable|array',
+            'columnas.*.*' => 'nullable|string|max:255',
             'desde' => 'nullable|date',
             'hasta' => 'nullable|date|after_or_equal:desde',
             'sede_id' => 'nullable',
-            'transacciones' => 'nullable|string|max:20',
-            'total_ventas' => 'nullable|string|max:30',
         ]);
 
         return ApiResponse::exito(
@@ -35,11 +36,12 @@ class ResumenComercialControlador extends Controller
     public function excel(Request $request)
     {
         $filtros = $request->validate([
+            'columnas' => 'nullable|array',
+            'columnas.*' => 'nullable|array',
+            'columnas.*.*' => 'nullable|string|max:255',
             'desde' => 'nullable|date',
             'hasta' => 'nullable|date|after_or_equal:desde',
             'sede_id' => 'nullable',
-            'transacciones' => 'nullable|string|max:20',
-            'total_ventas' => 'nullable|string|max:30',
         ]);
 
         return $this->exportacion->excel($filtros, (int) $request->user()->id);

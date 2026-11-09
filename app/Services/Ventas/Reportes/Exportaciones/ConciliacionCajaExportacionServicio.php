@@ -19,13 +19,13 @@ class ConciliacionCajaExportacionServicio
     {
         $items = $this->recopila->todos(fn ($params, $uid) => $this->reporte->consultar($params, $uid), $filtros, $usuarioId);
         $filas = collect($items)->map(fn ($i) => [
-            $i->fecha_cierre ?? '',
+            $i->fecha ?? '',
             $i->sede ?? '',
             $i->caja_nombre ?? '',
             $i->caja_codigo ?? '',
             $i->cajero ?? '',
-            $i->fecha_apertura ?? '',
-            $i->fecha_cierre ?? '',
+            $i->hora_apertura ?? '',
+            $i->hora_cierre ?? '',
             (float) ($i->saldo_inicial ?? 0),
             (float) ($i->efectivo_cobrado ?? 0),
             (float) ($i->efectivo_esperado ?? 0),

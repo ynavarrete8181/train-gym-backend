@@ -37,7 +37,7 @@ class MisReservasController extends Controller
 
     public function membresias(Request $request): JsonResponse
     {
-        $fecha = $request->validate(['fecha' => 'nullable|date'])['fecha'] ?? now()->toDateString();
+        $fecha = $request->validate(['fecha' => 'nullable|date'])['fecha'] ?? now('America/Guayaquil')->toDateString();
         $items = DB::table('membresias.membresias as m')->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
             ->leftJoin('institucional.sedes as s', 's.id_sede', '=', 'm.sede_id')
             ->where('m.deportista_id', $this->deportistaId($request))->where('m.estado', 'ACTIVA')
@@ -73,7 +73,7 @@ class MisReservasController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $datos = $request->validate(['horario_id' => 'required|integer', 'socio_membresia_id' => 'required|integer', 'fecha' => 'required|date|after_or_equal:today']);
+        $datos = $request->validate(['horario_id' => 'required|integer', 'socio_membresia_id' => 'required|integer', 'fecha' => 'required|date|after_or_equal:'.now('America/Guayaquil')->toDateString()]);
         $deportistaId = $this->deportistaId($request);
         $m = DB::table('membresias.membresias')->where('id', $datos['socio_membresia_id'])->where('deportista_id', $deportistaId)->where('estado', 'ACTIVA')->whereDate('fecha_inicio', '<=', $datos['fecha'])->whereDate('fecha_fin', '>=', $datos['fecha'])->first();
         $h = DB::table('agenda.horarios_servicio')->where('id', $datos['horario_id'])->where('activo', true)->first();

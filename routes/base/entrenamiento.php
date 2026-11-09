@@ -69,6 +69,5 @@ Route::middleware(['base.auth'])->prefix('entrenamiento')->group(function (): vo
     Route::middleware(['base.permiso:ENTRENAMIENTO-PROGRESO'])->group(function (): void {
         Route::post('progreso', [EntrenamientoControlador::class, 'guardarProgreso'])->name('entrenamiento.progreso.store');
         Route::put('progreso/{id}', [EntrenamientoControlador::class, 'guardarProgreso'])->name('entrenamiento.progreso.update');
-        Route::delete('progreso/{id}', [EntrenamientoControlador::class, 'eliminarProgreso'])->name('entrenamiento.progreso.destroy');
     });
 });

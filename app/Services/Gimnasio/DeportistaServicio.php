@@ -9,15 +9,16 @@ class DeportistaServicio
 {
     use RegistraAuditoria;
 
-    public function crear(array $datos)
+    public function crear(array $datos, ?int $personaExistenteId = null)
     {
         $representante = $datos['representante_legal'] ?? null;
         $persona = $datos['persona'] ?? null;
         $ubicacion = $datos['ubicacion'] ?? null;
-        unset($datos['representante_legal'], $datos['persona'], $datos['ubicacion']);
+        $tipoCliente = $datos['tipo_cliente'] ?? null;
+        unset($datos['representante_legal'], $datos['persona'], $datos['ubicacion'], $datos['tipo_cliente']);
 
-        return DB::transaction(function () use ($datos, $representante, $persona, $ubicacion) {
-            $personaId = $this->resolverPersonaCliente($persona ?? []);
+        return DB::transaction(function () use ($datos, $representante, $persona, $ubicacion, $tipoCliente, $personaExistenteId) {
+            $personaId = $personaExistenteId ?? $this->resolverPersonaCliente($persona ?? []);
             $this->guardarUbicacionPersona($personaId, $ubicacion);
             $datos['persona_id'] = $personaId;
             $datos['usuario_id'] = $datos['usuario_id'] ?? null;
@@ -39,6 +40,7 @@ class DeportistaServicio
 
             $id = DB::table('clientes.deportistas')->insertGetId($datos);
             $this->sincronizarRepresentanteLegal($id, (bool) ($datos['requiere_representante_legal'] ?? false), $representante);
+            $this->aplicarTipoCliente($personaId, $tipoCliente);
 
             $cliente = $this->obtenerDeportistaConRelaciones($id);
             $this->auditar('clientes', 'CREAR', 'clientes.deportistas', $id, null, $cliente);
@@ -52,9 +54,10 @@ class DeportistaServicio
         $representante = $datos['representante_legal'] ?? null;
         $persona = $datos['persona'] ?? null;
         $ubicacion = $datos['ubicacion'] ?? null;
-        unset($datos['representante_legal'], $datos['persona'], $datos['ubicacion']);
+        $tipoCliente = $datos['tipo_cliente'] ?? null;
+        unset($datos['representante_legal'], $datos['persona'], $datos['ubicacion'], $datos['tipo_cliente']);
 
-        return DB::transaction(function () use ($id, $datos, $representante, $persona, $ubicacion) {
+        return DB::transaction(function () use ($id, $datos, $representante, $persona, $ubicacion, $tipoCliente) {
             $antes = $this->obtenerDeportistaConRelaciones($id);
             $actual = DB::table('clientes.deportistas')->where('id', $id)->first();
 
@@ -83,6 +86,10 @@ class DeportistaServicio
             $datos['updated_at'] = now();
 
             DB::table('clientes.deportistas')->where('id', $id)->update($datos);
+            // Primero el rol: quien deja de ser tutor ya puede tener uno.
+            if ($actual?->persona_id) {
+                $this->aplicarTipoCliente((int) $actual->persona_id, $tipoCliente);
+            }
             $this->sincronizarRepresentanteLegal($id, (bool) ($datos['requiere_representante_legal'] ?? false), $representante);
 
             $cliente = $this->obtenerDeportistaConRelaciones($id);
@@ -100,6 +107,7 @@ class DeportistaServicio
             ->leftJoin('institucional.sedes as s', 'd.sede_principal_id', '=', 's.id_sede')
             ->select(
                 'd.*',
+                'p.tipo_identificacion',
                 'p.identificacion',
                 DB::raw('COALESCE(NULLIF(TRIM(p.nombres), \'\'), p.nombre_completo) as nombres'),
                 'p.apellidos',
@@ -150,26 +158,94 @@ class DeportistaServicio
 
         $deportista->requiere_representante_legal = (bool) $deportista->requiere_representante_legal;
         $deportista->representante_legal = $representante;
+        $deportista->tutor_id = $deportista->persona_id
+            ? DB::table('clientes.tutores')->where('persona_id', $deportista->persona_id)->where('activo', true)->value('id')
+            : null;
+        $deportista->tipo_cliente = $deportista->tutor_id ? 'DEPORTISTA_TUTOR' : 'DEPORTISTA';
+        $deportista->representados = $deportista->tutor_id
+            ? $this->representadosDe((int) $deportista->persona_id)
+            : [];
+        $deportista->representados_anteriores = $deportista->persona_id
+            ? $this->representadosAnterioresDe((int) $deportista->persona_id)
+            : [];
+        $deportista->historial_tutores = $this->historialTutores($id);
 
         return $deportista;
+    }
+
+    public function representadosDe(int $personaId)
+    {
+        return DB::table('clientes.deportista_representantes as dr')
+            ->join('clientes.deportistas as d', 'd.id', '=', 'dr.deportista_id')
+            ->leftJoin('personas.personas as p', 'p.id', '=', 'd.persona_id')
+            ->where('dr.representante_persona_id', $personaId)
+            ->where('dr.activo', true)
+            ->orderBy('p.nombre_completo')
+            ->get([
+                'd.id',
+                'd.codigo_deportista',
+                'd.estado',
+                'p.identificacion',
+                'p.nombre_completo',
+                'dr.tipo_relacion',
+                'dr.responsable_pago',
+            ]);
+    }
+
+    public function marcarTutor(int $personaId, string $estado = 'ACTIVO'): int
+    {
+        $existente = DB::table('clientes.tutores')->where('persona_id', $personaId)->first(['id', 'activo']);
+        if (! $existente) {
+            return (int) DB::table('clientes.tutores')->insertGetId([
+                'persona_id' => $personaId,
+                'estado' => $estado,
+                'activo' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+        if (! $existente->activo) {
+            DB::table('clientes.tutores')->where('id', $existente->id)
+                ->update(['activo' => true, 'estado' => $estado, 'updated_at' => now()]);
+        }
+
+        return (int) $existente->id;
+    }
+
+    private function aplicarTipoCliente(int $personaId, ?string $tipoCliente): void
+    {
+        if ($tipoCliente === 'DEPORTISTA_TUTOR') {
+            $this->marcarTutor($personaId);
+            return;
+        }
+        if ($tipoCliente !== 'DEPORTISTA') {
+            return;
+        }
+
+        $tieneRepresentados = DB::table('clientes.deportista_representantes')
+            ->where('representante_persona_id', $personaId)->where('activo', true)->exists();
+        if ($tieneRepresentados) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'tipo_cliente' => 'No puede dejar de ser tutor mientras tenga deportistas a su cargo.',
+            ]);
+        }
+        DB::table('clientes.tutores')->where('persona_id', $personaId)
+            ->update(['activo' => false, 'updated_at' => now()]);
     }
 
     private function sincronizarRepresentanteLegal(int $deportistaId, bool $requiere, ?array $datos): void
     {
         if (! $requiere) {
-            DB::table('clientes.deportista_representantes')
-                ->where('deportista_id', $deportistaId)
-                ->where('activo', true)
-                ->update([
-                    'activo' => false,
-                    'updated_at' => now(),
-                ]);
+            $this->finalizarTutores($deportistaId);
             return;
         }
 
         if (! $datos) {
             return;
         }
+
+        $personaCliente = (int) DB::table('clientes.deportistas')->where('id', $deportistaId)->value('persona_id');
+        $personaSeleccionada = ! empty($datos['persona_id']) ? (int) $datos['persona_id'] : null;
 
         // Si el representante ya está asociado a este cliente y conserva su
         // documento, actualizar su ficha canónica en lugar de solo reutilizarla.
@@ -183,10 +259,15 @@ class DeportistaServicio
 
         $documentoNuevo = trim((string) ($datos['identificacion'] ?? ''));
         $documentoActual = trim((string) ($actual?->identificacion ?? ''));
-        $mismaPersona = $actual
+        // Sin documento no hay identidad confirmada: nunca editar a una persona
+        // que puede representar también a otros deportistas.
+        $mismaPersona = $actual && $documentoNuevo !== ''
             && mb_strtolower($documentoNuevo) === mb_strtolower($documentoActual);
 
-        if ($mismaPersona) {
+        if ($personaSeleccionada) {
+            // Seleccionar un tutor existente no modifica sus datos personales.
+            $personaId = $personaSeleccionada;
+        } elseif ($mismaPersona) {
             $personaId = (int) $actual->id;
             $nombres = trim((string) ($datos['nombres'] ?? ''));
             $apellidos = trim((string) ($datos['apellidos'] ?? ''));
@@ -207,36 +288,127 @@ class DeportistaServicio
             $personaId = $this->resolverPersonaRepresentante($datos);
         }
 
-        DB::table('clientes.deportista_representantes')
+        if ($personaId === $personaCliente) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'representante_legal.persona_id' => 'Un cliente no puede ser su propio tutor.',
+            ]);
+        }
+
+        if (DB::table('clientes.tutores')->where('persona_id', $personaCliente)->where('activo', true)->exists()) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'representante_legal.persona_id' => 'Un tutor no puede tener tutor.',
+            ]);
+        }
+
+        $tutorTieneTutor = DB::table('clientes.deportista_representantes as dr')
+            ->join('clientes.deportistas as d', 'd.id', '=', 'dr.deportista_id')
+            ->where('d.persona_id', $personaId)
+            ->where('dr.activo', true)
+            ->exists();
+        if ($tutorTieneTutor) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'representante_legal.persona_id' => 'Esta persona tiene tutor, por lo que no puede ser tutor de otro cliente.',
+            ]);
+        }
+
+        $this->marcarTutor($personaId);
+
+        $this->finalizarTutores($deportistaId, $personaId);
+
+        $vinculo = [
+            'tipo_relacion' => $datos['tipo_relacion'] ?? 'TUTOR',
+            'es_principal' => true,
+            'responsable_pago' => (bool) ($datos['responsable_pago'] ?? false),
+            'updated_at' => now(),
+        ];
+        $vigente = DB::table('clientes.deportista_representantes')
+            ->where('deportista_id', $deportistaId)
+            ->where('representante_persona_id', $personaId)
+            ->where('activo', true);
+
+        if ((clone $vigente)->exists()) {
+            $vigente->update($vinculo);
+            return;
+        }
+
+        // Cada periodo es una fila nueva para conservar el historial si el tutor regresa.
+        DB::table('clientes.deportista_representantes')->insert($vinculo + [
+            'deportista_id' => $deportistaId,
+            'representante_persona_id' => $personaId,
+            'activo' => true,
+            'fecha_inicio' => now(),
+            'created_at' => now(),
+        ]);
+    }
+
+    /** Cierra los vínculos activos con su fecha; nunca los elimina. */
+    public function finalizarTutores(int $deportistaId, ?int $exceptoPersonaId = null, ?string $motivo = null): int
+    {
+        return DB::table('clientes.deportista_representantes')
             ->where('deportista_id', $deportistaId)
             ->where('activo', true)
-            ->where('representante_persona_id', '!=', $personaId)
+            ->when($exceptoPersonaId, fn ($q) => $q->where('representante_persona_id', '!=', $exceptoPersonaId))
             ->update([
                 'activo' => false,
+                'fecha_fin' => now(),
+                'motivo_fin' => $motivo,
+                'finalizado_por' => request()->user()?->id,
                 'updated_at' => now(),
             ]);
+    }
 
-        DB::table('clientes.deportista_representantes')->updateOrInsert(
-            [
-                'deportista_id' => $deportistaId,
-                'representante_persona_id' => $personaId,
-            ],
-            [
-                'tipo_relacion' => $datos['tipo_relacion'] ?? 'REPRESENTANTE_LEGAL',
-                'es_principal' => true,
-                'responsable_pago' => (bool) ($datos['responsable_pago'] ?? false),
-                'activo' => true,
-                'updated_at' => now(),
-                'created_at' => now(),
-            ]
-        );
+    public function historialTutores(int $deportistaId)
+    {
+        return DB::table('clientes.deportista_representantes as dr')
+            ->join('personas.personas as p', 'p.id', '=', 'dr.representante_persona_id')
+            ->leftJoin('seguridad.users as u', 'u.id', '=', 'dr.finalizado_por')
+            ->where('dr.deportista_id', $deportistaId)
+            ->orderByDesc('dr.activo')
+            ->orderByDesc('dr.fecha_inicio')
+            ->orderByDesc('dr.id')
+            ->get([
+                'dr.id',
+                'dr.representante_persona_id as persona_id',
+                'p.nombre_completo',
+                'p.identificacion',
+                'dr.tipo_relacion',
+                'dr.responsable_pago',
+                'dr.activo',
+                'dr.fecha_inicio',
+                'dr.fecha_fin',
+                'dr.motivo_fin',
+                'u.name as finalizado_por_nombre',
+            ]);
+    }
+
+    public function representadosAnterioresDe(int $personaId)
+    {
+        return DB::table('clientes.deportista_representantes as dr')
+            ->join('clientes.deportistas as d', 'd.id', '=', 'dr.deportista_id')
+            ->leftJoin('personas.personas as p', 'p.id', '=', 'd.persona_id')
+            ->where('dr.representante_persona_id', $personaId)
+            ->where('dr.activo', false)
+            ->orderByDesc('dr.fecha_fin')
+            ->orderByDesc('dr.id')
+            ->get([
+                'dr.id as vinculo_id',
+                'd.id',
+                'd.codigo_deportista',
+                'd.estado',
+                'p.identificacion',
+                'p.nombre_completo',
+                'dr.tipo_relacion',
+                'dr.fecha_inicio',
+                'dr.fecha_fin',
+                'dr.motivo_fin',
+            ]);
     }
 
     /**
      * Un documento identifica una única persona, incluso si se registró con espacios
      * o diferencias de mayúsculas. Rechazamos ambigüedades históricas.
      */
-    private function buscarPersonaPorDocumento(string $identificacion): ?object
+    public function buscarPersonaPorDocumento(string $identificacion): ?object
     {
         if ($identificacion === '') {
             return null;
@@ -267,7 +439,7 @@ class DeportistaServicio
         }
     }
 
-    private function guardarUbicacionPersona(int $personaId, ?array $ubicacion): void
+    public function guardarUbicacionPersona(int $personaId, ?array $ubicacion): void
     {
         if ($ubicacion === null) {
             return;
@@ -334,7 +506,7 @@ class DeportistaServicio
         ]);
     }
 
-    private function actualizarPersonaCliente(int $personaId, array $datos): void
+    public function actualizarPersonaCliente(int $personaId, array $datos): void
     {
         $nombres = trim((string) ($datos['nombres'] ?? ''));
         $apellidos = trim((string) ($datos['apellidos'] ?? ''));

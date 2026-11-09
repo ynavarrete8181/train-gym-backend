@@ -7,6 +7,10 @@ use Illuminate\Support\Facades\DB;
 
 class ProductosServiciosVendidosServicio
 {
+    use FiltraColumnasReporte;
+
+    private const COLUMNAS = ['item', 'ventas', 'cantidad', 'precio_promedio', 'total_vendido'];
+
     public function __construct(private readonly AlcanceOperativoService $alcance)
     {
     }
@@ -22,8 +26,8 @@ class ProductosServiciosVendidosServicio
             ->all();
         $sedes = $sedesSolicitadas ?: $sedesPermitidas;
 
-        $desde = $filtros['desde'] ?? now()->startOfMonth()->toDateString();
-        $hasta = $filtros['hasta'] ?? now()->toDateString();
+        $desde = $filtros['desde'] ?? now('America/Guayaquil')->startOfMonth()->toDateString();
+        $hasta = $filtros['hasta'] ?? now('America/Guayaquil')->toDateString();
 
         $tipoSql = "UPPER(COALESCE(NULLIF(TRIM(d.tipo_item), ''), CASE WHEN d.producto_id IS NOT NULL THEN 'PRODUCTO' ELSE NULLIF(TRIM(v.tipo_venta), '') END, 'OTRO'))";
         $descripcionSql = "COALESCE(NULLIF(TRIM(p.nombre), ''), NULLIF(TRIM(d.descripcion), ''), NULLIF(TRIM(v.concepto), ''), 'Sin descripción')";
@@ -62,35 +66,16 @@ class ProductosServiciosVendidosServicio
             $query->whereIn(DB::raw($tipoSql), array_map('strtoupper', array_filter($valores)));
         }
 
-        if (! empty($filtros['item'])) {
-            $query->whereRaw("LOWER({$descripcionSql}) LIKE ?", ['%' . mb_strtolower((string) $filtros['item']) . '%']);
-        }
+        [$reporte, $opcionesFiltro] = $this->filtrarColumnas($query, $filtros, self::COLUMNAS);
 
-        if (! empty($filtros['ventas'])) {
-            $query->havingRaw('CAST(COUNT(DISTINCT v.id) AS TEXT) LIKE ?', ['%' . trim((string) $filtros['ventas']) . '%']);
-        }
-
-        if (! empty($filtros['cantidad'])) {
-            $query->havingRaw('CAST(SUM(d.cantidad) AS TEXT) LIKE ?', ['%' . trim((string) $filtros['cantidad']) . '%']);
-        }
-
-        if (! empty($filtros['precio_promedio'])) {
-            $query->havingRaw('CAST(AVG(d.precio_unitario) AS TEXT) LIKE ?', ['%' . trim((string) $filtros['precio_promedio']) . '%']);
-        }
-
-        if (! empty($filtros['total_vendido'])) {
-            $query->havingRaw('CAST(SUM(d.total_linea) AS TEXT) LIKE ?', ['%' . trim((string) $filtros['total_vendido']) . '%']);
-        }
-
-        $resumen = DB::query()
-            ->fromSub(clone $query, 'reporte')
+        $resumen = (clone $reporte)
             ->selectRaw('COUNT(*) as items_distintos')
             ->selectRaw('COALESCE(SUM(ventas), 0) as ventas')
             ->selectRaw('COALESCE(SUM(cantidad), 0) as unidades')
             ->selectRaw('COALESCE(SUM(total_vendido), 0) as total_vendido')
             ->first();
 
-        $paginador = $query
+        $paginador = $reporte
             ->orderByDesc('total_vendido')
             ->orderBy('item')
             ->paginate($filtros['per_page'] ?? 10, ['*'], 'page', $filtros['page'] ?? 1);
@@ -121,6 +106,7 @@ class ProductosServiciosVendidosServicio
                     'unidades' => round((float) ($resumen->unidades ?? 0), 2),
                     'total_vendido' => round((float) ($resumen->total_vendido ?? 0), 2),
                 ],
+                'opciones_filtro' => $opcionesFiltro,
                 'catalogos' => [
                     'sedes' => DB::table('institucional.sedes')
                         ->whereIn('id_sede', $sedesPermitidas)

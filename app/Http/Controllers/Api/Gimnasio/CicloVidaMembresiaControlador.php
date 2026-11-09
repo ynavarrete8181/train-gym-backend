@@ -15,7 +15,81 @@ final class CicloVidaMembresiaControlador extends Controller
     public function __construct(
         private readonly CicloVidaMembresiaServicio $servicio,
         private readonly AlcanceOperativoService $alcance,
+        private readonly \App\Services\Gimnasio\ContratoMembresiaServicio $contrato,
     ) {}
+
+    public function actualizarSedes(Request $request, int $id)
+    {
+        $this->validarAlcance($request, $id);
+        $datos = $request->validate([
+            'sedes_habilitadas' => 'required|array|min:1',
+            'sedes_habilitadas.*' => 'required|integer|distinct|exists:pgsql.institucional.sedes,id_sede',
+            'motivo' => 'required|string|min:8|max:500',
+        ]);
+        return ApiResponse::exito('Sedes de la membresía actualizadas.',
+            $this->contrato->actualizarSedes($id, $datos['sedes_habilitadas'], $datos['motivo'], (int) $request->user()->id));
+    }
+
+    public function actualizarConfiguracion(Request $request, int $id)
+    {
+        $this->validarAlcance($request, $id);
+        $datos = $request->validate([
+            'dias_gracia' => 'required|integer|min:0|max:365',
+            'renovacion_automatica' => 'required|boolean',
+            'motivo' => 'required|string|min:8|max:500',
+        ]);
+        return ApiResponse::exito('Configuración del contrato actualizada.', (array) $this->contrato->actualizarConfiguracion(
+            $id, ['dias_gracia' => (int) $datos['dias_gracia'], 'renovacion_automatica' => (bool) $datos['renovacion_automatica']],
+            $datos['motivo'], (int) $request->user()->id));
+    }
+
+    public function resumenPdf(Request $request, int $id)
+    {
+        $this->validarAlcance($request, $id);
+        $resultado = app(\App\Services\Gimnasio\ResumenContratoPdfServicio::class)->generar($id, (int) $request->user()->id);
+        return response($resultado['pdf'], 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="'.$resultado['nombre'].'"',
+        ]);
+    }
+
+    public function descuentos(Request $request, int $id)
+    {
+        return ApiResponse::exito('Descuentos de la membresía consultados.', $this->contrato->descuentos($id));
+    }
+
+    public function registrarDescuento(Request $request, int $id)
+    {
+        $this->validarAlcance($request, $id);
+        return ApiResponse::exito('Descuento registrado.',
+            (array) $this->contrato->registrarDescuento($id, $request->validate($this->reglasDescuento()), (int) $request->user()->id));
+    }
+
+    public function actualizarDescuento(Request $request, int $id, int $descuentoId)
+    {
+        $this->validarAlcance($request, $id);
+        return ApiResponse::exito('Descuento actualizado.',
+            (array) $this->contrato->actualizarDescuento($id, $descuentoId, $request->validate($this->reglasDescuento()), (int) $request->user()->id));
+    }
+
+    public function finalizarDescuento(Request $request, int $id, int $descuentoId)
+    {
+        $this->validarAlcance($request, $id);
+        $datos = $request->validate(['motivo' => 'required|string|min:8|max:500']);
+        return ApiResponse::exito('Descuento finalizado.',
+            (array) $this->contrato->finalizarDescuento($id, $descuentoId, $datos['motivo'], (int) $request->user()->id));
+    }
+
+    private function reglasDescuento(): array
+    {
+        return [
+            'tipo' => 'required|in:PORCENTAJE,FIJO',
+            'valor' => 'required|numeric|gt:0',
+            'fecha_inicio' => 'required|date',
+            'fecha_fin' => 'nullable|date',
+            'motivo' => 'required|string|min:8|max:250',
+        ];
+    }
 
     private function validarAlcance(Request $request, int $id): void
     {
@@ -43,10 +117,20 @@ final class CicloVidaMembresiaControlador extends Controller
         $this->alcance->validarSede($usuarioId, $sedeId);
     }
 
+    /** Reabrir un contrato cancelado es excepcional: solo administradores. */
+    private function exigirAdministrador(Request $request): void
+    {
+        abort_unless($this->alcance->esGlobal((int) $request->user()->id), 403, 'Solo un administrador puede reabrir un contrato.');
+    }
+
     public function mostrar(Request $request, int $id)
     {
         $this->validarAlcance($request, $id);
-        return ApiResponse::exito('Ciclo de vida consultado.', $this->servicio->resumen($id));
+        $resumen = $this->servicio->resumen($id);
+        $resumen['puede_reabrir'] = strtoupper((string) $resumen['estado']) === 'CANCELADA'
+            && $this->alcance->esGlobal((int) $request->user()->id);
+
+        return ApiResponse::exito('Ciclo de vida consultado.', $resumen);
     }
 
     public function previsualizar(Request $request, int $id)
@@ -167,6 +251,18 @@ final class CicloVidaMembresiaControlador extends Controller
             $this->servicio->previsualizarCancelacion($id));
     }
 
+    public function editarVigencia(Request $request, int $id)
+    {
+        $this->validarAlcance($request, $id);
+        $datos = $request->validate([
+            'fecha_inicio' => 'required|date',
+            'fecha_fin' => 'required|date',
+            'motivo' => 'required|string|min:8|max:1000',
+        ]);
+        return ApiResponse::exito('Vigencia del pase actualizada.',
+            $this->servicio->editarVigencia($id, $datos, (int) $request->user()->id));
+    }
+
     public function cancelarContrato(Request $request, int $id)
     {
         $this->validarAlcance($request, $id);
@@ -176,5 +272,25 @@ final class CicloVidaMembresiaControlador extends Controller
         ]);
         return ApiResponse::exito('Contrato cancelado. El historial financiero se conserva.',
             $this->servicio->cancelarContrato($id, $datos, (int) $request->user()->id));
+    }
+
+    public function previsualizarReapertura(Request $request, int $id)
+    {
+        $this->validarAlcance($request, $id);
+        $this->exigirAdministrador($request);
+        return ApiResponse::exito('Vista previa de reapertura excepcional.',
+            $this->servicio->previsualizarReapertura($id));
+    }
+
+    public function reabrirContrato(Request $request, int $id)
+    {
+        $this->validarAlcance($request, $id);
+        $this->exigirAdministrador($request);
+        $datos = $request->validate([
+            'motivo' => 'required|string|min:8|max:1000',
+            'motivo_codigo' => 'required|string|max:60',
+        ]);
+        return ApiResponse::exito('Contrato reabierto con trazabilidad completa.',
+            $this->servicio->reabrirContrato($id, $datos, (int) $request->user()->id));
     }
 }

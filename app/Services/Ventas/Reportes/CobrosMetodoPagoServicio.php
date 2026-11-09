@@ -7,6 +7,10 @@ use Illuminate\Support\Facades\DB;
 
 class CobrosMetodoPagoServicio
 {
+    use FiltraColumnasReporte;
+
+    private const COLUMNAS = ['fecha', 'operaciones', 'total'];
+
     public function __construct(private readonly AlcanceOperativoService $alcance)
     {
     }
@@ -22,8 +26,8 @@ class CobrosMetodoPagoServicio
             ->all();
         $sedes = $sedes ?: $sedesPermitidas;
 
-        $desde = $filtros['desde'] ?? now()->startOfMonth()->toDateString();
-        $hasta = $filtros['hasta'] ?? now()->toDateString();
+        $desde = $filtros['desde'] ?? now('America/Guayaquil')->startOfMonth()->toDateString();
+        $hasta = $filtros['hasta'] ?? now('America/Guayaquil')->toDateString();
 
         $query = DB::table('ventas.pagos as p')
             ->join('ventas.ventas as v', 'v.id', '=', 'p.venta_id')
@@ -38,26 +42,12 @@ class CobrosMetodoPagoServicio
             ->selectRaw('SUM(p.monto) as total')
             ->groupByRaw("DATE(p.fecha_pago), COALESCE(s.nombre, 'Sin sede'), p.metodo_pago");
 
-        if (! empty($filtros['fecha'])) {
-            $valor = '%' . trim((string) $filtros['fecha']) . '%';
-            $query->where(function ($q) use ($valor): void {
-                $q->whereRaw('CAST(DATE(p.fecha_pago) AS TEXT) LIKE ?', [$valor])
-                    ->orWhereRaw("TO_CHAR(DATE(p.fecha_pago), 'DD/MM/YYYY') LIKE ?", [$valor]);
-            });
-        }
-
         if (! empty($filtros['metodo_pago'])) {
             $metodos = is_array($filtros['metodo_pago']) ? $filtros['metodo_pago'] : [$filtros['metodo_pago']];
             $query->whereIn('p.metodo_pago', array_filter($metodos));
         }
 
-        if (! empty($filtros['operaciones'])) {
-            $query->havingRaw("CAST(COUNT(DISTINCT COALESCE(p.operacion_cobro_id, p.id::text)) AS TEXT) LIKE ?", ['%' . trim((string) $filtros['operaciones']) . '%']);
-        }
-
-        if (! empty($filtros['total'])) {
-            $query->havingRaw('CAST(SUM(p.monto) AS TEXT) LIKE ?', ['%' . trim((string) $filtros['total']) . '%']);
-        }
+        [$reporte, $opcionesFiltro] = $this->filtrarColumnas($query, $filtros, self::COLUMNAS);
 
         $resumen = DB::table('ventas.pagos as p')
             ->join('ventas.ventas as v', 'v.id', '=', 'p.venta_id')
@@ -67,14 +57,6 @@ class CobrosMetodoPagoServicio
             ->whereBetween(DB::raw('DATE(p.fecha_pago)'), [$desde, $hasta])
             ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes);
 
-        if (! empty($filtros['fecha'])) {
-            $valor = '%' . trim((string) $filtros['fecha']) . '%';
-            $resumen->where(function ($q) use ($valor): void {
-                $q->whereRaw('CAST(DATE(p.fecha_pago) AS TEXT) LIKE ?', [$valor])
-                    ->orWhereRaw("TO_CHAR(DATE(p.fecha_pago), 'DD/MM/YYYY') LIKE ?", [$valor]);
-            });
-        }
-
         if (! empty($filtros['metodo_pago'])) {
             $metodos = is_array($filtros['metodo_pago']) ? $filtros['metodo_pago'] : [$filtros['metodo_pago']];
             $resumen->whereIn('p.metodo_pago', array_filter($metodos));
@@ -83,10 +65,19 @@ class CobrosMetodoPagoServicio
         $totalCobrado = (float) (clone $resumen)->sum('p.monto');
         $operaciones = (clone $resumen)->selectRaw("COUNT(DISTINCT COALESCE(p.operacion_cobro_id, p.id::text)) as total")->value('total');
 
-        $paginador = $query
+        // Con filtros de columna el resumen se calcula sobre las filas que quedan visibles.
+        if (! empty(array_filter($filtros['columnas'] ?? []))) {
+            $filtrado = (clone $reporte)
+                ->selectRaw('COALESCE(SUM(total), 0) as total, COALESCE(SUM(operaciones), 0) as operaciones')
+                ->first();
+            $totalCobrado = (float) $filtrado->total;
+            $operaciones = (int) $filtrado->operaciones;
+        }
+
+        $paginador = $reporte
             ->orderByDesc('fecha')
             ->orderBy('sede')
-            ->orderBy('p.metodo_pago')
+            ->orderBy('metodo_pago')
             ->paginate($filtros['per_page'] ?? 10, ['*'], 'page', $filtros['page'] ?? 1);
 
         return [
@@ -101,6 +92,7 @@ class CobrosMetodoPagoServicio
                     'operaciones' => (int) $operaciones,
                 ],
                 'periodo' => ['desde' => $desde, 'hasta' => $hasta],
+                'opciones_filtro' => $opcionesFiltro,
                 'catalogos' => [
                     'sedes' => DB::table('institucional.sedes')->whereIn('id_sede', $sedesPermitidas)->where('activo', true)->orderBy('nombre')->get(['id_sede as id', 'nombre']),
                     'metodos_pago' => DB::table('ventas.pagos')->where('estado', 'CONFIRMADO')->distinct()->orderBy('metodo_pago')->pluck('metodo_pago')->values(),

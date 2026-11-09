@@ -36,7 +36,7 @@ class EjercicioDetalleController extends Controller
         $sesionEjercicio = DB::table('entrenamiento.sesiones_ejercicios as se')
             ->join('entrenamiento.sesiones as s', 's.id', '=', 'se.sesion_id')
             ->where('s.cliente_id', $deportistaId)->where('se.rutina_id', $rutina->id)
-            ->whereDate('s.fecha_programada', now()->toDateString())->first(['se.id', 's.rpe_sesion', 's.dolor', 's.observaciones']);
+            ->whereDate('s.fecha_programada', now('America/Guayaquil')->toDateString())->first(['se.id', 's.rpe_sesion', 's.dolor', 's.observaciones']);
         $series = $sesionEjercicio ? DB::table('entrenamiento.series_ejecutadas')->where('sesion_ejercicio_id', $sesionEjercicio->id)->orderBy('numero_serie')->get()
             ->map(fn ($s): array => ['numero_serie' => (int) $s->numero_serie, 'carga' => (float) $s->peso_kg, 'reps' => (int) $s->repeticiones, 'completado' => (bool) $s->completada])->all() : [];
         $instrucciones = array_values(array_filter(array_map('trim', preg_split('/[.;]\s*/', (string) $rutina->instrucciones) ?: [])));

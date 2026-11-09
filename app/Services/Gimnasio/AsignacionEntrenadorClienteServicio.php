@@ -66,7 +66,7 @@ class AsignacionEntrenadorClienteServicio
 
             $datos['tipo_asignacion'] = $datos['tipo_asignacion'] ?? 'SEGUIMIENTO';
             $datos['estado'] = 'ACTIVO';
-            $datos['fecha_inicio'] = $datos['fecha_inicio'] ?? now()->toDateString();
+            $datos['fecha_inicio'] = $datos['fecha_inicio'] ?? now('America/Guayaquil')->toDateString();
             $datos['created_at'] = now();
             $datos['updated_at'] = now();
 
@@ -245,7 +245,7 @@ class AsignacionEntrenadorClienteServicio
                 ->where('id', $id)
                 ->update([
                     'estado' => 'INACTIVO',
-                    'fecha_fin' => now()->toDateString(),
+                    'fecha_fin' => now('America/Guayaquil')->toDateString(),
                     'updated_at' => now(),
                 ]);
 
@@ -273,7 +273,7 @@ class AsignacionEntrenadorClienteServicio
 
         DB::table('entrenamiento.asignaciones_entrenador_cliente')
             ->where('id', $id)
-            ->update(['estado' => 'FINALIZADO', 'fecha_fin' => now()->toDateString(), 'updated_at' => now()]);
+            ->update(['estado' => 'FINALIZADO', 'fecha_fin' => now('America/Guayaquil')->toDateString(), 'updated_at' => now()]);
 
         $despues = DB::table('entrenamiento.asignaciones_entrenador_cliente')->where('id', $id)->first();
         $this->auditar('entrenamiento', 'ACTUALIZAR', 'entrenamiento.asignaciones_entrenador_cliente', $id, $antes, $despues, 'Asignación finalizada.');
@@ -386,7 +386,7 @@ class AsignacionEntrenadorClienteServicio
 
     private function validarHorarioVigentePerteneceAEntrenador(int $entrenadorId, int $entrenadorHorarioId): void
     {
-        $hoy = now()->toDateString();
+        $hoy = now('America/Guayaquil')->toDateString();
 
         $existe = DB::table('agenda.entrenador_horarios')
             ->where('id', $entrenadorHorarioId)

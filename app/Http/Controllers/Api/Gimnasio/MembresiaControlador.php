@@ -161,6 +161,11 @@ class MembresiaControlador extends Controller
                 'plan_id' => 'El cliente ya tiene una membresía vigente o pendiente para este plan.',
             ]);
         }
+        // Un pase diario no tiene calendario de cuotas ni día de pago, aunque el
+        // formulario envíe la cantidad de períodos por defecto.
+        if (mb_strtoupper((string) ($planConfigurado->tipo_producto ?? '')) === 'PASE_DIARIO') {
+            unset($validados['cantidad_periodos_contratados'], $validados['fecha_primer_pago']);
+        }
         $contratoProgramado = array_key_exists('cantidad_periodos_contratados', $validados);
         if ($contratoProgramado) {
             $diaFijo = isset($validados['dia_pago']) ? (int) $validados['dia_pago'] : null;

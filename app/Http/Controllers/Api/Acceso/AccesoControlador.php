@@ -38,7 +38,7 @@ class AccesoControlador extends Controller
         $datos = $request->validate([
             'cliente_id' => 'required|exists:pgsql.clientes.deportistas,id',
             'tipo' => 'required|string|in:QR,TARJETA,CODIGO,APP',
-            'codigo' => ['required', 'string', 'max:120', Rule::unique('acceso.credenciales', 'codigo')->ignore($id)],
+            'codigo' => ['required', 'string', 'max:120', Rule::unique('pgsql.acceso.credenciales', 'codigo')->ignore($id)],
             'estado' => 'required|string|in:ACTIVA,INACTIVA,BLOQUEADA,VENCIDA',
             'vigencia_inicio' => 'nullable|date',
             'vigencia_fin' => 'nullable|date|after_or_equal:vigencia_inicio',

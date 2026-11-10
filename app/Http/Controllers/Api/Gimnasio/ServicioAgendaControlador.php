@@ -28,7 +28,7 @@ class ServicioAgendaControlador extends Controller
     public function guardarCategoria(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'nombre' => ['required', 'string', 'max:150', Rule::unique('servicios.categorias_servicio', 'nombre')->ignore($id)],
+            'nombre' => ['required', 'string', 'max:150', Rule::unique('pgsql.servicios.categorias_servicio', 'nombre')->ignore($id)],
             'descripcion' => 'nullable|string',
             'activo' => 'boolean',
         ]);
@@ -175,7 +175,7 @@ class ServicioAgendaControlador extends Controller
             'estado' => [
                 'required',
                 'string',
-                Rule::exists('configuracion.estados_catalogo', 'valor_interno')
+                Rule::exists('pgsql.configuracion.estados_catalogo', 'valor_interno')
                     ->where(fn ($q) => $q->where('entidad', 'RESERVA')->where('activo', true)),
             ],
             'observaciones' => 'nullable|string',

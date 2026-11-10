@@ -22,7 +22,7 @@ class ComunicacionControlador extends Controller
     public function guardarTipo(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'codigo' => ['required', 'string', 'max:40', Rule::unique('comunicaciones.tipos_comunicacion', 'codigo')->ignore($id)],
+            'codigo' => ['required', 'string', 'max:40', Rule::unique('pgsql.comunicaciones.tipos_comunicacion', 'codigo')->ignore($id)],
             'nombre' => 'required|string|max:120',
             'descripcion' => 'nullable|string',
             'canal_preferido' => 'required|string|in:SISTEMA,CORREO,PUSH,APP',
@@ -35,7 +35,7 @@ class ComunicacionControlador extends Controller
     public function guardarSegmento(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'codigo' => ['required', 'string', 'max:40', Rule::unique('comunicaciones.segmentos', 'codigo')->ignore($id)],
+            'codigo' => ['required', 'string', 'max:40', Rule::unique('pgsql.comunicaciones.segmentos', 'codigo')->ignore($id)],
             'nombre' => 'required|string|max:120',
             'descripcion' => 'nullable|string',
             'criterios' => 'nullable|array',

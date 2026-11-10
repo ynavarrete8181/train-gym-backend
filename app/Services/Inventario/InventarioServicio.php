@@ -68,12 +68,13 @@ class InventarioServicio
 
             $preciosPorSede = collect($preciosSede)->keyBy('sede_id');
             $stocksPorSede = collect($stocksSede)->keyBy('sede_id');
-            $stockInicialDefecto = 0;
+            $manejaLotes = ! empty($datos['maneja_lotes']);
+            $tienePosteriores = fn (int $sedeId): bool => DB::table('inventario.movimientos')
+                ->where('producto_id', $id)->where('sede_id', $sedeId)
+                ->where('tipo_movimiento', '<>', 'AJUSTE_INICIAL')->exists();
 
             foreach ($sedes as $sede) {
                 $precio = $preciosPorSede->get($sede->id);
-                $stock = $stocksPorSede->get($sede->id);
-
                 DB::table('inventario.producto_precios_sede')->updateOrInsert(
                     ['producto_id' => $id, 'sede_id' => $sede->id],
                     [
@@ -83,46 +84,73 @@ class InventarioServicio
                         'created_at' => now(),
                     ]
                 );
-
-                $this->sincronizarStockInicialSede(
-                    (int) $id,
-                    (int) $sede->id,
-                    (float) ($stock['stock_actual'] ?? $stockInicialDefecto),
-                    (float) ($stock['stock_minimo'] ?? $datos['stock_minimo'] ?? 0),
-                );
             }
 
-            if (! empty($datos['maneja_lotes'])) {
+            // Lotes primero: en un producto con lotes, el stock de cada sede es la suma de
+            // sus lotes. Un lote nuevo en una sede con Kardex posterior entra como ENTRADA.
+            $entradasPendientes = [];
+            if ($manejaLotes) {
                 $idsConservados = [];
                 foreach ($lotes as $lote) {
+                    $sedeLote = (int) $lote['sede_id'];
+                    $stockLote = round(max(0, (float) ($lote['stock_actual'] ?? 0)), 2);
                     $payload = [
                         'producto_id' => $id,
-                        'sede_id' => (int) $lote['sede_id'],
+                        'sede_id' => $sedeLote,
                         'codigo_lote' => $lote['codigo_lote'],
                         'fecha_elaboracion' => $lote['fecha_elaboracion'] ?? null,
                         'fecha_vencimiento' => $lote['fecha_vencimiento'] ?? null,
-                        'cantidad_inicial' => $lote['cantidad_inicial'] ?? 0,
-                        'stock_actual' => $lote['stock_actual'] ?? 0,
                         'costo_unitario' => $lote['costo_unitario'] ?? null,
                         'activo' => $lote['activo'] ?? true,
                         'updated_at' => now(),
                     ];
 
                     if (! empty($lote['id'])) {
-                        DB::table('inventario.lotes_producto')
-                            ->where('id', $lote['id'])
-                            ->where('producto_id', $id)
-                            ->update($payload);
-                        $this->sincronizarEstadoLote((int) $lote['id']);
-                        $idsConservados[] = (int) $lote['id'];
+                        $actual = DB::table('inventario.lotes_producto')->where('id', $lote['id'])->where('producto_id', $id)->first();
+                        if (! $actual) {
+                            continue;
+                        }
+                        $conMovimientos = $tienePosteriores((int) $actual->sede_id)
+                            || DB::table('inventario.movimiento_lotes')->where('lote_id', $actual->id)->exists();
+                        if ($conMovimientos) {
+                            if (abs((float) $actual->stock_actual - $stockLote) > 0.00001 || (int) $actual->sede_id !== $sedeLote) {
+                                throw ValidationException::withMessages([
+                                    'lotes' => "El lote {$actual->codigo_lote} ya tiene movimientos de Kardex: su stock y su sede no se editan aquí. Registra una ENTRADA o un AJUSTE en Movimientos / Kardex.",
+                                ]);
+                            }
+                        } else {
+                            $payload['stock_actual'] = $stockLote;
+                            $payload['cantidad_inicial'] = $stockLote;
+                        }
+                        DB::table('inventario.lotes_producto')->where('id', $actual->id)->update($payload);
+                        $this->sincronizarEstadoLote((int) $actual->id);
+                        $idsConservados[] = (int) $actual->id;
                     } else {
+                        $entraPorKardex = $tienePosteriores($sedeLote) && $stockLote > 0;
+                        $payload['stock_actual'] = $entraPorKardex ? 0 : $stockLote;
+                        $payload['cantidad_inicial'] = $stockLote;
                         $payload['fecha_ingreso_inventario'] = now('America/Guayaquil')->toDateString();
-                        $payload['estado_id'] = $this->estadoLoteId($payload['fecha_vencimiento'] ?? null, (float) ($payload['stock_actual'] ?? 0));
+                        $payload['estado_id'] = $this->estadoLoteId($payload['fecha_vencimiento'] ?? null, (float) $payload['stock_actual']);
                         $payload['created_at'] = now();
-                        $idsConservados[] = DB::table('inventario.lotes_producto')->insertGetId($payload);
+                        $nuevoId = DB::table('inventario.lotes_producto')->insertGetId($payload);
+                        $idsConservados[] = $nuevoId;
+                        if ($entraPorKardex) {
+                            $entradasPendientes[] = ['lote_id' => $nuevoId, 'sede_id' => $sedeLote, 'cantidad' => $stockLote, 'codigo' => $lote['codigo_lote']];
+                        }
                     }
                 }
 
+                $retirados = DB::table('inventario.lotes_producto')
+                    ->where('producto_id', $id)->where('activo', true)
+                    ->when($idsConservados, fn ($q) => $q->whereNotIn('id', $idsConservados))
+                    ->get();
+                foreach ($retirados as $retirado) {
+                    if ((float) $retirado->stock_actual > 0.00001) {
+                        throw ValidationException::withMessages([
+                            'lotes' => "El lote {$retirado->codigo_lote} todavía tiene stock: regístralo como BAJA en Movimientos / Kardex antes de quitarlo.",
+                        ]);
+                    }
+                }
                 DB::table('inventario.lotes_producto')
                     ->where('producto_id', $id)
                     ->when($idsConservados, fn ($q) => $q->whereNotIn('id', $idsConservados))
@@ -131,6 +159,38 @@ class InventarioServicio
                 DB::table('inventario.lotes_producto')
                     ->where('producto_id', $id)
                     ->update(['activo' => false, 'updated_at' => now()]);
+            }
+
+            foreach ($sedes as $sede) {
+                $stock = $stocksPorSede->get($sede->id);
+                $actualSede = DB::table('inventario.producto_stock_sede')->where('producto_id', $id)->where('sede_id', $sede->id)->value('stock_actual');
+                $deseado = (float) ($stock['stock_actual'] ?? 0);
+                if ($manejaLotes) {
+                    // Sin Kardex posterior, el inventario inicial es la suma de los lotes;
+                    // con Kardex, el stock solo cambia por movimientos.
+                    $deseado = $tienePosteriores((int) $sede->id)
+                        ? (float) ($actualSede ?? 0)
+                        : (float) DB::table('inventario.lotes_producto')->where('producto_id', $id)
+                            ->where('sede_id', $sede->id)->where('activo', true)->sum('stock_actual');
+                }
+                $this->sincronizarStockInicialSede(
+                    (int) $id,
+                    (int) $sede->id,
+                    $deseado,
+                    (float) ($stock['stock_minimo'] ?? $datos['stock_minimo'] ?? 0),
+                );
+            }
+
+            foreach ($entradasPendientes as $entrada) {
+                $this->guardarMovimiento([
+                    'producto_id' => $id,
+                    'sede_id' => $entrada['sede_id'],
+                    'lote_id' => $entrada['lote_id'],
+                    'tipo_movimiento' => 'ENTRADA',
+                    'cantidad' => $entrada['cantidad'],
+                    'referencia' => 'LOTE-'.$entrada['codigo'],
+                    'observaciones' => "Ingreso del lote {$entrada['codigo']} registrado desde el producto.",
+                ], auth()->id());
             }
 
             $this->actualizarStockGlobal($id);

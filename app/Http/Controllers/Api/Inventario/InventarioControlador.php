@@ -113,7 +113,14 @@ class InventarioControlador extends Controller
             'referencia' => 'nullable|string|max:120',
             'observaciones' => 'nullable|string',
         ]);
-        return ApiResponse::exito('Movimiento registrado correctamente.', (array) $this->inventario->guardarMovimiento($datos, $request->user()?->id), [], 201);
+        try {
+            $movimiento = $this->inventario->guardarMovimiento($datos, $request->user()?->id);
+        } catch (\InvalidArgumentException $e) {
+            // Reglas de stock y lotes: se muestran al usuario en lugar de un error genérico.
+            throw \Illuminate\Validation\ValidationException::withMessages(['movimiento' => $e->getMessage()]);
+        }
+
+        return ApiResponse::exito('Movimiento registrado correctamente.', (array) $movimiento, [], 201);
     }
 
     private function respuesta(string $mensaje, $paginador)

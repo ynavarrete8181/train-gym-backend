@@ -46,7 +46,7 @@ class EntrenamientoControlador extends Controller
     public function guardarEjercicio(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'nombre' => ['required', 'string', 'max:150', Rule::unique('entrenamiento.ejercicios', 'nombre')->ignore($id)],
+            'nombre' => ['required', 'string', 'max:150', Rule::unique('pgsql.entrenamiento.ejercicios', 'nombre')->ignore($id)],
             'grupo_muscular' => 'required|string|max:60',
             'equipamiento' => 'required|string|max:80',
             'tipo_entrenamiento' => 'nullable|string|max:80',

@@ -112,7 +112,7 @@ class EstadoCatalogoControlador extends Controller
     private function validar(Request $request, ?int $id = null): array
     {
         return $request->validate([
-            'codigo' => ['required', 'string', 'max:80', Rule::unique('configuracion.estados_catalogo', 'codigo')->ignore($id)],
+            'codigo' => ['required', 'string', 'max:80', Rule::unique('pgsql.configuracion.estados_catalogo', 'codigo')->ignore($id)],
             'entidad' => 'required|string|max:60',
             'valor_interno' => 'required|string|max:80',
             'nombre' => 'required|string|max:120',

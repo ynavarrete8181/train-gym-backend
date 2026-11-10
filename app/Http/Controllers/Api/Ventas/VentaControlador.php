@@ -310,7 +310,7 @@ class VentaControlador extends Controller
             'cliente_id' => 'nullable|exists:pgsql.clientes.deportistas,id',
             'membresia_id' => 'nullable|exists:pgsql.membresias.membresias,id',
             'caja_id' => 'nullable|exists:pgsql.ventas.cajas,id',
-            'numero' => ['nullable', 'string', 'max:60', Rule::unique('ventas.ventas', 'numero')->ignore($id)],
+            'numero' => ['nullable', 'string', 'max:60', Rule::unique('pgsql.ventas.ventas', 'numero')->ignore($id)],
             'tipo_venta' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO,PASE_DIARIO',
             'concepto' => 'required|string|max:180',
             'subtotal' => 'nullable|numeric|min:0',

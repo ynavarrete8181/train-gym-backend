@@ -20,7 +20,7 @@ class InventarioControlador extends Controller
     public function guardarCategoria(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'nombre' => ['required', 'string', 'max:120', Rule::unique('inventario.categorias_producto', 'nombre')->ignore($id)],
+            'nombre' => ['required', 'string', 'max:120', Rule::unique('pgsql.inventario.categorias_producto', 'nombre')->ignore($id)],
             'descripcion' => 'nullable|string',
             'activo' => 'boolean',
         ]);
@@ -32,7 +32,7 @@ class InventarioControlador extends Controller
     public function guardarProveedor(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'ruc' => ['nullable', 'string', 'max:20', Rule::unique('inventario.proveedores', 'ruc')->ignore($id)],
+            'ruc' => ['nullable', 'string', 'max:20', Rule::unique('pgsql.inventario.proveedores', 'ruc')->ignore($id)],
             'nombre' => 'required|string|max:160',
             'telefono' => 'nullable|string|max:40',
             'email' => 'nullable|email|max:160',
@@ -64,7 +64,7 @@ class InventarioControlador extends Controller
         $datos = $request->validate([
             'categoria_id' => 'nullable|exists:pgsql.inventario.categorias_producto,id',
             'proveedor_id' => 'nullable|exists:pgsql.inventario.proveedores,id',
-            'codigo' => ['required', 'string', 'max:60', Rule::unique('inventario.productos', 'codigo')->ignore($id)],
+            'codigo' => ['required', 'string', 'max:60', Rule::unique('pgsql.inventario.productos', 'codigo')->ignore($id)],
             'nombre' => 'required|string|max:160',
             'descripcion' => 'nullable|string',
             'marca' => 'nullable|string|max:100',

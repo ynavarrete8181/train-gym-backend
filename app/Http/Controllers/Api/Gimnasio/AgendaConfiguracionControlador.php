@@ -25,7 +25,7 @@ class AgendaConfiguracionControlador extends Controller
     public function guardarJornada(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'nombre' => ['required', 'string', 'max:120', Rule::unique('agenda.jornadas', 'nombre')->ignore($id)],
+            'nombre' => ['required', 'string', 'max:120', Rule::unique('pgsql.agenda.jornadas', 'nombre')->ignore($id)],
             'descripcion' => 'nullable|string|max:1000',
             'dias_semana' => 'required|array|min:1',
             'dias_semana.*' => 'required|distinct|string|in:LUNES,MARTES,MIERCOLES,JUEVES,VIERNES,SABADO,DOMINGO',
@@ -52,7 +52,7 @@ class AgendaConfiguracionControlador extends Controller
     public function guardarReceso(Request $request, ?int $id = null)
     {
         $datos = $request->validate([
-            'nombre' => ['required', 'string', 'max:120', Rule::unique('agenda.recesos', 'nombre')->ignore($id)],
+            'nombre' => ['required', 'string', 'max:120', Rule::unique('pgsql.agenda.recesos', 'nombre')->ignore($id)],
             'tipo' => 'required|string|in:DESAYUNO,ALMUERZO,MERIENDA,PAUSA,OTRO',
             'hora_inicio' => 'required|date_format:H:i',
             'hora_fin' => 'required|date_format:H:i|after:hora_inicio',

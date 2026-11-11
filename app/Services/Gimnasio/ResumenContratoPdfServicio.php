@@ -20,6 +20,11 @@ class ResumenContratoPdfServicio
         'DESCUENTO_FINALIZADO' => 'Descuento finalizado', 'DESCUENTO_AJUSTADO' => 'Descuento ajustado al contrato',
         'RENOVACION_MANUAL' => 'Renovación manual', 'RENOVACION_AUTOMATICA' => 'Renovación automática',
         'CONFIGURAR_CONTRATO' => 'Configuración del contrato', 'CONTRATACION' => 'Contratación',
+        'DESCUENTO_RENOVADO' => 'Descuento renovado', 'EDICION_ADMINISTRATIVA' => 'Edición administrativa',
+        'PROGRAMAR_CONGELACION' => 'Congelación programada', 'REPROGRAMAR_CONGELACION' => 'Cambio de fechas de congelación',
+        'PRORROGAR_CONGELACION' => 'Prórroga de congelación', 'CANCELAR_CONGELACION' => 'Cancelación de congelación',
+        'REABRIR' => 'Reapertura de membresía', 'MODIFICACION' => 'Modificación administrativa',
+        'ACTUALIZAR_CONTRATO' => 'Actualización contractual',
     ];
 
     public function __construct(
@@ -125,7 +130,7 @@ class ResumenContratoPdfServicio
         ], $eventos->map(fn ($e) => [
             $e['fecha'] ? date('d/m/Y H:i', strtotime((string) $e['fecha'])) : '—',
             self::MOVIMIENTOS[$e['tipo']] ?? ucfirst(mb_strtolower(str_replace('_', ' ', (string) $e['tipo']))),
-            $e['autor_nombre'] ?? 'Sistema', (string) ($e['motivo'] ?? ''),
+            $e['autor_nombre'] ?? 'Sistema (automático)', (string) ($e['motivo'] ?? ''),
         ])->all());
 
         $pdf->asegurar(24);

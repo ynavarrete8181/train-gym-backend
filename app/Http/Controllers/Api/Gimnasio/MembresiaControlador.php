@@ -603,7 +603,9 @@ class MembresiaControlador extends Controller
                 $this->descuentos->actualizar($beneficioId, ['activo' => false], (int) $request->user()->id);
             }
 
-            if ($membresia->cantidad_periodos_contratados === null) {
+            // Editar no decide la facturación cuando el plan cobra por caja o por cobro
+            // programado: sus ventas pendientes son deudas reales y no deben anularse.
+            if ($membresia->cantidad_periodos_contratados === null && $generarVenta) {
                 $this->sincronizarFacturacion((int) $id, $generarVenta, $request);
             }
             $estadoPosterior = $cargarEstado();

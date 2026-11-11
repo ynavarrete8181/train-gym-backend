@@ -647,7 +647,8 @@ class MembresiaServicio
         };
     }
 
-    private function resolverPrecio(int $planId, mixed $sedeId, mixed $modalidadId = null): float
+    /** Tarifa del plan (o de su modalidad) en una sede; sin tarifa propia usa el precio base. */
+    public function resolverPrecio(int $planId, mixed $sedeId, mixed $modalidadId = null): float
     {
         if ($modalidadId) {
             if ($sedeId) {

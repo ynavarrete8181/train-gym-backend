@@ -130,7 +130,67 @@ class ContratoMembresiaServicio
                 return $d;
             });
 
-        return ['contrato' => $this->rangoContrato($m), 'descuentos' => $filas];
+        // Tarifa de cada sede: el mismo descuento deja un precio distinto según la sede.
+        $tarifas = $this->tarifasPorSede($m);
+        $aplicaciones = $this->aplicacionesDescuentos($filas->pluck('id')->all());
+        $filas = $filas->map(function ($d) use ($tarifas, $aplicaciones) {
+            $d->por_sede = $tarifas->map(function ($t) use ($d) {
+                $importe = DescuentoDeportistaServicio::calcularImporte($t->precio, (string) $d->tipo, (float) $d->valor);
+                return ['sede_id' => $t->sede_id, 'sede_nombre' => $t->sede_nombre, 'precio' => $t->precio,
+                    'descuento' => $importe, 'paga' => round($t->precio - $importe, 2)];
+            })->values();
+            $d->aplicaciones = $aplicaciones->get($d->id, collect())->values();
+            return $d;
+        });
+
+        return ['contrato' => $this->rangoContrato($m), 'descuentos' => $filas, 'tarifas' => $tarifas->values()];
+    }
+
+    /** Sedes con tarifa activa para el plan o su modalidad; sin ninguna, todas las sedes con el precio base. */
+    private function tarifasPorSede(object $m)
+    {
+        $tabla = $m->modalidad_id ? 'membresias.plan_modalidad_precios_sede' : 'membresias.plan_precios_sede';
+        $columna = $m->modalidad_id ? 'modalidad_id' : 'plan_id';
+        $sedesConTarifa = DB::table($tabla)->where($columna, $m->modalidad_id ?: $m->plan_id)
+            ->where('activo', true)->pluck('sede_id')->all();
+        $precios = app(MembresiaServicio::class);
+
+        return DB::table('institucional.sedes')->where('activo', true)
+            ->when($sedesConTarifa, fn ($q) => $q->whereIn('id_sede', $sedesConTarifa))
+            ->orderBy('nombre')->get(['id_sede as sede_id', 'nombre as sede_nombre'])
+            ->map(function ($s) use ($m, $precios) {
+                $s->precio = round($precios->resolverPrecio((int) $m->plan_id, (int) $s->sede_id, $m->modalidad_id), 2);
+                return $s;
+            });
+    }
+
+    /** Períodos cobrados con cada descuento: dónde, cuándo y cuánto pagó el cliente. */
+    private function aplicacionesDescuentos(array $ids)
+    {
+        if (! $ids) {
+            return collect();
+        }
+
+        return DB::table('membresias.membresia_periodos as mp')
+            ->join('membresias.membresias as m', 'm.id', '=', 'mp.membresia_id')
+            ->leftJoin('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
+            ->leftJoin('ventas.turnos_caja as tc', 'tc.id', '=', 'v.turno_caja_id')
+            ->leftJoin('ventas.cajas as c', 'c.id', '=', 'v.caja_id')
+            ->leftJoin('institucional.sedes as s', 's.id_sede', '=', DB::raw('COALESCE(tc.sede_id, c.sede_id, m.sede_id)'))
+            ->whereIn('mp.descuento_id', $ids)
+            ->orderByDesc('mp.fecha_inicio')->orderByDesc('mp.id')
+            ->get([
+                'mp.descuento_id', 'mp.numero_periodo', 'mp.fecha_inicio', 'mp.fecha_fin', 'mp.precio',
+                'mp.descuento_importe', 'mp.estado as periodo_estado', 'v.numero as venta_numero', 'v.estado as venta_estado',
+                's.nombre as sede_nombre',
+            ])
+            ->map(function ($a) {
+                $a->precio = (float) $a->precio;
+                $a->descuento_importe = (float) $a->descuento_importe;
+                $a->paga = round($a->precio - $a->descuento_importe, 2);
+                return $a;
+            })
+            ->groupBy('descuento_id');
     }
 
     public function registrarDescuento(int $id, array $datos, int $usuarioId): object

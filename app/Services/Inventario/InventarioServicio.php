@@ -89,15 +89,19 @@ class InventarioServicio
             // Lotes primero: en un producto con lotes, el stock de cada sede es la suma de
             // sus lotes. Un lote nuevo en una sede con Kardex posterior entra como ENTRADA.
             $entradasPendientes = [];
-            // Activar lotes en un producto que ya tenía stock: los lotes nuevos reparten ese
-            // stock existente (no es una ENTRADA) y deben sumar exactamente lo que hay por sede.
+            // Activar lotes en un producto que ya tenía stock: en las sedes con Kardex los lotes
+            // reparten el stock existente (no es una ENTRADA) y deben sumar exactamente lo que hay.
+            // Una sede sin movimientos aún está en inventario inicial: sus lotes lo definen.
             $activandoLotes = $manejaLotes && $productoAnterior && ! $productoAnterior->maneja_lotes;
             if ($activandoLotes) {
                 foreach ($sedes as $sede) {
                     $actual = (float) (DB::table('inventario.producto_stock_sede')->where('producto_id', $id)->where('sede_id', $sede->id)->value('stock_actual') ?? 0);
                     $enLotes = round((float) collect($lotes)->filter(fn ($l) => (int) $l['sede_id'] === (int) $sede->id && ($l['activo'] ?? true))
                         ->sum(fn ($l) => (float) ($l['stock_actual'] ?? 0)), 2);
-                    if (abs($actual - $enLotes) > 0.00001) {
+                    $conKardex = $tienePosteriores((int) $sede->id);
+                    // Sin Kardex los lotes pueden redefinir el inventario inicial, pero no dejarlo en 0 sin lotes.
+                    $descuadre = $conKardex ? abs($actual - $enLotes) > 0.00001 : ($actual > 0.00001 && $enLotes <= 0.00001);
+                    if ($descuadre) {
                         throw ValidationException::withMessages([
                             'lotes' => sprintf(
                                 'Para activar lotes, reparte el stock actual de %s (%s) en sus lotes: ahora suman %s.',
@@ -186,7 +190,7 @@ class InventarioServicio
                 if ($manejaLotes) {
                     // Sin Kardex posterior, el inventario inicial es la suma de los lotes;
                     // con Kardex (o al activar lotes), el stock solo cambia por movimientos.
-                    $deseado = ($activandoLotes || $tienePosteriores((int) $sede->id))
+                    $deseado = $tienePosteriores((int) $sede->id)
                         ? (float) ($actualSede ?? 0)
                         : (float) DB::table('inventario.lotes_producto')->where('producto_id', $id)
                             ->where('sede_id', $sede->id)->where('activo', true)->sum('stock_actual');

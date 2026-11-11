@@ -79,6 +79,15 @@ class CobroProgramadoMembresiaServicio
                 if ($periodo && $fechaCobro->gt(Carbon::parse($periodo->fecha_fin)) && ($plan->renovable ?? false)) {
                     $periodo = $this->membresias->crearSiguientePeriodo((int) $id);
                     $membresia = DB::table('membresias.membresias')->where('id', $id)->first();
+                    // Sin este registro la pestaña Renovaciones del contrato queda vacía.
+                    app(HistorialComercialMembresiaServicio::class)->registrarContrato((int) $id, 'RENOVACION_AUTOMATICA', [
+                        'periodo_id' => (int) $periodo->id,
+                        'numero_periodo_nuevo' => (int) $periodo->numero_periodo,
+                        'fecha_inicio' => $periodo->fecha_inicio,
+                        'fecha_fin' => $periodo->fecha_fin,
+                        'precio' => $periodo->precio,
+                        'origen' => 'COBRO_PROGRAMADO',
+                    ]);
                 }
 
                 if (! $periodo) {

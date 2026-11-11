@@ -211,6 +211,7 @@ final class RenovacionContratoProgramadoServicio
                 'fecha_fin' => $p['fecha_fin'],
                 'updated_at' => $ahora,
             ]);
+            app(DescuentoDeportistaServicio::class)->continuarEnPeriodo($periodoId, $usuarioId);
             // El snapshot de condiciones pactadas es INMUTABLE. La ampliación
             // vive en periodos/cuotas e historial comercial, no altera el original.
             app(HistorialComercialMembresiaServicio::class)->registrarContrato(

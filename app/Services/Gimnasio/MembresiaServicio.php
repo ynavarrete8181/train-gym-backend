@@ -483,6 +483,9 @@ class MembresiaServicio
 
         $periodo = DB::table('membresias.membresia_periodos')->where('id', $id)->first();
 
+        // Antes de generar la venta: así el cobro del período nuevo ya toma su descuento.
+        app(DescuentoDeportistaServicio::class)->continuarEnPeriodo($id, auth()->id());
+
         $this->auditar(
             'gimnasio',
             'RENOVAR_MEMBRESIA',

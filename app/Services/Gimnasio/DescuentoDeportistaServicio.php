@@ -102,6 +102,92 @@ class DescuentoDeportistaServicio
         return $registrado;
     }
 
+    /**
+     * Al renovar, el descuento vigente hasta el último día del período anterior
+     * continúa en el período nuevo como un registro propio con sus mismas fechas.
+     * Uno finalizado o desactivado (ya no llega a ese día) no continúa.
+     */
+    public function continuarEnPeriodo(int $periodoId, ?int $usuarioId = null): ?object
+    {
+        $tabla = 'membresias.descuentos_deportistas';
+        $nuevo = DB::table('membresias.membresia_periodos')->where('id', $periodoId)->first();
+        if (! $nuevo) return null;
+        $existente = DB::table($tabla)->where('membresia_periodo_id', $periodoId)->where('activo', true)->first();
+        if ($existente) return $existente;
+
+        $anterior = DB::table('membresias.membresia_periodos')
+            ->where('membresia_id', $nuevo->membresia_id)
+            ->where('numero_periodo', '<', $nuevo->numero_periodo)
+            ->orderByDesc('numero_periodo')->first();
+        $m = DB::table('membresias.membresias')->where('id', $nuevo->membresia_id)->first();
+        if (! $anterior || ! $m) return null;
+
+        $finAnterior = substr((string) $anterior->fecha_fin, 0, 10);
+        $inicio = substr((string) $nuevo->fecha_inicio, 0, 10);
+        $fin = substr((string) $nuevo->fecha_fin, 0, 10);
+
+        $d = DB::table($tabla)
+            ->where('deportista_id', $m->deportista_id)
+            ->where('activo', true)
+            ->whereDate('fecha_inicio', '<=', $finAnterior)
+            ->where(fn ($q) => $q->whereNull('fecha_fin')->orWhereDate('fecha_fin', '>=', $finAnterior))
+            ->where(fn ($q) => $q->whereNull('plan_id')->orWhere('plan_id', $m->plan_id))
+            ->where(function ($q) use ($m) {
+                $q->whereNull('modalidad_id');
+                if ($m->modalidad_id) $q->orWhere('modalidad_id', $m->modalidad_id);
+            })
+            ->orderByRaw('CASE WHEN modalidad_id IS NOT NULL THEN 0 WHEN plan_id IS NOT NULL THEN 1 ELSE 2 END')
+            ->orderByDesc('fecha_inicio')
+            ->first();
+        if (! $d) return null;
+
+        // Ya cubre el período nuevo con una fecha fin explícita: no hace falta copiarlo.
+        if ($d->fecha_fin && substr((string) $d->fecha_fin, 0, 10) >= $fin) return $d;
+
+        // Un descuento "sin fin" o que llega más allá del período anterior se cierra en él,
+        // para que cada período tenga su propio registro.
+        if (! $d->fecha_fin || substr((string) $d->fecha_fin, 0, 10) > $finAnterior) {
+            DB::table($tabla)->where('id', $d->id)->update(['fecha_fin' => $finAnterior, 'updated_at' => now()]);
+        }
+        if (! $d->membresia_periodo_id) {
+            DB::table($tabla)->where('id', $d->id)->update(['membresia_periodo_id' => $anterior->id]);
+        }
+
+        $id = DB::table($tabla)->insertGetId([
+            'deportista_id' => $d->deportista_id,
+            'plan_id' => $d->plan_id,
+            'modalidad_id' => $d->modalidad_id,
+            'tipo' => $d->tipo,
+            'valor' => $d->valor,
+            'fecha_inicio' => $inicio,
+            'fecha_fin' => $fin,
+            'motivo' => $d->motivo,
+            'activo' => true,
+            'autorizado_por' => $usuarioId ?? $d->autorizado_por,
+            'descuento_origen_id' => $d->id,
+            'membresia_periodo_id' => $periodoId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $continuado = DB::table($tabla)->where('id', $id)->first();
+
+        DB::table('membresias.membresia_movimientos')->insert([
+            'membresia_id' => $m->id, 'tipo' => 'DESCUENTO_RENOVADO', 'estado' => 'CONFIRMADO',
+            'fecha_efectiva' => now()->toDateString(),
+            'motivo' => 'El descuento continúa en el período ' . $nuevo->numero_periodo . ' por la renovación.',
+            'usuario_id' => $usuarioId, 'autorizado_por' => $usuarioId,
+            'detalle' => json_encode([
+                'tipo' => $continuado->tipo, 'valor' => (float) $continuado->valor,
+                'fecha_inicio' => $inicio, 'fecha_fin' => $fin, 'activo' => true,
+                'periodo' => (int) $nuevo->numero_periodo, 'descuento_origen_id' => (int) $d->id,
+            ], JSON_THROW_ON_ERROR),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->auditar('gimnasio', 'RENOVAR_DESCUENTO', $tabla, $id, $d, $continuado);
+
+        return $continuado;
+    }
+
     public function actualizar(int $id, array $datos, int $usuarioId): object
     {
         $anterior = DB::table('membresias.descuentos_deportistas')->where('id', $id)->first();

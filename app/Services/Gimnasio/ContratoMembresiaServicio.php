@@ -248,6 +248,16 @@ class ContratoMembresiaServicio
                 : ['fecha_fin' => $ayer];
             DB::table('membresias.descuentos_deportistas')->where('id', $descuentoId)
                 ->update($cambios + ['updated_at' => now()]);
+            // Las continuaciones ya creadas para períodos futuros también terminan.
+            $futuros = DB::table('membresias.descuentos_deportistas')
+                ->where('descuento_origen_id', $descuentoId)->where('activo', true)
+                ->whereDate('fecha_inicio', '>', $hoy)->pluck('id');
+            while ($futuros->isNotEmpty()) {
+                DB::table('membresias.descuentos_deportistas')->whereIn('id', $futuros)
+                    ->update(['activo' => false, 'updated_at' => now()]);
+                $futuros = DB::table('membresias.descuentos_deportistas')
+                    ->whereIn('descuento_origen_id', $futuros)->where('activo', true)->pluck('id');
+            }
             $final = DB::table('membresias.descuentos_deportistas')->where('id', $descuentoId)->first();
             $this->movimiento($id, 'DESCUENTO_FINALIZADO', $motivo, $usuarioId, $this->detalle($final));
             $this->auditar('gimnasio', 'FINALIZAR_DESCUENTO', 'membresias.descuentos_deportistas', $descuentoId, $d, $final);

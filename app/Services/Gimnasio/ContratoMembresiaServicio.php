@@ -225,6 +225,45 @@ class ContratoMembresiaServicio
             }
             $this->validarRango($m, $datos['fecha_inicio'], $datos['fecha_fin'] ?? null);
             $sedeId = $this->validarSedeDescuento($m, $datos['sede_id'] ?? null);
+            $hoy = now()->toDateString();
+            $inicioAnterior = substr((string) $anterior->fecha_inicio, 0, 10);
+            $finAnterior = $anterior->fecha_fin ? substr((string) $anterior->fecha_fin, 0, 10) : null;
+            $desde = substr((string) $datos['fecha_inicio'], 0, 10);
+
+            // Un descuento que ya empezó no se reescribe: se cierra el día anterior al cambio
+            // y el cambio queda como un registro nuevo. Así el historial conserva lo que rigió.
+            if ($inicioAnterior <= $hoy) {
+                if ($desde <= $inicioAnterior) {
+                    throw ValidationException::withMessages(['fecha_inicio' => 'Este descuento ya empezó: indica desde qué fecha rige el cambio (posterior al '
+                        . implode('/', array_reverse(explode('-', $inicioAnterior))) . ').']);
+                }
+                if ($finAnterior && $desde > $finAnterior) {
+                    throw ValidationException::withMessages(['fecha_inicio' => 'El cambio debe empezar dentro de las fechas del descuento. Para después, registra uno nuevo.']);
+                }
+                $cierre = \Carbon\Carbon::parse($desde)->subDay()->toDateString();
+                DB::table('membresias.descuentos_deportistas')->where('id', $descuentoId)
+                    ->update(['fecha_fin' => $cierre, 'updated_at' => now()]);
+                // Las continuaciones ya creadas con los valores anteriores dejan de valer.
+                DB::table('membresias.descuentos_deportistas')->where('descuento_origen_id', $descuentoId)
+                    ->where('activo', true)->whereDate('fecha_inicio', '>', $cierre)
+                    ->update(['activo' => false, 'updated_at' => now()]);
+                $descuento = $this->descuentos->crear([
+                    'deportista_id' => (int) $anterior->deportista_id,
+                    'plan_id' => $anterior->plan_id, 'modalidad_id' => $anterior->modalidad_id,
+                    'sede_id' => $sedeId,
+                    'tipo' => $datos['tipo'], 'valor' => $datos['valor'],
+                    'fecha_inicio' => $desde, 'fecha_fin' => $datos['fecha_fin'] ?? null,
+                    'motivo' => trim($datos['motivo']),
+                    'descuento_origen_id' => $descuentoId,
+                    'membresia_periodo_id' => $anterior->membresia_periodo_id ?? null,
+                ], $usuarioId);
+                $cerrado = DB::table('membresias.descuentos_deportistas')->where('id', $descuentoId)->first();
+                $this->movimiento($id, 'DESCUENTO_EDITADO', $datos['motivo'], $usuarioId,
+                    $this->detalle($descuento) + ['anterior' => $this->detalle($cerrado), 'nuevo_registro' => true]);
+                return $descuento;
+            }
+
+            // Aún no empieza: se corrige en el mismo registro.
             $descuento = $this->descuentos->actualizar($descuentoId, [
                 'sede_id' => $sedeId,
                 'id' => $descuentoId, 'tipo' => $datos['tipo'], 'valor' => $datos['valor'],

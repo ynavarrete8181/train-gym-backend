@@ -129,6 +129,14 @@ class MembresiaControlador extends Controller
             'descuento.fecha_inicio' => 'required_with:descuento|date',
             'descuento.fecha_fin' => 'nullable|date|after_or_equal:descuento.fecha_inicio',
             'descuento.sede_id' => 'nullable|integer|exists:pgsql.institucional.sedes,id_sede',
+            // Varios descuentos al contratar: uno general y/o uno por sede.
+            'descuentos' => 'nullable|array|max:10',
+            'descuentos.*.tipo' => 'required|in:PORCENTAJE,FIJO',
+            'descuentos.*.valor' => 'required|numeric|gt:0',
+            'descuentos.*.motivo' => 'required|string|max:500',
+            'descuentos.*.fecha_inicio' => 'required|date',
+            'descuentos.*.fecha_fin' => 'nullable|date',
+            'descuentos.*.sede_id' => 'nullable|integer|exists:pgsql.institucional.sedes,id_sede',
         ]);
 
         // El pase necesita fecha de fin; la venta directa desde caja no pasa por aquí.
@@ -215,6 +223,9 @@ class MembresiaControlador extends Controller
             }
             if (!empty($validados['descuento'])) {
                 $this->registrarDescuentoMembresia($validados['descuento'], $membresia, (int) $request->user()->id);
+            }
+            foreach ($validados['descuentos'] ?? [] as $descuento) {
+                $this->registrarDescuentoMembresia($descuento, $membresia, (int) $request->user()->id);
             }
             $venta = null;
             $plan = DB::table('membresias.planes')->where('id', $membresia->plan_id)->first();

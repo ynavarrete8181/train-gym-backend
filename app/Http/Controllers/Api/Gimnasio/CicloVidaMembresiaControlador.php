@@ -88,6 +88,7 @@ final class CicloVidaMembresiaControlador extends Controller
             'fecha_inicio' => 'required|date',
             'fecha_fin' => 'nullable|date',
             'motivo' => 'required|string|min:8|max:250',
+            'sede_id' => 'nullable|integer|exists:pgsql.institucional.sedes,id_sede',
         ];
     }
 

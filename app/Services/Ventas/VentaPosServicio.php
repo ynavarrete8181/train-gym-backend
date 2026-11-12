@@ -314,7 +314,7 @@ class VentaPosServicio
                 ->where('activo', true)->value('precio');
         }
         if ($precio <= 0) throw ValidationException::withMessages(['plan_id' => 'Configura una tarifa positiva para esta sede.']);
-        $cotizacion = $this->beneficios->resolver($clienteId, $planId, $modalidadId, $fechaCotizacion, $precio);
+        $cotizacion = $this->beneficios->resolver($clienteId, $planId, $modalidadId, $fechaCotizacion, $precio, (int) $turno->sede_id);
         $cotizacion['fecha_uso_pase'] = $plan->tipo_producto === 'PASE_DIARIO' ? $fechaCotizacion : null;
         return $cotizacion;
     }
@@ -525,7 +525,8 @@ class VentaPosServicio
                 DB::table('membresias.planes')->where('id', $m->plan_id)->value('tipo_producto') === 'PASE_DIARIO'
                     ? substr((string) $m->fecha_inicio, 0, 10)
                     : now('America/Guayaquil')->toDateString(),
-                $subtotal
+                $subtotal,
+                (int) $turno->sede_id
             );
             // El descuento contractual procede únicamente del beneficio autorizado.
             $descuento = (float) $beneficioAplicado['importe_descuento'];

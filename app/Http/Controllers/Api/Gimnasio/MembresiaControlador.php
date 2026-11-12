@@ -128,6 +128,7 @@ class MembresiaControlador extends Controller
             'descuento.motivo' => 'required_with:descuento|string|max:500',
             'descuento.fecha_inicio' => 'required_with:descuento|date',
             'descuento.fecha_fin' => 'nullable|date|after_or_equal:descuento.fecha_inicio',
+            'descuento.sede_id' => 'nullable|integer|exists:pgsql.institucional.sedes,id_sede',
         ]);
 
         // El pase necesita fecha de fin; la venta directa desde caja no pasa por aquí.
@@ -222,7 +223,8 @@ class MembresiaControlador extends Controller
                 $beneficio = $this->descuentos->resolver(
                     (int) $membresia->deportista_id, (int) $membresia->plan_id,
                     $membresia->modalidad_id ? (int) $membresia->modalidad_id : null,
-                    now('America/Guayaquil')->toDateString(), (float) $membresia->precio_aplicado
+                    now('America/Guayaquil')->toDateString(), (float) $membresia->precio_aplicado,
+                    $membresia->sede_id ? (int) $membresia->sede_id : null
                 );
                 $venta = $this->ventaServicio->guardarVenta([
                     'cliente_id' => $membresia->deportista_id,
@@ -384,7 +386,8 @@ class MembresiaControlador extends Controller
                 $beneficio = $this->descuentos->resolver(
                     (int) $membresiaActualizada->deportista_id, (int) $membresiaActualizada->plan_id,
                     $membresiaActualizada->modalidad_id ? (int) $membresiaActualizada->modalidad_id : null,
-                    now('America/Guayaquil')->toDateString(), (float) $periodo->precio
+                    now('America/Guayaquil')->toDateString(), (float) $periodo->precio,
+                    $membresiaActualizada->sede_id ? (int) $membresiaActualizada->sede_id : null
                 );
                 $venta = $this->ventaServicio->guardarVenta([
                     'cliente_id' => $membresiaActualizada->deportista_id,
@@ -501,6 +504,7 @@ class MembresiaControlador extends Controller
             'descuento.motivo' => 'required_with:descuento|string|max:500',
             'descuento.fecha_inicio' => 'required_with:descuento|date',
             'descuento.fecha_fin' => 'nullable|date|after_or_equal:descuento.fecha_inicio',
+            'descuento.sede_id' => 'nullable|integer|exists:pgsql.institucional.sedes,id_sede',
         ]);
 
         $planActual = DB::table('membresias.planes')->where('id', $membresia->plan_id)->first();
@@ -637,9 +641,18 @@ class MembresiaControlador extends Controller
             throw ValidationException::withMessages(['descuento.valor' => 'El porcentaje no puede superar el 100 %.']);
         }
 
-        // El beneficio no puede superar el importe realmente aplicado al contrato.
-        // Dejarlo pasar crearía descuentos comerciales imposibles de interpretar.
-        $precio = round((float) $membresia->precio_aplicado, 2);
+        // Un descuento de sede solo vale en una sede autorizada de la membresía.
+        $sedeDescuento = ! empty($datos['sede_id']) ? (int) $datos['sede_id'] : null;
+        if ($sedeDescuento && ! DB::table('membresias.membresia_sedes')->where('membresia_id', $membresia->id)
+            ->where('sede_id', $sedeDescuento)->where('activo', true)->exists()) {
+            throw ValidationException::withMessages(['descuento.sede_id' => 'La sede del descuento debe estar entre las sedes autorizadas.']);
+        }
+
+        // El beneficio no puede superar el importe realmente aplicado al contrato
+        // (o la tarifa de su sede). Dejarlo pasar crearía descuentos imposibles de interpretar.
+        $precio = round($sedeDescuento
+            ? $this->membresiaServicio->resolverPrecio((int) $membresia->plan_id, $sedeDescuento, $membresia->modalidad_id)
+            : (float) $membresia->precio_aplicado, 2);
         $valor = round((float) $datos['valor'], 2);
         if ($datos['tipo'] === 'FIJO' && $valor > $precio) {
             throw ValidationException::withMessages([
@@ -658,6 +671,7 @@ class MembresiaControlador extends Controller
             'motivo' => trim($datos['motivo']),
             'fecha_inicio' => $datos['fecha_inicio'],
             'fecha_fin' => $datos['fecha_fin'] ?? null,
+            'sede_id' => $sedeDescuento,
         ], $usuarioId);
     }
 

@@ -116,8 +116,9 @@ class ContratoMembresiaServicio
         $hoy = now()->toDateString();
         $filas = $this->consultaDescuentos($m)
             ->leftJoin('seguridad.users as u', 'u.id', '=', 'd.autorizado_por')
+            ->leftJoin('institucional.sedes as s', 's.id_sede', '=', 'd.sede_id')
             ->orderByDesc('d.fecha_inicio')->orderByDesc('d.id')
-            ->get(['d.*', 'u.name as autorizado_nombre'])
+            ->get(['d.*', 'u.name as autorizado_nombre', 's.nombre as sede_nombre'])
             ->map(function ($d) use ($hoy) {
                 $inicio = substr((string) $d->fecha_inicio, 0, 10);
                 $fin = $d->fecha_fin ? substr((string) $d->fecha_fin, 0, 10) : null;
@@ -134,7 +135,8 @@ class ContratoMembresiaServicio
         $tarifas = $this->tarifasPorSede($m);
         $aplicaciones = $this->aplicacionesDescuentos($filas->pluck('id')->all());
         $filas = $filas->map(function ($d) use ($tarifas, $aplicaciones) {
-            $d->por_sede = $tarifas->map(function ($t) use ($d) {
+            // Un descuento de sede solo cambia lo que se paga en esa sede.
+            $d->por_sede = $tarifas->filter(fn ($t) => empty($d->sede_id) || (int) $t->sede_id === (int) $d->sede_id)->map(function ($t) use ($d) {
                 $importe = DescuentoDeportistaServicio::calcularImporte($t->precio, (string) $d->tipo, (float) $d->valor);
                 return ['sede_id' => $t->sede_id, 'sede_nombre' => $t->sede_nombre, 'precio' => $t->precio,
                     'descuento' => $importe, 'paga' => round($t->precio - $importe, 2)];
@@ -198,7 +200,9 @@ class ContratoMembresiaServicio
         return DB::transaction(function () use ($id, $datos, $usuarioId): object {
             $m = $this->membresia($id, true);
             $this->validarRango($m, $datos['fecha_inicio'], $datos['fecha_fin'] ?? null);
+            $sedeId = $this->validarSedeDescuento($m, $datos['sede_id'] ?? null);
             $descuento = $this->descuentos->crear([
+                'sede_id' => $sedeId,
                 'deportista_id' => (int) $m->deportista_id,
                 'plan_id' => (int) $m->plan_id,
                 'modalidad_id' => $m->modalidad_id ? (int) $m->modalidad_id : null,
@@ -220,7 +224,9 @@ class ContratoMembresiaServicio
                 throw ValidationException::withMessages(['descuento' => 'El descuento ya terminó: registra uno nuevo.']);
             }
             $this->validarRango($m, $datos['fecha_inicio'], $datos['fecha_fin'] ?? null);
+            $sedeId = $this->validarSedeDescuento($m, $datos['sede_id'] ?? null);
             $descuento = $this->descuentos->actualizar($descuentoId, [
+                'sede_id' => $sedeId,
                 'id' => $descuentoId, 'tipo' => $datos['tipo'], 'valor' => $datos['valor'],
                 'fecha_inicio' => $datos['fecha_inicio'], 'fecha_fin' => $datos['fecha_fin'] ?? null,
                 'motivo' => trim($datos['motivo']),
@@ -298,6 +304,18 @@ class ContratoMembresiaServicio
         ];
     }
 
+    /** Un descuento de sede solo puede ser de una sede autorizada de la membresía. */
+    private function validarSedeDescuento(object $m, mixed $sedeId): ?int
+    {
+        if (empty($sedeId)) return null;
+        $autorizada = DB::table('membresias.membresia_sedes')->where('membresia_id', $m->id)
+            ->where('sede_id', (int) $sedeId)->where('activo', true)->exists();
+        if (! $autorizada) {
+            throw ValidationException::withMessages(['sede_id' => 'La sede del descuento debe estar entre las sedes autorizadas.']);
+        }
+        return (int) $sedeId;
+    }
+
     private function validarRango(object $m, string $inicio, ?string $fin): void
     {
         $rango = $this->rangoContrato($m);
@@ -356,6 +374,7 @@ class ContratoMembresiaServicio
             'fecha_inicio' => substr((string) $d->fecha_inicio, 0, 10),
             'fecha_fin' => $d->fecha_fin ? substr((string) $d->fecha_fin, 0, 10) : null,
             'activo' => (bool) $d->activo,
+            'sede_id' => $d->sede_id ?? null,
         ];
     }
 

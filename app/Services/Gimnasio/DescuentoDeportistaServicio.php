@@ -5,14 +5,20 @@ namespace App\Services\Gimnasio;
 use Carbon\Carbon;
 use App\Services\Concerns\RegistraAuditoria;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class DescuentoDeportistaServicio
 {
     use RegistraAuditoria;
 
-    public function resolver(int $deportistaId, int $planId, ?int $modalidadId, string $fecha, float $precioBase): array
+    public function resolver(int $deportistaId, int $planId, ?int $modalidadId, string $fecha, float $precioBase, ?int $sedeId = null): array
     {
+        // Sin sede conocida solo valen los descuentos generales; con sede, el de esa sede tiene prioridad.
+        $filtroSede = function ($q) use ($sedeId) {
+            $q->whereNull('sede_id');
+            if ($sedeId !== null) $q->orWhere('sede_id', $sedeId);
+        };
         $beneficios = DB::table('membresias.descuentos_deportistas')
             ->where('deportista_id', $deportistaId)
             ->where('activo', true)
@@ -27,6 +33,8 @@ class DescuentoDeportistaServicio
                 $q->whereNull('modalidad_id');
                 if ($modalidadId !== null) $q->orWhere('modalidad_id', $modalidadId);
             })
+            ->where($filtroSede)
+            ->orderByRaw('CASE WHEN sede_id IS NOT NULL THEN 0 ELSE 1 END')
             ->orderByRaw('CASE WHEN modalidad_id IS NOT NULL THEN 0 WHEN plan_id IS NOT NULL THEN 1 ELSE 2 END')
             ->orderByDesc('fecha_inicio')
             ->limit(2)
@@ -49,6 +57,7 @@ class DescuentoDeportistaServicio
                     $q->whereNull('modalidad_id');
                     if ($modalidadId !== null) $q->orWhere('modalidad_id', $modalidadId);
                 })
+                ->where($filtroSede)
                 ->orderBy('fecha_inicio')
                 ->first(['id', 'tipo', 'valor', 'fecha_inicio', 'fecha_fin']);
         }
@@ -60,6 +69,7 @@ class DescuentoDeportistaServicio
         return [
             'precio_base' => round($precioBase, 2),
             'descuento_id' => $beneficio?->id,
+            'sede_id' => $beneficio?->sede_id,
             'tipo' => $beneficio?->tipo,
             'valor' => $beneficio?->valor,
             'importe_descuento' => $importe,
@@ -103,30 +113,38 @@ class DescuentoDeportistaServicio
     }
 
     /**
-     * Al renovar, el descuento vigente hasta el último día del período anterior
-     * continúa en el período nuevo como un registro propio con sus mismas fechas.
-     * Uno finalizado o desactivado (ya no llega a ese día) no continúa.
+     * Al renovar, cada descuento vigente hasta el último día del período anterior
+     * (uno general y, si hay, uno por sede) continúa en el período nuevo como un
+     * registro propio con sus mismas fechas. Uno finalizado o desactivado no continúa.
+     * Devuelve el general, o el primero si solo hay de sede.
      */
     public function continuarEnPeriodo(int $periodoId, ?int $usuarioId = null): ?object
     {
-        $tabla = 'membresias.descuentos_deportistas';
-        $nuevo = DB::table('membresias.membresia_periodos')->where('id', $periodoId)->first();
-        if (! $nuevo) return null;
-        $existente = DB::table($tabla)->where('membresia_periodo_id', $periodoId)->where('activo', true)->first();
-        if ($existente) return $existente;
+        $continuados = $this->continuarTodosEnPeriodo($periodoId, $usuarioId);
+        return collect($continuados)->first(fn ($d) => empty($d->sede_id)) ?? ($continuados[0] ?? null);
+    }
 
+    /** @return array<int, object> */
+    public function continuarTodosEnPeriodo(int $periodoId, ?int $usuarioId = null): array
+    {
+        $tabla = 'membresias.descuentos_deportistas';
+        static $conSede = null;
+        $conSede ??= Schema::hasColumn($tabla, 'sede_id');
+
+        $nuevo = DB::table('membresias.membresia_periodos')->where('id', $periodoId)->first();
+        if (! $nuevo) return [];
         $anterior = DB::table('membresias.membresia_periodos')
             ->where('membresia_id', $nuevo->membresia_id)
             ->where('numero_periodo', '<', $nuevo->numero_periodo)
             ->orderByDesc('numero_periodo')->first();
         $m = DB::table('membresias.membresias')->where('id', $nuevo->membresia_id)->first();
-        if (! $anterior || ! $m) return null;
+        if (! $anterior || ! $m) return [];
 
         $finAnterior = substr((string) $anterior->fecha_fin, 0, 10);
         $inicio = substr((string) $nuevo->fecha_inicio, 0, 10);
         $fin = substr((string) $nuevo->fecha_fin, 0, 10);
 
-        $d = DB::table($tabla)
+        $candidatos = DB::table($tabla)
             ->where('deportista_id', $m->deportista_id)
             ->where('activo', true)
             ->whereDate('fecha_inicio', '<=', $finAnterior)
@@ -138,54 +156,67 @@ class DescuentoDeportistaServicio
             })
             ->orderByRaw('CASE WHEN modalidad_id IS NOT NULL THEN 0 WHEN plan_id IS NOT NULL THEN 1 ELSE 2 END')
             ->orderByDesc('fecha_inicio')
-            ->first();
-        if (! $d) return null;
+            ->get();
+        // Uno por sede (el general va con clave vacía), el de mayor prioridad.
+        $porSede = $candidatos->groupBy(fn ($d) => (string) ($d->sede_id ?? ''))->map->first();
 
-        // Ya cubre el período nuevo con una fecha fin explícita: no hace falta copiarlo.
-        if ($d->fecha_fin && substr((string) $d->fecha_fin, 0, 10) >= $fin) return $d;
+        $resultado = [];
+        foreach ($porSede as $d) {
+            $existente = DB::table($tabla)->where('membresia_periodo_id', $periodoId)->where('activo', true)
+                ->when($conSede, fn ($q) => empty($d->sede_id) ? $q->whereNull('sede_id') : $q->where('sede_id', $d->sede_id))
+                ->first();
+            if ($existente) { $resultado[] = $existente; continue; }
 
-        // Un descuento "sin fin" o que llega más allá del período anterior se cierra en él,
-        // para que cada período tenga su propio registro.
-        if (! $d->fecha_fin || substr((string) $d->fecha_fin, 0, 10) > $finAnterior) {
-            DB::table($tabla)->where('id', $d->id)->update(['fecha_fin' => $finAnterior, 'updated_at' => now()]);
+            // Ya cubre el período nuevo con una fecha fin explícita: no hace falta copiarlo.
+            if ($d->fecha_fin && substr((string) $d->fecha_fin, 0, 10) >= $fin) { $resultado[] = $d; continue; }
+
+            // Un descuento "sin fin" o que llega más allá del período anterior se cierra en él,
+            // para que cada período tenga su propio registro.
+            if (! $d->fecha_fin || substr((string) $d->fecha_fin, 0, 10) > $finAnterior) {
+                DB::table($tabla)->where('id', $d->id)->update(['fecha_fin' => $finAnterior, 'updated_at' => now()]);
+            }
+            if (! $d->membresia_periodo_id) {
+                DB::table($tabla)->where('id', $d->id)->update(['membresia_periodo_id' => $anterior->id]);
+            }
+
+            $fila = [
+                'deportista_id' => $d->deportista_id,
+                'plan_id' => $d->plan_id,
+                'modalidad_id' => $d->modalidad_id,
+                'tipo' => $d->tipo,
+                'valor' => $d->valor,
+                'fecha_inicio' => $inicio,
+                'fecha_fin' => $fin,
+                'motivo' => $d->motivo,
+                'activo' => true,
+                'autorizado_por' => $usuarioId ?? $d->autorizado_por,
+                'descuento_origen_id' => $d->id,
+                'membresia_periodo_id' => $periodoId,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+            if ($conSede) $fila['sede_id'] = $d->sede_id ?? null;
+            $id = DB::table($tabla)->insertGetId($fila);
+            $continuado = DB::table($tabla)->where('id', $id)->first();
+
+            DB::table('membresias.membresia_movimientos')->insert([
+                'membresia_id' => $m->id, 'tipo' => 'DESCUENTO_RENOVADO', 'estado' => 'CONFIRMADO',
+                'fecha_efectiva' => now()->toDateString(),
+                'motivo' => 'El descuento continúa en el período ' . $nuevo->numero_periodo . ' por la renovación.',
+                'usuario_id' => $usuarioId, 'autorizado_por' => $usuarioId,
+                'detalle' => json_encode([
+                    'tipo' => $continuado->tipo, 'valor' => (float) $continuado->valor,
+                    'fecha_inicio' => $inicio, 'fecha_fin' => $fin, 'activo' => true,
+                    'sede_id' => $d->sede_id ?? null,
+                    'periodo' => (int) $nuevo->numero_periodo, 'descuento_origen_id' => (int) $d->id,
+                ], JSON_THROW_ON_ERROR),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            $this->auditar('gimnasio', 'RENOVAR_DESCUENTO', $tabla, $id, $d, $continuado);
+            $resultado[] = $continuado;
         }
-        if (! $d->membresia_periodo_id) {
-            DB::table($tabla)->where('id', $d->id)->update(['membresia_periodo_id' => $anterior->id]);
-        }
 
-        $id = DB::table($tabla)->insertGetId([
-            'deportista_id' => $d->deportista_id,
-            'plan_id' => $d->plan_id,
-            'modalidad_id' => $d->modalidad_id,
-            'tipo' => $d->tipo,
-            'valor' => $d->valor,
-            'fecha_inicio' => $inicio,
-            'fecha_fin' => $fin,
-            'motivo' => $d->motivo,
-            'activo' => true,
-            'autorizado_por' => $usuarioId ?? $d->autorizado_por,
-            'descuento_origen_id' => $d->id,
-            'membresia_periodo_id' => $periodoId,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-        $continuado = DB::table($tabla)->where('id', $id)->first();
-
-        DB::table('membresias.membresia_movimientos')->insert([
-            'membresia_id' => $m->id, 'tipo' => 'DESCUENTO_RENOVADO', 'estado' => 'CONFIRMADO',
-            'fecha_efectiva' => now()->toDateString(),
-            'motivo' => 'El descuento continúa en el período ' . $nuevo->numero_periodo . ' por la renovación.',
-            'usuario_id' => $usuarioId, 'autorizado_por' => $usuarioId,
-            'detalle' => json_encode([
-                'tipo' => $continuado->tipo, 'valor' => (float) $continuado->valor,
-                'fecha_inicio' => $inicio, 'fecha_fin' => $fin, 'activo' => true,
-                'periodo' => (int) $nuevo->numero_periodo, 'descuento_origen_id' => (int) $d->id,
-            ], JSON_THROW_ON_ERROR),
-            'created_at' => now(), 'updated_at' => now(),
-        ]);
-        $this->auditar('gimnasio', 'RENOVAR_DESCUENTO', $tabla, $id, $d, $continuado);
-
-        return $continuado;
+        return $resultado;
     }
 
     public function actualizar(int $id, array $datos, int $usuarioId): object
@@ -232,9 +263,11 @@ class DescuentoDeportistaServicio
         else $consulta->where('plan_id', (int) $planId);
         if (empty($modalidadId)) $consulta->whereNull('modalidad_id');
         else $consulta->where('modalidad_id', (int) $modalidadId);
+        if (empty($datos['sede_id'])) $consulta->whereNull('sede_id');
+        else $consulta->where('sede_id', (int) $datos['sede_id']);
         if (! empty($datos['id'])) $consulta->where('id', '<>', (int) $datos['id']);
         if ($consulta->exists()) {
-            throw ValidationException::withMessages(['fecha_inicio' => 'Ya existe un descuento vigente o programado con fechas superpuestas para el mismo alcance.']);
+            throw ValidationException::withMessages(['fecha_inicio' => 'Ya existe un descuento vigente o programado con fechas superpuestas para el mismo plan y la misma sede.']);
         }
     }
 }

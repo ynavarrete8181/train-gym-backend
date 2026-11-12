@@ -122,7 +122,8 @@ class CobroProgramadoMembresiaServicio
                             (int) $membresia->plan_id,
                             $membresia->modalidad_id ? (int) $membresia->modalidad_id : null,
                             $fechaCobro->toDateString(),
-                            (float) $periodo->precio
+                            (float) $periodo->precio,
+                            $membresia->sede_id ? (int) $membresia->sede_id : null
                         );
                         $ventaId = DB::table('ventas.ventas')->insertGetId([
                             'cliente_id' => $membresia->deportista_id,

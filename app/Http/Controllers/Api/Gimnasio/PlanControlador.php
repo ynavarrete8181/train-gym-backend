@@ -187,9 +187,51 @@ class PlanControlador extends Controller
     public function updateModalidad(Request $request, int $id, int $modalidadId)
     {
         $datos = $this->validarModalidad($request, $modalidadId, $id);
-        $modalidad = $this->planServicio->guardarModalidad($id, $datos, $modalidadId);
+        $antes = DB::table('membresias.plan_modalidad_precios_sede')->where('modalidad_id', $modalidadId)->pluck('precio', 'sede_id');
+        $modalidad = DB::transaction(function () use ($request, $id, $datos, $modalidadId, $antes) {
+            $modalidad = $this->planServicio->guardarModalidad($id, $datos, $modalidadId);
+            // Opcional: los contratos vigentes renuevan con la tarifa nueva (no cambia su período actual).
+            if ($request->boolean('aplicar_vigentes')) {
+                $despues = DB::table('membresias.plan_modalidad_precios_sede')->where('modalidad_id', $modalidadId)->where('activo', true)->pluck('precio', 'sede_id');
+                $cambios = $despues->filter(fn ($precio, $sede) => ! isset($antes[$sede]) || abs((float) $antes[$sede] - (float) $precio) > 0.009);
+                if ($cambios->isNotEmpty()) {
+                    $sedes = DB::table('institucional.sedes')->pluck('nombre', 'id_sede');
+                    $detalle = $cambios->map(fn ($p, $sede) => ($sedes[$sede] ?? 'Sede') . ': $' . number_format((float) ($antes[$sede] ?? 0), 2) . ' → $' . number_format((float) $p, 2))->implode(', ');
+                    app(\App\Services\Gimnasio\ContratoMembresiaServicio::class)->aplicarTarifaEnRenovacion(
+                        $this->contratosVigentes($modalidadId, $cambios->keys()->all())->pluck('id')->all(),
+                        'Por cambio de tarifa de ' . ($modalidad->nombre ?? 'la modalidad') . ' (' . $detalle . '): la próxima renovación usará la tarifa vigente.',
+                        (int) $request->user()->id
+                    );
+                }
+            }
+            return $modalidad;
+        });
 
         return ApiResponse::exito('Modalidad actualizada correctamente.', (array) $modalidad);
+    }
+
+    /** Contratos vigentes de una modalidad cuya sede principal está entre las indicadas (para el aviso de cambio de tarifa). */
+    public function contratosVigentesModalidad(Request $request, int $id, int $modalidadId)
+    {
+        $sedes = array_map('intval', (array) $request->query('sedes', []));
+        return ApiResponse::exito('Contratos vigentes.', $this->contratosVigentes($modalidadId, $sedes)->values());
+    }
+
+    private function contratosVigentes(int $modalidadId, array $sedes)
+    {
+        return DB::table('membresias.membresias as m')
+            ->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
+            ->leftJoin('institucional.sedes as s', 's.id_sede', '=', 'm.sede_id')
+            ->leftJoin('clientes.deportistas as d', 'd.id', '=', 'm.deportista_id')
+            ->leftJoin('personas.personas as pe', 'pe.id', '=', 'd.persona_id')
+            ->leftJoin('seguridad.users as u', 'u.id', '=', 'd.usuario_id')
+            ->where('m.modalidad_id', $modalidadId)
+            ->where('p.tipo_producto', '!=', 'PASE_DIARIO')
+            ->whereIn('m.estado', ['ACTIVA', 'PENDIENTE_PAGO', 'CONGELADA'])
+            ->when($sedes, fn ($q) => $q->whereIn('m.sede_id', $sedes))
+            ->orderBy('m.fecha_fin')
+            ->get(['m.id', 'm.codigo_contrato', 'm.precio_aplicado', 'm.fecha_fin', 'm.precio_renovacion_modo', 's.nombre as sede_nombre',
+                DB::raw("COALESCE(NULLIF(TRIM(pe.nombre_completo), ''), u.name, d.codigo_deportista) as cliente")]);
     }
 
     private function validar(Request $request, ?int $id = null): array

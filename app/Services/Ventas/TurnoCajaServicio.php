@@ -269,6 +269,76 @@ class TurnoCajaServicio
         ];
     }
 
+    /**
+     * Corrige el método de un cobro mal registrado (p. ej. efectivo que fue transferencia).
+     * Solo administradores; no cambia monto, cliente ni venta. Deja motivo y auditoría, y
+     * recalcula el efectivo esperado del turno. Un turno ya cerrado vuelve a quedar pendiente
+     * de conciliación para revisar el arqueo con los valores corregidos.
+     */
+    public function corregirMetodoPago(int $pagoId, array $datos, int $usuarioId): object
+    {
+        return DB::transaction(function () use ($pagoId, $datos, $usuarioId): object {
+            if (! $this->alcance->puedeGestionarCartera($usuarioId)) {
+                throw ValidationException::withMessages(['pago' => 'Solo un administrador puede corregir el método de un cobro.']);
+            }
+            $pago = DB::table('ventas.pagos')->where('id', $pagoId)->lockForUpdate()->first();
+            if (! $pago || $pago->estado !== 'CONFIRMADO' || (float) $pago->monto <= 0) {
+                throw ValidationException::withMessages(['pago' => 'Solo se puede corregir un cobro confirmado.']);
+            }
+            if ($pago->operacion_cobro_id && DB::table('ventas.pagos')->where('operacion_cobro_id', $pago->operacion_cobro_id)
+                ->where('id', '<>', $pagoId)->where('estado', 'CONFIRMADO')->exists()) {
+                throw ValidationException::withMessages(['pago' => 'Este cobro se pagó con varios métodos: anúlalo y vuelve a cobrarlo.']);
+            }
+            $nuevo = strtoupper((string) $datos['metodo_pago']);
+            if ($nuevo === $pago->metodo_pago && trim((string) ($datos['referencia'] ?? '')) === trim((string) ($pago->referencia ?? ''))) {
+                throw ValidationException::withMessages(['metodo_pago' => 'No hay cambios para guardar.']);
+            }
+            $turno = $pago->turno_caja_id
+                ? DB::table('ventas.turnos_caja')->where('id', $pago->turno_caja_id)->lockForUpdate()->first() : null;
+            if ($turno) {
+                $this->alcance->validarSede($usuarioId, (int) $turno->sede_id, 'maneja_caja');
+            }
+
+            $usuario = DB::table('seguridad.users')->where('id', $usuarioId)->value('name') ?: 'Administrador';
+            $nota = sprintf('Corrección de método: %s → %s%s. Motivo: %s (%s, %s).',
+                $pago->metodo_pago, $nuevo, ! empty($datos['referencia']) ? ' (ref. ' . trim($datos['referencia']) . ')' : '',
+                trim($datos['motivo']), $usuario, now()->format('d/m/Y H:i'));
+            $esEfectivo = $nuevo === 'EFECTIVO';
+            DB::table('ventas.pagos')->where('id', $pagoId)->update([
+                'metodo_pago' => $nuevo,
+                'referencia' => ! empty($datos['referencia']) ? trim($datos['referencia']) : ($esEfectivo ? null : $pago->referencia),
+                'efectivo_recibido' => $esEfectivo ? $pago->monto : null,
+                'cambio_entregado' => $esEfectivo ? 0 : null,
+                'observaciones' => trim(($pago->observaciones ? $pago->observaciones . ' ' : '') . $nota),
+                'updated_at' => now(),
+            ]);
+            $this->auditar('ventas', 'CORREGIR_METODO_PAGO', 'ventas.pagos', $pagoId, $pago,
+                DB::table('ventas.pagos')->where('id', $pagoId)->first(), $nota);
+
+            if ($turno && $turno->estado === 'CERRADA') {
+                $antes = $this->obtener((int) $turno->id);
+                $resumen = $this->resumenCobrosTurno((int) $turno->id);
+                $esperado = round((float) $turno->saldo_inicial + (float) $resumen['efectivo_cobrado'], 2);
+                $contado = $turno->efectivo_contado !== null ? round((float) $turno->efectivo_contado, 2) : null;
+                DB::table('ventas.turnos_caja')->where('id', $turno->id)->update($resumen + [
+                    'efectivo_esperado' => $esperado,
+                    'diferencia' => $contado !== null ? round($contado - $esperado, 2) : null,
+                    // El arqueo se hizo con otros valores: vuelve a revisarse.
+                    'requiere_arqueo' => true,
+                    'conciliado_at' => null,
+                    'conciliado_por' => null,
+                    'observaciones_cierre' => trim(($turno->observaciones_cierre ? $turno->observaciones_cierre . ' ' : '')
+                        . "Reabierto para conciliar: {$nota}"),
+                    'updated_at' => now(),
+                ]);
+                $this->auditar('ventas', 'RECALCULAR_CAJA', 'ventas.turnos_caja', (int) $turno->id, $antes,
+                    $this->obtener((int) $turno->id), 'Recalculo por corrección de método de cobro.');
+            }
+
+            return DB::table('ventas.pagos')->where('id', $pagoId)->first();
+        });
+    }
+
     public function resumenCobrosTurno(int $turnoId): array
     {
         $resumen = DB::table('ventas.pagos')

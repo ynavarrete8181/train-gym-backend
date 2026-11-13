@@ -298,10 +298,12 @@ class VentaPosServicio
                 // Una fecha de uso pasada se traslada a hoy al vender el pase.
                 $fechaCotizacion = max(substr((string) $m->fecha_inicio, 0, 10), $fechaCotizacion);
             }
-            $precio = $modalidadId
-                ? $this->precioModalidadSede((int) $modalidadId, (int) $turno->sede_id)
-                : (float) ($this->planesPorSede((int) $turno->sede_id)
-                    ->firstWhere('id', $planId)?->precio ?? 0);
+            // Una membresía con contrato se cobra al precio pactado, no a la tarifa del día.
+            $precio = ($plan->tipo_producto !== 'PASE_DIARIO' ? $this->precioContratado((int) $m->id) : null)
+                ?? ($modalidadId
+                    ? $this->precioModalidadSede((int) $modalidadId, (int) $turno->sede_id)
+                    : (float) ($this->planesPorSede((int) $turno->sede_id)
+                        ->firstWhere('id', $planId)?->precio ?? 0));
         } else {
             if ($plan->tipo_producto !== 'PASE_DIARIO') {
                 throw ValidationException::withMessages(['plan_id' => 'La cotización directa solo aplica al Pase Diario.']);
@@ -810,6 +812,14 @@ class VentaPosServicio
         return DB::table('ventas.ventas')->where('id', $ventaId)->lockForUpdate()->first();
     }
 
+    /** Precio pactado del período vigente (el último) de una membresía; null si no tiene. */
+    private function precioContratado(int $membresiaId): ?float
+    {
+        $precio = DB::table('membresias.membresia_periodos')->where('membresia_id', $membresiaId)
+            ->orderByDesc('numero_periodo')->value('precio');
+        return $precio !== null && (float) $precio > 0 ? round((float) $precio, 2) : null;
+    }
+
     private function resolverDetalles($detalles, int $sedeId, ?int $ventaId = null)
     {
         return $detalles->map(function ($item) use ($sedeId, $ventaId): array {
@@ -954,9 +964,12 @@ class VentaPosServicio
                     ]);
                 }
 
-                $precio = $membresia->modalidad_id
-                    ? $this->precioModalidadSede((int) $membresia->modalidad_id, $sedeId)
-                    : (float) ($this->planesPorSede($sedeId)->firstWhere('id', $membresia->plan_id)?->precio ?? 0);
+                // El período o cuota se cobra al precio del contrato; la tarifa vigente de la sede
+                // solo aplica a pases diarios y a contrataciones o renovaciones nuevas.
+                $precio = (! $esPase ? $this->precioContratado((int) $membresia->id) : null)
+                    ?? ($membresia->modalidad_id
+                        ? $this->precioModalidadSede((int) $membresia->modalidad_id, $sedeId)
+                        : (float) ($this->planesPorSede($sedeId)->firstWhere('id', $membresia->plan_id)?->precio ?? 0));
                 $precio = round($precio, 2);
                 if ($precio <= 0) {
                     throw ValidationException::withMessages([

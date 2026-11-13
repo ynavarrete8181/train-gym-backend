@@ -121,7 +121,8 @@ class CobroProgramadoMembresiaServicio
                             (int) $membresia->deportista_id,
                             (int) $membresia->plan_id,
                             $membresia->modalidad_id ? (int) $membresia->modalidad_id : null,
-                            $fechaCobro->toDateString(),
+                            // Descuento vigente al inicio del período que se cobra.
+                            substr((string) $periodo->fecha_inicio, 0, 10),
                             (float) $periodo->precio,
                             $membresia->sede_id ? (int) $membresia->sede_id : null
                         );

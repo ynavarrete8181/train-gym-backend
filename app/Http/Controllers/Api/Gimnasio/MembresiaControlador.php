@@ -234,7 +234,8 @@ class MembresiaControlador extends Controller
                 $beneficio = $this->descuentos->resolver(
                     (int) $membresia->deportista_id, (int) $membresia->plan_id,
                     $membresia->modalidad_id ? (int) $membresia->modalidad_id : null,
-                    now('America/Guayaquil')->toDateString(), (float) $membresia->precio_aplicado,
+                    // El descuento se evalúa en la fecha de inicio del período que se vende, no en la de hoy.
+                    substr((string) $membresia->fecha_inicio, 0, 10), (float) $membresia->precio_aplicado,
                     $membresia->sede_id ? (int) $membresia->sede_id : null
                 );
                 $venta = $this->ventaServicio->guardarVenta([
@@ -406,7 +407,7 @@ class MembresiaControlador extends Controller
                 $beneficio = $this->descuentos->resolver(
                     (int) $membresiaActualizada->deportista_id, (int) $membresiaActualizada->plan_id,
                     $membresiaActualizada->modalidad_id ? (int) $membresiaActualizada->modalidad_id : null,
-                    now('America/Guayaquil')->toDateString(), (float) $periodo->precio,
+                    substr((string) $periodo->fecha_inicio, 0, 10), (float) $periodo->precio,
                     $membresiaActualizada->sede_id ? (int) $membresiaActualizada->sede_id : null
                 );
                 $venta = $this->ventaServicio->guardarVenta([

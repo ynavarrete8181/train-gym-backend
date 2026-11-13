@@ -132,6 +132,17 @@ final class CicloVidaMembresiaControlador extends Controller
         $resumen = $this->servicio->resumen($id);
         $resumen['puede_reabrir'] = strtoupper((string) $resumen['estado']) === 'CANCELADA'
             && $this->alcance->esGlobal((int) $request->user()->id);
+        // Cambiar el precio pactado: solo administradores, contratos (no pases) no cancelados.
+        $m = DB::table('membresias.membresias as m')->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
+            ->where('m.id', $id)->first(['m.estado', 'm.precio_aplicado', 'm.sede_id', 'm.plan_id', 'm.modalidad_id', 'p.tipo_producto']);
+        $resumen['puede_cambiar_precio'] = $m && $m->tipo_producto !== 'PASE_DIARIO'
+            && strtoupper((string) $m->estado) !== 'CANCELADA'
+            && $this->alcance->puedeGestionarCartera((int) $request->user()->id);
+        if ($resumen['puede_cambiar_precio']) {
+            $resumen['precio_contrato'] = round((float) $m->precio_aplicado, 2);
+            $resumen['tarifa_vigente'] = round(app(\App\Services\Gimnasio\MembresiaServicio::class)
+                ->resolverPrecio((int) $m->plan_id, $m->sede_id, $m->modalidad_id), 2);
+        }
 
         return ApiResponse::exito('Ciclo de vida consultado.', $resumen);
     }
@@ -264,6 +275,18 @@ final class CicloVidaMembresiaControlador extends Controller
         ]);
         return ApiResponse::exito('Vigencia del pase actualizada.',
             $this->servicio->editarVigencia($id, $datos, (int) $request->user()->id));
+    }
+
+    public function cambiarPrecio(Request $request, int $id)
+    {
+        $this->validarAlcance($request, $id);
+        $datos = $request->validate([
+            'precio' => 'required|numeric|gt:0',
+            'desde_periodo' => 'required|integer|min:1',
+            'motivo' => 'required|string|min:8|max:500',
+        ]);
+        return ApiResponse::exito('Precio del contrato actualizado.',
+            app(\App\Services\Gimnasio\ContratoMembresiaServicio::class)->cambiarPrecio($id, $datos, (int) $request->user()->id));
     }
 
     public function cancelarContrato(Request $request, int $id)

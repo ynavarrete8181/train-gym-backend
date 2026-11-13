@@ -51,6 +51,7 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::post('planes', [PlanControlador::class, 'store'])->name('gimnasio.planes.store');
         Route::put('planes/{id}', [PlanControlador::class, 'update'])->name('gimnasio.planes.update');
         Route::get('planes/{id}/modalidades', [PlanControlador::class, 'modalidades'])->name('gimnasio.planes.modalidades.index');
+        Route::get('planes/{id}/modalidades/{modalidadId}/tarifas', [PlanControlador::class, 'historialTarifas'])->whereNumber('modalidadId')->name('gimnasio.planes.modalidades.tarifas');
         Route::post('planes/{id}/modalidades', [PlanControlador::class, 'storeModalidad'])->name('gimnasio.planes.modalidades.store');
         Route::put('planes/{id}/modalidades/{modalidadId}', [PlanControlador::class, 'updateModalidad'])->name('gimnasio.planes.modalidades.update');
     });
@@ -134,6 +135,7 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::get('membresias/{id}/cancelacion/preview', [CicloVidaMembresiaControlador::class, 'previsualizarCancelacion'])->whereNumber('id');
         Route::post('membresias/{id}/cancelacion', [CicloVidaMembresiaControlador::class, 'cancelarContrato'])->whereNumber('id');
         Route::put('membresias/{id}/vigencia', [CicloVidaMembresiaControlador::class, 'editarVigencia'])->whereNumber('id');
+        Route::put('membresias/{id}/precio', [CicloVidaMembresiaControlador::class, 'cambiarPrecio'])->whereNumber('id');
         Route::put('membresias/{id}/sedes', [CicloVidaMembresiaControlador::class, 'actualizarSedes'])->whereNumber('id');
         Route::put('membresias/{id}/configuracion', [CicloVidaMembresiaControlador::class, 'actualizarConfiguracion'])->whereNumber('id');
         Route::get('membresias/{id}/resumen-pdf', [CicloVidaMembresiaControlador::class, 'resumenPdf'])->whereNumber('id');

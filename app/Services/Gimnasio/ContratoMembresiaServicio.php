@@ -310,6 +310,77 @@ class ContratoMembresiaServicio
         });
     }
 
+    /**
+     * Cambia el precio pactado de un contrato desde un período. Solo administradores y con
+     * motivo. Los períodos sin cobrar (y sus cuotas y ventas pendientes) pasan al precio nuevo
+     * con su descuento recalculado; un período ya cobrado solo se alinea si su venta ya está a
+     * ese precio. Queda en el historial del contrato y en auditoría.
+     */
+    public function cambiarPrecio(int $id, array $datos, int $usuarioId): array
+    {
+        return DB::transaction(function () use ($id, $datos, $usuarioId): array {
+            if (! app(\App\Services\Seguridad\AlcanceOperativoService::class)->puedeGestionarCartera($usuarioId)) {
+                throw ValidationException::withMessages(['precio' => 'Solo un administrador puede cambiar el precio del contrato.']);
+            }
+            $m = $this->membresia($id, true);
+            if ($m->tipo_producto === 'PASE_DIARIO') {
+                throw ValidationException::withMessages(['precio' => 'El pase diario se cobra con la tarifa del día; no tiene precio pactado.']);
+            }
+            if (strtoupper((string) $m->estado) === 'CANCELADA') {
+                throw ValidationException::withMessages(['precio' => 'La membresía está cancelada.']);
+            }
+            $precio = round((float) $datos['precio'], 2);
+            $desde = (int) $datos['desde_periodo'];
+            $periodos = DB::table('membresias.membresia_periodos')->where('membresia_id', $id)
+                ->where('numero_periodo', '>=', $desde)->orderBy('numero_periodo')->lockForUpdate()->get();
+            if ($periodos->isEmpty()) {
+                throw ValidationException::withMessages(['desde_periodo' => 'No hay períodos desde ese número.']);
+            }
+
+            $cambios = [];
+            foreach ($periodos as $p) {
+                $venta = $p->venta_id ? DB::table('ventas.ventas')->where('id', $p->venta_id)->lockForUpdate()->first() : null;
+                $vigente = $venta && $venta->estado !== 'ANULADA';
+                $pagado = $vigente ? (float) DB::table('ventas.pagos')->where('venta_id', $venta->id)->where('estado', 'CONFIRMADO')->sum('monto') : 0.0;
+                $descuento = $p->descuento_id ? DB::table('membresias.descuentos_deportistas')->where('id', $p->descuento_id)->first() : null;
+                $importe = $descuento ? DescuentoDeportistaServicio::calcularImporte($precio, (string) $descuento->tipo, (float) $descuento->valor) : 0.0;
+                $total = round($precio - $importe, 2);
+
+                if ($vigente && ($pagado > 0 || in_array($venta->estado, ['PAGADA', 'PARCIAL'], true))) {
+                    // Ya cobrado: no se reescribe lo cobrado; solo se alinea si ya se cobró a este precio.
+                    if (abs((float) $venta->subtotal - $precio) > 0.009) {
+                        throw ValidationException::withMessages(['desde_periodo' => "El período {$p->numero_periodo} ya está cobrado a $"
+                            . number_format((float) $venta->subtotal, 2) . '. El cambio debe empezar en un período sin cobrar.']);
+                    }
+                } elseif ($vigente) {
+                    $cantidad = (float) (DB::table('ventas.venta_detalles')->where('venta_id', $venta->id)->where('tipo_item', 'MEMBRESIA')->value('cantidad') ?: 1);
+                    DB::table('ventas.venta_detalles')->where('venta_id', $venta->id)->where('tipo_item', 'MEMBRESIA')
+                        ->update(['precio_unitario' => $precio, 'total_linea' => round($precio * $cantidad, 2), 'updated_at' => now()]);
+                    DB::table('ventas.ventas')->where('id', $venta->id)
+                        ->update(['subtotal' => $precio, 'descuento' => $importe, 'total' => $total, 'updated_at' => now()]);
+                    DB::table('ventas.comprobantes')->where('venta_id', $venta->id)
+                        ->update(['subtotal' => $precio, 'total' => $total, 'updated_at' => now()]);
+                    app(\App\Services\CuentasCobrar\CarteraServicio::class)->sincronizarVenta((int) $venta->id);
+                }
+
+                DB::table('membresias.membresia_periodos')->where('id', $p->id)
+                    ->update(['precio' => $precio, 'descuento_importe' => $importe, 'updated_at' => now()]);
+                DB::table('membresias.membresia_cuotas')->where('periodo_id', $p->id)->update(['monto' => $precio, 'updated_at' => now()]);
+                $cambios[] = ['periodo' => (int) $p->numero_periodo, 'antes' => (float) $p->precio, 'despues' => $precio];
+            }
+
+            $anterior = (float) $m->precio_aplicado;
+            DB::table('membresias.membresias')->where('id', $id)->update(['precio_aplicado' => $precio, 'updated_at' => now()]);
+            $detalle = ['precio_anterior' => $anterior, 'precio_nuevo' => $precio, 'desde_periodo' => $desde, 'periodos' => $cambios];
+            app(HistorialComercialMembresiaServicio::class)->registrarContrato($id, 'CAMBIO_PRECIO', $detalle, trim($datos['motivo']));
+            $this->movimiento($id, 'CAMBIO_PRECIO', $datos['motivo'], $usuarioId, $detalle);
+            $this->auditar('gimnasio', 'CAMBIAR_PRECIO_CONTRATO', 'membresias.membresias', $id, $m,
+                DB::table('membresias.membresias')->where('id', $id)->first(), 'Precio pactado $' . number_format($anterior, 2) . ' → $' . number_format($precio, 2));
+
+            return $detalle;
+        });
+    }
+
     /** Un contrato acortado recorta los descuentos que quedaban fuera de su nuevo fin. */
     public function ajustarDescuentosAlContrato(int $id, ?int $usuarioId): void
     {

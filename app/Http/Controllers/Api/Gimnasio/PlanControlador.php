@@ -141,6 +141,41 @@ class PlanControlador extends Controller
         );
     }
 
+    /**
+     * Historial de tarifas de una modalidad por sede, armado con sus versiones guardadas:
+     * cada tramo dice desde cuándo y hasta cuándo rigió un precio, y quién lo cambió.
+     */
+    public function historialTarifas(int $id, int $modalidadId)
+    {
+        $versiones = DB::table('membresias.plan_modalidad_versiones as v')
+            ->leftJoin('seguridad.users as u', 'u.id', '=', 'v.usuario_id')
+            ->where('v.plan_id', $id)->where('v.modalidad_id', $modalidadId)
+            ->orderBy('v.version')->get(['v.version', 'v.registrado_at', 'v.condiciones_nuevas', 'u.name as usuario']);
+        $sedes = DB::table('institucional.sedes')->pluck('nombre', 'id_sede');
+        $tramos = [];
+        $abiertos = [];
+        foreach ($versiones as $v) {
+            $precios = collect(json_decode((string) $v->condiciones_nuevas, true)['precios_sede'] ?? [])
+                ->filter(fn ($p) => ($p['activo'] ?? true))
+                ->mapWithKeys(fn ($p) => [(int) $p['sede_id'] => round((float) $p['precio'], 2)]);
+            foreach ($abiertos as $sedeId => $indice) {
+                if (! $precios->has($sedeId) || $precios[$sedeId] !== $tramos[$indice]['precio']) {
+                    $tramos[$indice]['vigente_hasta'] = $v->registrado_at;
+                    unset($abiertos[$sedeId]);
+                }
+            }
+            foreach ($precios as $sedeId => $precio) {
+                if (! isset($abiertos[$sedeId])) {
+                    $tramos[] = ['sede_id' => $sedeId, 'sede_nombre' => $sedes[$sedeId] ?? 'Sede', 'precio' => $precio,
+                        'vigente_desde' => $v->registrado_at, 'vigente_hasta' => null, 'usuario' => $v->usuario];
+                    $abiertos[$sedeId] = array_key_last($tramos);
+                }
+            }
+        }
+        usort($tramos, fn ($a, $b) => [$a['sede_nombre'], $b['vigente_desde']] <=> [$b['sede_nombre'], $a['vigente_desde']]);
+        return ApiResponse::exito('Historial de tarifas.', $tramos);
+    }
+
     public function storeModalidad(Request $request, int $id)
     {
         $datos = $this->validarModalidad($request);

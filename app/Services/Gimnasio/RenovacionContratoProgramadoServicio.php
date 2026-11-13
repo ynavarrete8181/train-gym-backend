@@ -150,7 +150,8 @@ final class RenovacionContratoProgramadoServicio
                 'dia_pago' => 'El próximo día de pago queda fuera del período renovado. Requiere revisión comercial.',
             ]);
         }
-        $precio = round((float) ($condiciones['precio_periodo'] ?? 0), 2);
+        // Precio vigente del contrato (último período): incluye un cambio de precio registrado.
+        $precio = round((float) ($ultimo->precio ?? 0), 2) ?: round((float) ($condiciones['precio_periodo'] ?? 0), 2);
         if ($precio <= 0) {
             throw ValidationException::withMessages([
                 'precio' => 'El importe contractual histórico no es válido.',

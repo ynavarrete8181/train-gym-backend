@@ -54,6 +54,7 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::get('planes/{id}/modalidades/{modalidadId}/tarifas', [PlanControlador::class, 'historialTarifas'])->whereNumber('modalidadId')->name('gimnasio.planes.modalidades.tarifas');
         Route::post('planes/{id}/modalidades', [PlanControlador::class, 'storeModalidad'])->name('gimnasio.planes.modalidades.store');
         Route::put('planes/{id}/modalidades/{modalidadId}', [PlanControlador::class, 'updateModalidad'])->name('gimnasio.planes.modalidades.update');
+        Route::get('planes/{id}/modalidades/{modalidadId}/contratos-vigentes', [PlanControlador::class, 'contratosVigentesModalidad'])->whereNumber('modalidadId');
     });
 
     // Clientes / deportistas: rutas estáticas antes de {id} para evitar que Laravel

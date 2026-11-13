@@ -407,6 +407,27 @@ class ContratoMembresiaServicio
         ]);
     }
 
+    /**
+     * Cambio masivo de tarifa: los contratos indicados renuevan con la tarifa vigente.
+     * Un contrato con precio específico (precio negociado) se respeta.
+     */
+    public function aplicarTarifaEnRenovacion(array $ids, string $motivo, int $usuarioId): int
+    {
+        if (! app(\App\Services\Seguridad\AlcanceOperativoService::class)->puedeGestionarCartera($usuarioId)) {
+            throw ValidationException::withMessages(['aplicar_vigentes' => 'Solo un administrador puede aplicar la tarifa a los contratos vigentes.']);
+        }
+        $aplicados = 0;
+        foreach (DB::table('membresias.membresias')->whereIn('id', $ids)->get() as $m) {
+            if (strtoupper((string) $m->precio_renovacion_modo) === 'FIJO') continue;
+            DB::table('membresias.membresias')->where('id', $m->id)
+                ->update(['precio_renovacion_modo' => 'TARIFA', 'precio_renovacion' => null, 'updated_at' => now()]);
+            $this->movimiento((int) $m->id, 'PRECIO_RENOVACION', $motivo, $usuarioId,
+                ['modo' => 'TARIFA', 'modo_anterior' => $m->precio_renovacion_modo, 'origen' => 'CAMBIO_TARIFA']);
+            $aplicados++;
+        }
+        return $aplicados;
+    }
+
     /** Configura cómo toma el precio la próxima renovación (solo administradores, con motivo). */
     public function configurarPrecioRenovacion(int $id, array $datos, int $usuarioId): object
     {

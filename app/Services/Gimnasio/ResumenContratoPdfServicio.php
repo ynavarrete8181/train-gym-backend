@@ -17,7 +17,7 @@ class ResumenContratoPdfServicio
         'CONGELAR' => 'Congelación', 'REACTIVAR' => 'Reactivación', 'CERRAR' => 'Cancelación del contrato',
         'REAPERTURA_EXCEPCIONAL' => 'Reapertura', 'EDITAR_VIGENCIA' => 'Cambio de vigencia', 'CAMBIAR_SEDES' => 'Cambio de sedes',
         'DESCUENTO_REGISTRADO' => 'Descuento registrado', 'DESCUENTO_EDITADO' => 'Descuento editado',
-        'DESCUENTO_FINALIZADO' => 'Descuento finalizado', 'DESCUENTO_AJUSTADO' => 'Descuento ajustado al contrato',
+        'DESCUENTO_FINALIZADO' => 'Descuento finalizado', 'VENTAS_RECALCULADAS' => 'Ventas ajustadas al descuento', 'DESCUENTO_AJUSTADO' => 'Descuento ajustado al contrato',
         'RENOVACION_MANUAL' => 'Renovación manual', 'RENOVACION_AUTOMATICA' => 'Renovación automática',
         'CONFIGURAR_CONTRATO' => 'Configuración del contrato', 'CONTRATACION' => 'Contratación',
         'DESCUENTO_RENOVADO' => 'Descuento renovado', 'CAMBIO_PRECIO' => 'Cambio de precio del contrato', 'PRECIO_RENOVACION' => 'Precio de renovación configurado', 'EDICION_ADMINISTRATIVA' => 'Edición administrativa',

@@ -100,7 +100,7 @@ class EmisionCongelacionConcurrenciaTest extends TestCase
         DB::shouldReceive('transaction')->once()
             ->andReturnUsing(fn ($callback) => $callback());
 
-        $resultado = (new EmisionCuotasServicio(Mockery::mock(CarteraServicio::class)))
+        $resultado = (new EmisionCuotasServicio(Mockery::mock(CarteraServicio::class), Mockery::mock(\App\Services\Gimnasio\DescuentoDeportistaServicio::class)))
             ->procesar('2026-11-02');
 
         $this->assertSame(0, $resultado['cuotas_emitidas']);

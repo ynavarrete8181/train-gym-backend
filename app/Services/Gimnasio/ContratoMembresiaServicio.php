@@ -211,6 +211,7 @@ class ContratoMembresiaServicio
                 'motivo' => trim($datos['motivo']),
             ], $usuarioId);
             $this->movimiento($id, 'DESCUENTO_REGISTRADO', $datos['motivo'], $usuarioId, $this->detalle($descuento));
+            $descuento->ventas_recalculadas = $this->recalcularVentasPendientes($id, $usuarioId, $datos['motivo']);
             return $descuento;
         });
     }
@@ -260,6 +261,7 @@ class ContratoMembresiaServicio
                 $cerrado = DB::table('membresias.descuentos_deportistas')->where('id', $descuentoId)->first();
                 $this->movimiento($id, 'DESCUENTO_EDITADO', $datos['motivo'], $usuarioId,
                     $this->detalle($descuento) + ['anterior' => $this->detalle($cerrado), 'nuevo_registro' => true]);
+                $descuento->ventas_recalculadas = $this->recalcularVentasPendientes($id, $usuarioId, $datos['motivo']);
                 return $descuento;
             }
 
@@ -272,6 +274,7 @@ class ContratoMembresiaServicio
             ], $usuarioId);
             $this->movimiento($id, 'DESCUENTO_EDITADO', $datos['motivo'], $usuarioId,
                 $this->detalle($descuento) + ['anterior' => $this->detalle($anterior)]);
+            $descuento->ventas_recalculadas = $this->recalcularVentasPendientes($id, $usuarioId, $datos['motivo']);
             return $descuento;
         });
     }
@@ -306,8 +309,62 @@ class ContratoMembresiaServicio
             $final = DB::table('membresias.descuentos_deportistas')->where('id', $descuentoId)->first();
             $this->movimiento($id, 'DESCUENTO_FINALIZADO', $motivo, $usuarioId, $this->detalle($final));
             $this->auditar('gimnasio', 'FINALIZAR_DESCUENTO', 'membresias.descuentos_deportistas', $descuentoId, $d, $final);
+            $final->ventas_recalculadas = $this->recalcularVentasPendientes($id, $usuarioId, $motivo);
             return $final;
         });
+    }
+
+    /**
+     * Alinea las ventas pendientes del contrato con sus descuentos. Cada período usa el descuento
+     * vigente en su fecha de inicio (sede del contrato). Solo se tocan ventas PENDIENTES sin cobros:
+     * venta, comprobante, período, cuota y cartera. Lo ya cobrado no se reescribe; se informa.
+     *
+     * @return array{actualizadas: array<int, array>, cobradas: array<int, array>}
+     */
+    public function recalcularVentasPendientes(int $id, ?int $usuarioId, string $motivo): array
+    {
+        $m = $this->membresia($id, true);
+        $resultado = ['actualizadas' => [], 'cobradas' => []];
+        $periodos = DB::table('membresias.membresia_periodos')->where('membresia_id', $id)
+            ->whereNotNull('venta_id')->orderBy('numero_periodo')->lockForUpdate()->get();
+        foreach ($periodos as $p) {
+            $venta = DB::table('ventas.ventas')->where('id', $p->venta_id)->lockForUpdate()->first();
+            if (! $venta || $venta->estado === 'ANULADA') {
+                continue;
+            }
+            $subtotal = round((float) $venta->subtotal, 2);
+            $beneficio = $this->descuentos->resolver(
+                (int) $m->deportista_id, (int) $m->plan_id, $m->modalidad_id ? (int) $m->modalidad_id : null,
+                substr((string) $p->fecha_inicio, 0, 10), $subtotal, $m->sede_id ? (int) $m->sede_id : null
+            );
+            $importe = round((float) $beneficio['importe_descuento'], 2);
+            if (abs($importe - (float) $venta->descuento) < 0.005) {
+                continue;
+            }
+            $fila = ['periodo' => (int) $p->numero_periodo, 'venta' => $venta->numero,
+                'descuento_antes' => (float) $venta->descuento, 'descuento_despues' => $importe,
+                'total_antes' => (float) $venta->total, 'total_despues' => round($subtotal - $importe, 2)];
+            $pagado = (float) DB::table('ventas.pagos')->where('venta_id', $venta->id)->where('estado', 'CONFIRMADO')->sum('monto');
+            if ($pagado > 0 || $venta->estado !== 'PENDIENTE') {
+                $resultado['cobradas'][] = $fila;
+                continue;
+            }
+            $total = $fila['total_despues'];
+            DB::table('ventas.ventas')->where('id', $venta->id)->update(['descuento' => $importe, 'total' => $total, 'updated_at' => now()]);
+            DB::table('ventas.comprobantes')->where('venta_id', $venta->id)->update(['total' => $total, 'updated_at' => now()]);
+            DB::table('membresias.membresia_periodos')->where('id', $p->id)
+                ->update(['descuento_id' => $beneficio['descuento_id'], 'descuento_importe' => $importe, 'updated_at' => now()]);
+            DB::table('membresias.membresia_cuotas')->where('venta_id', $venta->id)->update(['monto' => $total, 'updated_at' => now()]);
+            app(\App\Services\CuentasCobrar\CarteraServicio::class)->sincronizarVenta((int) $venta->id);
+            $resultado['actualizadas'][] = $fila;
+        }
+        if ($resultado['actualizadas']) {
+            $texto = collect($resultado['actualizadas'])->map(fn ($f) => "período {$f['periodo']} ({$f['venta']}): $"
+                . number_format($f['total_antes'], 2) . ' → $' . number_format($f['total_despues'], 2))->implode('; ');
+            $this->movimiento($id, 'VENTAS_RECALCULADAS', 'Ventas pendientes ajustadas al descuento vigente de cada período: ' . $texto . '. ' . trim($motivo),
+                $usuarioId, $resultado);
+        }
+        return $resultado;
     }
 
     /**

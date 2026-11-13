@@ -297,6 +297,9 @@ class VentaPosServicio
             if ($plan->tipo_producto === 'PASE_DIARIO') {
                 // Una fecha de uso pasada se traslada a hoy al vender el pase.
                 $fechaCotizacion = max(substr((string) $m->fecha_inicio, 0, 10), $fechaCotizacion);
+            } else {
+                // El descuento de una membresía se evalúa en el inicio del período que se cobra.
+                $fechaCotizacion = $this->fechaPeriodoContratado((int) $m->id) ?? $fechaCotizacion;
             }
             // Una membresía con contrato se cobra al precio pactado, no a la tarifa del día.
             $precio = ($plan->tipo_producto !== 'PASE_DIARIO' ? $this->precioContratado((int) $m->id) : null)
@@ -526,7 +529,7 @@ class VentaPosServicio
                 $m->modalidad_id ? (int) $m->modalidad_id : null,
                 DB::table('membresias.planes')->where('id', $m->plan_id)->value('tipo_producto') === 'PASE_DIARIO'
                     ? substr((string) $m->fecha_inicio, 0, 10)
-                    : now('America/Guayaquil')->toDateString(),
+                    : ($this->fechaPeriodoContratado((int) $m->id) ?? now('America/Guayaquil')->toDateString()),
                 $subtotal,
                 (int) $turno->sede_id
             );
@@ -813,6 +816,14 @@ class VentaPosServicio
     }
 
     /** Precio pactado del período vigente (el último) de una membresía; null si no tiene. */
+    /** Inicio del último período del contrato: la fecha con la que se evalúa su descuento. */
+    private function fechaPeriodoContratado(int $membresiaId): ?string
+    {
+        $fecha = DB::table('membresias.membresia_periodos')->where('membresia_id', $membresiaId)
+            ->orderByDesc('numero_periodo')->value('fecha_inicio');
+        return $fecha ? substr((string) $fecha, 0, 10) : null;
+    }
+
     private function precioContratado(int $membresiaId): ?float
     {
         $precio = DB::table('membresias.membresia_periodos')->where('membresia_id', $membresiaId)

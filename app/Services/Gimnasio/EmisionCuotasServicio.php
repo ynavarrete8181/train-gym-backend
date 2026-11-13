@@ -14,6 +14,7 @@ class EmisionCuotasServicio
 {
     public function __construct(
         private readonly CarteraServicio $cartera,
+        private readonly DescuentoDeportistaServicio $descuentos,
     ) {
     }
 
@@ -96,6 +97,15 @@ class EmisionCuotasServicio
                 $estadoId = DB::table('configuracion.estados_catalogo')
                     ->where('entidad', 'VENTA')->where('valor_interno', 'PENDIENTE')
                     ->where('activo', true)->value('id');
+                // La cuota se emite con el descuento vigente al inicio de su período.
+                $beneficio = $this->descuentos->resolver(
+                    (int) $membresia->deportista_id, (int) $membresia->plan_id,
+                    $membresia->modalidad_id ? (int) $membresia->modalidad_id : null,
+                    substr((string) $periodo->fecha_inicio, 0, 10), (float) $cuota->monto,
+                    $membresia->sede_id ? (int) $membresia->sede_id : null
+                );
+                $importeDescuento = round((float) $beneficio['importe_descuento'], 2);
+                $totalCuota = round((float) $cuota->monto - $importeDescuento, 2);
                 $numeroVenta = 'VENTA-CUOTA-' . $cuota->id;
                 $ventaId = DB::table('ventas.ventas')->insertGetId([
                     'cliente_id' => $membresia->deportista_id,
@@ -111,9 +121,9 @@ class EmisionCuotasServicio
                     'concepto' => $plan->nombre . ' - ' . $membresia->codigo_contrato
                         . ' - Cuota ' . $cuota->numero_cuota,
                     'subtotal' => $cuota->monto,
-                    'descuento' => 0,
+                    'descuento' => $importeDescuento,
                     'impuesto' => 0,
-                    'total' => $cuota->monto,
+                    'total' => $totalCuota,
                     'estado' => 'PENDIENTE',
                     'estado_id' => $estadoId,
                     'fecha_venta' => now('America/Guayaquil'),
@@ -143,7 +153,7 @@ class EmisionCuotasServicio
                     'estado' => 'BORRADOR',
                     'subtotal' => $cuota->monto,
                     'impuesto' => 0,
-                    'total' => $cuota->monto,
+                    'total' => $totalCuota,
                     'emitido_at' => null,
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -157,6 +167,8 @@ class EmisionCuotasServicio
                 ]);
 
                 DB::table('membresias.membresia_periodos')->where('id', $periodo->id)->update([
+                    'descuento_id' => $beneficio['descuento_id'],
+                    'descuento_importe' => $importeDescuento,
                     'venta_id' => $ventaId,
                     'estado' => 'PENDIENTE_PAGO',
                     'updated_at' => now(),

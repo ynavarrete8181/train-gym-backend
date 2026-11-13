@@ -136,6 +136,7 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::post('membresias/{id}/cancelacion', [CicloVidaMembresiaControlador::class, 'cancelarContrato'])->whereNumber('id');
         Route::put('membresias/{id}/vigencia', [CicloVidaMembresiaControlador::class, 'editarVigencia'])->whereNumber('id');
         Route::put('membresias/{id}/precio', [CicloVidaMembresiaControlador::class, 'cambiarPrecio'])->whereNumber('id');
+        Route::put('membresias/{id}/precio-renovacion', [CicloVidaMembresiaControlador::class, 'configurarPrecioRenovacion'])->whereNumber('id');
         Route::put('membresias/{id}/sedes', [CicloVidaMembresiaControlador::class, 'actualizarSedes'])->whereNumber('id');
         Route::put('membresias/{id}/configuracion', [CicloVidaMembresiaControlador::class, 'actualizarConfiguracion'])->whereNumber('id');
         Route::get('membresias/{id}/resumen-pdf', [CicloVidaMembresiaControlador::class, 'resumenPdf'])->whereNumber('id');

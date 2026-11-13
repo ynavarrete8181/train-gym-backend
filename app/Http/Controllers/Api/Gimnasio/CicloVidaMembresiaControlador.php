@@ -134,7 +134,8 @@ final class CicloVidaMembresiaControlador extends Controller
             && $this->alcance->esGlobal((int) $request->user()->id);
         // Cambiar el precio pactado: solo administradores, contratos (no pases) no cancelados.
         $m = DB::table('membresias.membresias as m')->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
-            ->where('m.id', $id)->first(['m.estado', 'm.precio_aplicado', 'm.sede_id', 'm.plan_id', 'm.modalidad_id', 'p.tipo_producto']);
+            ->where('m.id', $id)->first(['m.estado', 'm.precio_aplicado', 'm.sede_id', 'm.plan_id', 'm.modalidad_id', 'p.tipo_producto',
+                'm.precio_renovacion_modo', 'm.precio_renovacion']);
         $resumen['puede_cambiar_precio'] = $m && $m->tipo_producto !== 'PASE_DIARIO'
             && strtoupper((string) $m->estado) !== 'CANCELADA'
             && $this->alcance->puedeGestionarCartera((int) $request->user()->id);
@@ -142,6 +143,17 @@ final class CicloVidaMembresiaControlador extends Controller
             $resumen['precio_contrato'] = round((float) $m->precio_aplicado, 2);
             $resumen['tarifa_vigente'] = round(app(\App\Services\Gimnasio\MembresiaServicio::class)
                 ->resolverPrecio((int) $m->plan_id, $m->sede_id, $m->modalidad_id), 2);
+            $resumen['precio_renovacion_modo'] = $m->precio_renovacion_modo;
+            $resumen['precio_renovacion'] = $m->precio_renovacion !== null ? round((float) $m->precio_renovacion, 2) : null;
+            // Períodos con su estado real de cobro (la pantalla los necesita para no ofrecer los cobrados).
+            $resumen['periodos_contrato'] = DB::table('membresias.membresia_periodos as mp')
+                ->leftJoin('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
+                ->where('mp.membresia_id', $id)->orderBy('mp.numero_periodo')
+                ->get(['mp.numero_periodo', 'mp.fecha_inicio', 'mp.fecha_fin', 'mp.precio', 'v.estado as venta_estado', 'v.total as venta_total'])
+                ->map(function ($p) {
+                    $p->cobrado = in_array($p->venta_estado, ['PAGADA', 'PARCIAL'], true);
+                    return $p;
+                })->values();
         }
 
         return ApiResponse::exito('Ciclo de vida consultado.', $resumen);
@@ -287,6 +299,18 @@ final class CicloVidaMembresiaControlador extends Controller
         ]);
         return ApiResponse::exito('Precio del contrato actualizado.',
             app(\App\Services\Gimnasio\ContratoMembresiaServicio::class)->cambiarPrecio($id, $datos, (int) $request->user()->id));
+    }
+
+    public function configurarPrecioRenovacion(Request $request, int $id)
+    {
+        $this->validarAlcance($request, $id);
+        $datos = $request->validate([
+            'modo' => 'required|in:CONTRATO,TARIFA,FIJO',
+            'precio' => 'nullable|required_if:modo,FIJO|numeric|gt:0',
+            'motivo' => 'required|string|min:8|max:500',
+        ]);
+        return ApiResponse::exito('Precio de renovación configurado.',
+            (array) app(\App\Services\Gimnasio\ContratoMembresiaServicio::class)->configurarPrecioRenovacion($id, $datos, (int) $request->user()->id));
     }
 
     public function cancelarContrato(Request $request, int $id)

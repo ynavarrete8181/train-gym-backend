@@ -152,6 +152,7 @@ final class RenovacionContratoProgramadoServicio
         }
         // Precio vigente del contrato (último período): incluye un cambio de precio registrado.
         $precio = round((float) ($ultimo->precio ?? 0), 2) ?: round((float) ($condiciones['precio_periodo'] ?? 0), 2);
+        [$precio, $origenPrecio] = app(ContratoMembresiaServicio::class)->precioRenovacion($m, $precio, (float) ($ultimo->precio ?? 0));
         if ($precio <= 0) {
             throw ValidationException::withMessages([
                 'precio' => 'El importe contractual histórico no es válido.',
@@ -170,6 +171,8 @@ final class RenovacionContratoProgramadoServicio
             'fecha_emision' => $inicio->toDateString(),
             'fecha_vencimiento' => $vencimiento,
             'precio' => $precio,
+            'precio_anterior' => round((float) ($ultimo->precio ?? 0), 2),
+            'origen_precio' => $origenPrecio,
             'dia_pago' => $diaPago,
             'tipo_duracion' => $tipo,
             'duracion' => $duracion,
@@ -213,6 +216,8 @@ final class RenovacionContratoProgramadoServicio
                 'updated_at' => $ahora,
             ]);
             app(DescuentoDeportistaServicio::class)->continuarEnPeriodo($periodoId, $usuarioId);
+            app(ContratoMembresiaServicio::class)->registrarPrecioRenovado($id, (int) $p['numero_periodo_nuevo'],
+                (float) $p['precio_anterior'], (float) $p['precio'], (string) $p['origen_precio']);
             // El snapshot de condiciones pactadas es INMUTABLE. La ampliación
             // vive en periodos/cuotas e historial comercial, no altera el original.
             app(HistorialComercialMembresiaServicio::class)->registrarContrato(

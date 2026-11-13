@@ -455,6 +455,9 @@ class MembresiaServicio
         $duracion = (int) ($modalidad?->duracion ?? $plan->duracion);
         $fin = $this->calcularFechaFin($inicio, $tipoDuracion, $duracion);
         $precio = $this->resolverPrecio((int) $plan->id, $membresia->sede_id, $membresia->modalidad_id);
+        // Si el contrato tiene configurado su precio de renovación, manda esa configuración.
+        $contrato = app(ContratoMembresiaServicio::class);
+        [$precio, $origenPrecio] = $contrato->precioRenovacion($membresia, $precio, $ultimo ? (float) $ultimo->precio : null, 'tarifa vigente de la sede');
 
         $estadoValor = ($plan->requiere_pago ?? true) ? 'PENDIENTE_PAGO' : 'ACTIVA';
         $estadoMembresia = $this->estados->aplicar(['estado' => $estadoValor], 'MEMBRESIA');
@@ -482,6 +485,10 @@ class MembresiaServicio
         ]);
 
         $periodo = DB::table('membresias.membresia_periodos')->where('id', $id)->first();
+
+        if ($ultimo) {
+            $contrato->registrarPrecioRenovado($membresiaId, (int) $numero, (float) $ultimo->precio, (float) $precio, $origenPrecio);
+        }
 
         // Antes de generar la venta: así el cobro del período nuevo ya toma su descuento.
         app(DescuentoDeportistaServicio::class)->continuarEnPeriodo($id, auth()->id());

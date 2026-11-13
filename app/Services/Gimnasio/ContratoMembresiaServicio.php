@@ -380,6 +380,59 @@ class ContratoMembresiaServicio
         });
     }
 
+    /**
+     * Precio del próximo período al renovar, según el modo del contrato:
+     * CONTRATO mantiene el pactado, TARIFA usa la tarifa vigente de la sede principal y
+     * FIJO usa el precio programado. Sin modo, conserva el comportamiento anterior ($porDefecto).
+     *
+     * @return array{0: float, 1: string}
+     */
+    public function precioRenovacion(object $m, float $porDefecto, ?float $precioAnterior, string $origenPorDefecto = 'precio del contrato'): array
+    {
+        return match (strtoupper((string) ($m->precio_renovacion_modo ?? ''))) {
+            'TARIFA' => [round(app(MembresiaServicio::class)->resolverPrecio((int) $m->plan_id, $m->sede_id, $m->modalidad_id), 2), 'tarifa vigente de la sede'],
+            'FIJO' => (float) ($m->precio_renovacion ?? 0) > 0 ? [round((float) $m->precio_renovacion, 2), 'precio programado'] : [$porDefecto, 'precio del contrato'],
+            'CONTRATO' => [round($precioAnterior ?: $porDefecto, 2), 'precio del contrato'],
+            default => [round($porDefecto, 2), $origenPorDefecto],
+        };
+    }
+
+    /** Deja en el historial que una renovación nació con un precio distinto al período anterior. */
+    public function registrarPrecioRenovado(int $id, int $periodo, float $antes, float $despues, string $origen): void
+    {
+        if (abs($antes - $despues) < 0.009 || $antes <= 0) return;
+        $this->movimiento($id, 'CAMBIO_PRECIO', sprintf('Renovación del período %d con %s: $%s → $%s.', $periodo, $origen,
+            number_format($antes, 2), number_format($despues, 2)), auth()->id(), [
+            'precio_anterior' => $antes, 'precio_nuevo' => $despues, 'desde_periodo' => $periodo, 'origen' => $origen,
+        ]);
+    }
+
+    /** Configura cómo toma el precio la próxima renovación (solo administradores, con motivo). */
+    public function configurarPrecioRenovacion(int $id, array $datos, int $usuarioId): object
+    {
+        return DB::transaction(function () use ($id, $datos, $usuarioId): object {
+            if (! app(\App\Services\Seguridad\AlcanceOperativoService::class)->puedeGestionarCartera($usuarioId)) {
+                throw ValidationException::withMessages(['modo' => 'Solo un administrador puede configurar el precio de renovación.']);
+            }
+            $m = $this->membresia($id, true);
+            if ($m->tipo_producto === 'PASE_DIARIO' || strtoupper((string) $m->estado) === 'CANCELADA') {
+                throw ValidationException::withMessages(['modo' => 'Esta membresía no se renueva.']);
+            }
+            $modo = strtoupper((string) $datos['modo']);
+            $precio = $modo === 'FIJO' ? round((float) ($datos['precio'] ?? 0), 2) : null;
+            if ($modo === 'FIJO' && $precio <= 0) {
+                throw ValidationException::withMessages(['precio' => 'Indica el precio para la próxima renovación.']);
+            }
+            DB::table('membresias.membresias')->where('id', $id)
+                ->update(['precio_renovacion_modo' => $modo, 'precio_renovacion' => $precio, 'updated_at' => now()]);
+            $detalle = ['modo' => $modo, 'precio' => $precio, 'modo_anterior' => $m->precio_renovacion_modo, 'precio_anterior' => $m->precio_renovacion];
+            $this->movimiento($id, 'PRECIO_RENOVACION', $datos['motivo'], $usuarioId, $detalle);
+            $this->auditar('gimnasio', 'CONFIGURAR_PRECIO_RENOVACION', 'membresias.membresias', $id, $m,
+                DB::table('membresias.membresias')->where('id', $id)->first(), 'Precio de renovación: ' . $modo . ($precio ? ' $' . number_format($precio, 2) : ''));
+            return DB::table('membresias.membresias')->where('id', $id)->first();
+        });
+    }
+
     /** Un contrato acortado recorta los descuentos que quedaban fuera de su nuevo fin. */
     public function ajustarDescuentosAlContrato(int $id, ?int $usuarioId): void
     {

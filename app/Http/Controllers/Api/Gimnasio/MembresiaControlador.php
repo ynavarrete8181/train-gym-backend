@@ -391,6 +391,15 @@ class MembresiaControlador extends Controller
         [$periodo, $venta] = DB::transaction(function () use ($id, $plan, $request): array {
             $periodo = $this->membresiaServicio->crearSiguientePeriodo($id);
             $membresiaActualizada = DB::table('membresias.membresias')->where('id', $id)->first();
+            // Sin este registro la renovación manual no aparece en la pestaña Renovaciones.
+            app(\App\Services\Gimnasio\HistorialComercialMembresiaServicio::class)->registrarContrato($id, 'RENOVACION_MANUAL', [
+                'periodo_id' => (int) $periodo->id,
+                'numero_periodo_nuevo' => (int) $periodo->numero_periodo,
+                'fecha_inicio' => $periodo->fecha_inicio,
+                'fecha_fin' => $periodo->fecha_fin,
+                'precio' => $periodo->precio,
+                'usuario_id' => $request->user()?->id,
+            ], 'Renovación manual.');
             $venta = null;
 
             if ($plan->generar_venta ?? true) {

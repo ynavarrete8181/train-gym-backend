@@ -352,6 +352,17 @@ class VentaControlador extends Controller
         );
     }
 
+    public function corregirMetodoPago(Request $request, int $id)
+    {
+        $datos = $request->validate([
+            'metodo_pago' => 'required|string|in:EFECTIVO,TARJETA,TRANSFERENCIA,DEPOSITO,OTRO',
+            'referencia' => 'nullable|string|max:120',
+            'motivo' => 'required|string|min:8|max:300',
+        ]);
+        $pago = app(\App\Services\Ventas\TurnoCajaServicio::class)->corregirMetodoPago($id, $datos, (int) $request->user()->id);
+        return ApiResponse::exito('Método de pago corregido.', (array) $pago);
+    }
+
     public function guardarPago(Request $request)
     {
         $datos = $request->validate([

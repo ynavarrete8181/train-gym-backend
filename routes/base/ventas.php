@@ -39,6 +39,7 @@ Route::middleware(['base.auth'])->prefix('ventas')->group(function (): void {
     Route::middleware(['base.permiso:VENTAS-PAGOS'])->group(function (): void {
         Route::get('pagos', [VentaControlador::class, 'pagos'])->name('ventas.pagos.index');
         Route::post('pagos', [VentaControlador::class, 'guardarPago'])->name('ventas.pagos.store');
+        Route::put('pagos/{id}/metodo', [VentaControlador::class, 'corregirMetodoPago'])->whereNumber('id')->name('ventas.pagos.corregir-metodo');
     });
 
     Route::middleware(['base.permiso:VENTAS-COMPROBANTES'])->group(function (): void {

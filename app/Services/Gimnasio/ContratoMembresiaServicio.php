@@ -372,7 +372,6 @@ class ContratoMembresiaServicio
             $anterior = (float) $m->precio_aplicado;
             DB::table('membresias.membresias')->where('id', $id)->update(['precio_aplicado' => $precio, 'updated_at' => now()]);
             $detalle = ['precio_anterior' => $anterior, 'precio_nuevo' => $precio, 'desde_periodo' => $desde, 'periodos' => $cambios];
-            app(HistorialComercialMembresiaServicio::class)->registrarContrato($id, 'CAMBIO_PRECIO', $detalle, trim($datos['motivo']));
             $this->movimiento($id, 'CAMBIO_PRECIO', $datos['motivo'], $usuarioId, $detalle);
             $this->auditar('gimnasio', 'CAMBIAR_PRECIO_CONTRATO', 'membresias.membresias', $id, $m,
                 DB::table('membresias.membresias')->where('id', $id)->first(), 'Precio pactado $' . number_format($anterior, 2) . ' → $' . number_format($precio, 2));

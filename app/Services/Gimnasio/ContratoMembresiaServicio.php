@@ -142,6 +142,8 @@ class ContratoMembresiaServicio
                     'descuento' => $importe, 'paga' => round($t->precio - $importe, 2)];
             })->values();
             $d->aplicaciones = $aplicaciones->get($d->id, collect())->values();
+            // Si ya se cobró una venta con él, un cambio se registra como versión nueva; si no, se corrige.
+            $d->cobrado = $this->descuentoCobrado((int) $d->id);
             return $d;
         });
 
@@ -164,6 +166,21 @@ class ContratoMembresiaServicio
                 $s->precio = round($precios->resolverPrecio((int) $m->plan_id, (int) $s->sede_id, $m->modalidad_id), 2);
                 return $s;
             });
+    }
+
+    /** ¿Alguna venta con cobros confirmados ya usó este descuento? */
+    private function descuentoCobrado(int $descuentoId): bool
+    {
+        return DB::table('membresias.membresia_periodos as mp')
+            ->join('ventas.ventas as v', 'v.id', '=', 'mp.venta_id')
+            ->where('mp.descuento_id', $descuentoId)
+            ->where('v.estado', '!=', 'ANULADA')
+            ->where(function ($q): void {
+                $q->whereIn('v.estado', ['PAGADA', 'PARCIAL'])
+                    ->orWhereExists(fn ($p) => $p->selectRaw('1')->from('ventas.pagos as pg')
+                        ->whereColumn('pg.venta_id', 'v.id')->where('pg.estado', 'CONFIRMADO'));
+            })
+            ->exists();
     }
 
     /** Períodos cobrados con cada descuento: dónde, cuándo y cuánto pagó el cliente. */
@@ -231,9 +248,11 @@ class ContratoMembresiaServicio
             $finAnterior = $anterior->fecha_fin ? substr((string) $anterior->fecha_fin, 0, 10) : null;
             $desde = substr((string) $datos['fecha_inicio'], 0, 10);
 
-            // Un descuento que ya empezó no se reescribe: se cierra el día anterior al cambio
-            // y el cambio queda como un registro nuevo. Así el historial conserva lo que rigió.
-            if ($inicioAnterior <= $hoy) {
+            // Un descuento que ya empezó y ya se cobró no se reescribe: se cierra el día anterior al
+            // cambio y el cambio queda como un registro nuevo. Así el historial conserva lo que rigió.
+            // Si nunca se cobró (p. ej. un valor mal digitado), se corrige en el mismo registro.
+            $cobrado = $this->descuentoCobrado($descuentoId);
+            if ($inicioAnterior <= $hoy && $cobrado) {
                 if ($desde <= $inicioAnterior) {
                     throw ValidationException::withMessages(['fecha_inicio' => 'Este descuento ya empezó: indica desde qué fecha rige el cambio (posterior al '
                         . implode('/', array_reverse(explode('-', $inicioAnterior))) . ').']);
@@ -265,7 +284,7 @@ class ContratoMembresiaServicio
                 return $descuento;
             }
 
-            // Aún no empieza: se corrige en el mismo registro.
+            // Aún no empieza o nunca se cobró: se corrige en el mismo registro.
             $descuento = $this->descuentos->actualizar($descuentoId, [
                 'sede_id' => $sedeId,
                 'id' => $descuentoId, 'tipo' => $datos['tipo'], 'valor' => $datos['valor'],
@@ -273,7 +292,7 @@ class ContratoMembresiaServicio
                 'motivo' => trim($datos['motivo']),
             ], $usuarioId);
             $this->movimiento($id, 'DESCUENTO_EDITADO', $datos['motivo'], $usuarioId,
-                $this->detalle($descuento) + ['anterior' => $this->detalle($anterior)]);
+                $this->detalle($descuento) + ['anterior' => $this->detalle($anterior), 'correccion' => $inicioAnterior <= $hoy]);
             $descuento->ventas_recalculadas = $this->recalcularVentasPendientes($id, $usuarioId, $datos['motivo']);
             return $descuento;
         });

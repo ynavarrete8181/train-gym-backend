@@ -686,7 +686,7 @@ class VentaServicio
             ->first();
     }
 
-    private function actualizarEstadoVenta(int $ventaId, ?int $usuarioId = null): void
+    public function actualizarEstadoVenta(int $ventaId, ?int $usuarioId = null): void
     {
         $venta = DB::table('ventas.ventas')->where('id', $ventaId)->lockForUpdate()->first();
         if (! $venta) {

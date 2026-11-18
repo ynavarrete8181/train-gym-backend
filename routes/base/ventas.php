@@ -42,6 +42,7 @@ Route::middleware(['base.auth'])->prefix('ventas')->group(function (): void {
         Route::get('pagos', [VentaControlador::class, 'pagos'])->name('ventas.pagos.index');
         Route::post('pagos', [VentaControlador::class, 'guardarPago'])->name('ventas.pagos.store');
         Route::put('pagos/{id}/metodo', [VentaControlador::class, 'corregirMetodoPago'])->whereNumber('id')->name('ventas.pagos.corregir-metodo');
+        Route::put('pagos/cobros/{operacion}/banco', [VentaControlador::class, 'completarBancoCobro'])->where('operacion', '[A-Za-z0-9\-]+')->name('ventas.pagos.completar-banco');
     });
 
     Route::middleware(['base.permiso:VENTAS-COMPROBANTES'])->group(function (): void {

@@ -339,6 +339,72 @@ class TurnoCajaServicio
         });
     }
 
+    /**
+     * Completa o corrige el banco y el número de comprobante de las transferencias o
+     * depósitos de un cobro. El monto, el método y la caja no cambian; queda en el
+     * historial del pago y en auditoría. Solo administradores.
+     */
+    public function completarBancoCobro(string $operacion, array $datos, int $usuarioId): array
+    {
+        return DB::transaction(function () use ($operacion, $datos, $usuarioId): array {
+            if (! $this->alcance->puedeGestionarCartera($usuarioId)) {
+                throw ValidationException::withMessages(['pago' => 'Solo un administrador puede completar el banco de un cobro.']);
+            }
+            $metodo = strtoupper((string) $datos['metodo_pago']);
+            $pagos = DB::table('ventas.pagos')
+                ->when(str_starts_with($operacion, 'PAGO-'),
+                    fn ($q) => $q->where('id', (int) substr($operacion, 5))->whereNull('operacion_cobro_id'),
+                    fn ($q) => $q->where('operacion_cobro_id', $operacion))
+                ->where('estado', 'CONFIRMADO')
+                ->where('metodo_pago', $metodo)
+                ->lockForUpdate()
+                ->get();
+            if ($pagos->isEmpty()) {
+                throw ValidationException::withMessages(['pago' => 'El cobro no tiene pagos confirmados por ' . mb_strtolower($metodo) . '.']);
+            }
+            foreach ($pagos as $pago) {
+                if ($pago->turno_caja_id) {
+                    $sede = DB::table('ventas.turnos_caja')->where('id', $pago->turno_caja_id)->value('sede_id');
+                    if ($sede) {
+                        $this->alcance->validarSede($usuarioId, (int) $sede, 'maneja_caja');
+                    }
+                }
+            }
+
+            $institucion = DB::table('configuracion.instituciones_financieras')
+                ->where('id', (int) $datos['institucion_financiera_id'])->where('activo', true)->first(['id', 'nombre']);
+            if (! $institucion) {
+                throw ValidationException::withMessages(['institucion_financiera_id' => 'El banco o cooperativa elegido no está activo.']);
+            }
+            $referencia = trim((string) ($datos['referencia'] ?? ''));
+            if ($referencia === '' && $pagos->contains(fn ($p) => trim((string) $p->referencia) === '')) {
+                throw ValidationException::withMessages(['referencia' => 'Escribe el número de comprobante.']);
+            }
+
+            $usuario = DB::table('seguridad.users')->where('id', $usuarioId)->value('name') ?: 'Administrador';
+            foreach ($pagos as $pago) {
+                $nuevaReferencia = $referencia !== '' ? $referencia : $pago->referencia;
+                $nota = sprintf('Banco completado: %s%s%s. %s(%s, %s).',
+                    $institucion->nombre,
+                    $pago->banco && $pago->banco !== $institucion->nombre ? " (antes {$pago->banco})" : '',
+                    $nuevaReferencia !== $pago->referencia ? ', comprobante ' . $nuevaReferencia . ($pago->referencia ? " (antes {$pago->referencia})" : '') : '',
+                    trim((string) ($datos['motivo'] ?? '')) !== '' ? 'Motivo: ' . trim($datos['motivo']) . ' ' : '',
+                    $usuario, now()->format('d/m/Y H:i'));
+                DB::table('ventas.pagos')->where('id', $pago->id)->update([
+                    'institucion_financiera_id' => $institucion->id,
+                    'banco' => $institucion->nombre,
+                    'referencia' => $nuevaReferencia,
+                    'observaciones' => trim(($pago->observaciones ? $pago->observaciones . ' ' : '') . $nota),
+                    'updated_at' => now(),
+                ]);
+                $this->auditar('ventas', 'COMPLETAR_BANCO', 'ventas.pagos', (int) $pago->id, $pago,
+                    DB::table('ventas.pagos')->where('id', $pago->id)->first(), $nota);
+            }
+
+            return ['pagos_actualizados' => $pagos->count(), 'banco' => $institucion->nombre, 'referencia' => $referencia ?: $pagos->first()->referencia];
+        });
+    }
+
     public function resumenCobrosTurno(int $turnoId): array
     {
         $resumen = DB::table('ventas.pagos')

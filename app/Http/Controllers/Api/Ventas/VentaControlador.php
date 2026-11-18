@@ -415,6 +415,19 @@ class VentaControlador extends Controller
         return ApiResponse::exito('Método de pago corregido.', (array) $pago);
     }
 
+    public function completarBancoCobro(Request $request, string $operacion)
+    {
+        $datos = $request->validate([
+            'metodo_pago' => 'required|string|in:TRANSFERENCIA,DEPOSITO',
+            'institucion_financiera_id' => 'required|integer|exists:pgsql.configuracion.instituciones_financieras,id',
+            'referencia' => 'nullable|string|max:120',
+            'motivo' => 'nullable|string|max:300',
+        ]);
+
+        return ApiResponse::exito('Banco del cobro actualizado.',
+            app(\App\Services\Ventas\TurnoCajaServicio::class)->completarBancoCobro($operacion, $datos, (int) $request->user()->id));
+    }
+
     public function guardarPago(Request $request)
     {
         $datos = $request->validate([

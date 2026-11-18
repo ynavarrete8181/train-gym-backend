@@ -203,6 +203,105 @@ class ComprobantePdfServicio
         return $this->pdf(implode("\n", $ops), $logo);
     }
 
+    /**
+     * Recibo de un cobro que pagó varias cuentas a la vez (por ejemplo, un tutor
+     * que paga su membresía y la de sus representados): una línea por cuenta.
+     */
+    public function generarCobro(\Illuminate\Support\Collection $pagos, \Illuminate\Support\Collection $ventas): string
+    {
+        $ops = [];
+        $dorado = [0.83, 0.63, 0.09];
+        $gris = [0.40, 0.43, 0.47];
+        $borde = [0.88, 0.89, 0.91];
+        $suave = [0.975, 0.978, 0.982];
+        $fechaCorta = fn ($f) => $f ? date('d/m/Y', strtotime((string) $f)) : '-';
+
+        $primero = $pagos->first();
+        $pagador = $primero->pagador_nombre ?: ($ventas->first()->cliente_nombre ?? 'Cliente');
+        $identificacion = $primero->pagador_nombre ? ($primero->pagador_identificacion ?: '-') : ($ventas->first()->cliente_identificacion ?? '-');
+
+        $this->rect($ops, 0, 754, 595, 88, 0, 0, 0);
+        $logo = $this->logo();
+        if ($logo) {
+            $alto = 50;
+            $ancho = round($alto * $logo['ancho'] / $logo['alto'], 1);
+            $ops[] = sprintf('q %.1F 0 0 %.1F %.1F %.1F cm /Logo Do Q', $ancho, $alto, 30, 780);
+        } else {
+            $this->text($ops, 36, 806, 'REVIVE', 23, true, $dorado);
+            $this->text($ops, 120, 806, 'SPORTS', 23, true, [1, 1, 1]);
+        }
+        $this->text($ops, 36, 766, strtoupper((string) ($ventas->first()->sede_nombre ?? 'REVIVE')), 8, true, [0.80, 0.80, 0.80]);
+
+        $saldoTotal = (float) $ventas->sum(fn ($v) => max(0, (float) $v->total - (float) collect($v->pagos ?? [])->where('estado', 'CONFIRMADO')->sum(fn ($p) => (float) $p->monto)));
+        $this->text($ops, 36, 720, 'COMPROBANTE DE COBRO', 15, true);
+        $this->text($ops, 36, 701, 'N.º ' . $primero->codigo_cobro, 8.5, true, $gris);
+        $this->statusPill($ops, 430, 705, $saldoTotal > 0 ? 'PARCIAL' : 'PAGADO', $saldoTotal <= 0);
+        $this->line($ops, 36, 679, 559, 679, $borde);
+
+        $this->sectionTitle($ops, 36, 660, 'DATOS DEL COBRO', $dorado);
+        $this->rect($ops, 36, 573, 523, 72, $suave[0], $suave[1], $suave[2]);
+        $this->labelValue($ops, 50, 628, $primero->pagador_nombre ? 'Pagado por (tutor)' : 'Cliente', $pagador, 230);
+        $this->labelValue($ops, 310, 628, 'Fecha', date('d/m/Y H:i', strtotime((string) $primero->fecha_pago)), 210);
+        $this->labelValue($ops, 50, 598, 'Identificación', $identificacion, 230);
+        $this->labelValue($ops, 310, 598, 'Caja', $primero->caja_nombre ?? '-', 210);
+
+        $this->sectionTitle($ops, 36, 554, 'CUENTAS PAGADAS', $dorado);
+        $this->rect($ops, 36, 516, 523, 25, 0.95, 0.955, 0.96);
+        $this->text($ops, 48, 525, 'Cliente y concepto', 8, true, $gris);
+        $this->text($ops, 438, 525, 'Valor', 8, true, $gris);
+        $this->text($ops, 505, 525, 'Pagado', 8, true, $gris);
+
+        $y = 496;
+        foreach ($ventas as $venta) {
+            if ($y < 250) break;
+            $pagadoAqui = (float) $pagos->where('venta_id', $venta->id)->sum(fn ($p) => (float) $p->monto);
+            $this->text($ops, 48, $y, mb_strimwidth((string) ($venta->cliente_nombre ?? 'Cliente'), 0, 58, '…', 'UTF-8'), 9, true);
+            $this->text($ops, 438, $y, $this->dinero($venta->total ?? 0), 9);
+            $this->text($ops, 505, $y, $this->dinero($pagadoAqui), 9, true);
+            $y -= 12;
+            $periodo = $venta->membresia_periodo ?? null;
+            $concepto = ! empty($venta->membresia_codigo)
+                ? sprintf('%s · %s · Período %s: del %s al %s', $venta->membresia_codigo, $venta->membresia_plan_nombre ?? 'Membresía',
+                    $periodo->numero_periodo ?? '-', $fechaCorta($periodo->fecha_inicio ?? null), $fechaCorta($periodo->fecha_fin ?? null))
+                : (string) ($venta->concepto ?? 'Venta');
+            $this->text($ops, 48, $y, mb_strimwidth('Venta ' . ($venta->numero ?? '') . ' · ' . $concepto, 0, 95, '…', 'UTF-8'), 7.5, false, $gris);
+            $y -= 6;
+            $this->line($ops, 48, $y, 548, $y, [0.94, 0.945, 0.95]);
+            $y -= 14;
+        }
+
+        $total = (float) $pagos->sum(fn ($p) => (float) $p->monto);
+        $y -= 10;
+        $this->rect($ops, 342, $y - 30, 217, 44, 0.985, 0.985, 0.985);
+        $this->line($ops, 356, $y + 4, 545, $y + 4, $dorado);
+        $this->summaryLine($ops, 356, $y - 14, 'TOTAL PAGADO', $this->dinero($total), true);
+
+        $y -= 66;
+        $this->sectionTitle($ops, 36, $y, 'RESUMEN DE PAGO', $dorado);
+        $y -= 16;
+        $this->rect($ops, 36, $y - 62, 523, 66, $suave[0], $suave[1], $suave[2]);
+        $metodos = $pagos->groupBy('metodo_pago')
+            ->map(function ($grupo, $metodo) {
+                $refs = $grupo->pluck('referencia')->filter()->unique()->implode(', ');
+                return strtoupper((string) $metodo) . ' ' . $this->dinero($grupo->sum(fn ($p) => (float) $p->monto)) . ($refs ? " (ref. {$refs})" : '');
+            })->implode(' · ');
+        $recibido = (float) $pagos->where('metodo_pago', 'EFECTIVO')->sum(fn ($p) => (float) ($p->efectivo_recibido ?? $p->monto));
+        $cambio = (float) $pagos->where('metodo_pago', 'EFECTIVO')->sum(fn ($p) => (float) ($p->cambio_entregado ?? 0));
+        $this->labelValue($ops, 50, $y - 8, 'Métodos', mb_strimwidth($metodos, 0, 70, '…', 'UTF-8'), 380);
+        $this->labelValue($ops, 445, $y - 8, 'Saldo', $this->dinero($saldoTotal), 100);
+        $this->labelValue($ops, 50, $y - 38, 'Cobrado por', (string) ($primero->cobrado_por_nombre ?? '-'), 260);
+        if ($recibido > 0) {
+            $this->labelValue($ops, 330, $y - 38, 'Efectivo recibido', $this->dinero($recibido), 100);
+            $this->labelValue($ops, 445, $y - 38, 'Cambio entregado', $this->dinero($cambio), 100);
+        }
+
+        $this->line($ops, 36, 74, 559, 74, $borde);
+        $this->text($ops, 36, 54, 'Gracias por entrenar con Revive.', 9, true, $gris);
+        $this->text($ops, 385, 54, 'Documento generado por Revive', 7, false, [0.52, 0.54, 0.57]);
+
+        return $this->pdf(implode("\n", $ops), $logo);
+    }
+
     private function sectionTitle(array &$ops, float $x, float $y, string $titulo, array $dorado): void
     {
         $this->rect($ops, $x, $y - 3, 3, 14, $dorado[0], $dorado[1], $dorado[2]);

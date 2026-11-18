@@ -334,6 +334,7 @@ class VentaServicio
         $esquemaPagos = Schema::connection('pgsql');
         $tieneEfectivoRecibido = $esquemaPagos->hasColumn('ventas.pagos', 'efectivo_recibido');
         $tieneCambioEntregado = $esquemaPagos->hasColumn('ventas.pagos', 'cambio_entregado');
+        $tienePagador = $esquemaPagos->hasColumn('ventas.pagos', 'pagador_persona_id');
 
         $operacionExpr = "COALESCE(p.operacion_cobro_id, 'PAGO-' || p.id::text)";
 
@@ -348,6 +349,7 @@ class VentaServicio
             ->leftJoin('seguridad.users as cliente_user', 'd.usuario_id', '=', 'cliente_user.id')
             ->leftJoin('seguridad.users as cobrador', 'p.usuario_id', '=', 'cobrador.id')
             ->leftJoin('seguridad.users as creador_venta', 'v.usuario_id', '=', 'creador_venta.id')
+            ->when($tienePagador, fn ($q) => $q->leftJoin('personas.personas as pagador', 'p.pagador_persona_id', '=', 'pagador.id'))
             ->leftJoin('seguridad.cpu_userrole as rol_creador', 'creador_venta.usr_tipo', '=', 'rol_creador.id_userrole')
             ->leftJoin('seguridad.cpu_userrole as rol_cobrador', 'cobrador.usr_tipo', '=', 'rol_cobrador.id_userrole')
             ->selectRaw("MAX(p.id) as id")
@@ -357,8 +359,14 @@ class VentaServicio
             ->selectRaw('MAX(v.numero) as venta_numero')
             ->selectRaw('(SELECT c.numero FROM ventas.comprobantes c WHERE c.venta_id = MAX(v.id) ORDER BY c.id DESC LIMIT 1) as comprobante_numero')
             ->selectRaw('MAX(v.concepto) as venta_concepto')
-            ->selectRaw("COALESCE(MAX(NULLIF(TRIM(persona.nombre_completo), '')), MAX(NULLIF(TRIM(cliente_user.name), '')), 'Consumidor final') as cliente_nombre")
-            ->selectRaw("COALESCE(MAX(NULLIF(TRIM(persona.identificacion), '')), MAX(NULLIF(TRIM(cliente_user.cedula), ''))) as cliente_identificacion")
+            // Un cobro de tutor sale a su nombre; los demás, a nombre del cliente de la venta.
+            ->selectRaw($tienePagador
+                ? "COALESCE(MAX(NULLIF(TRIM(pagador.nombre_completo), '')) || ' (tutor)', MAX(NULLIF(TRIM(persona.nombre_completo), '')), MAX(NULLIF(TRIM(cliente_user.name), '')), 'Consumidor final') as cliente_nombre"
+                : "COALESCE(MAX(NULLIF(TRIM(persona.nombre_completo), '')), MAX(NULLIF(TRIM(cliente_user.name), '')), 'Consumidor final') as cliente_nombre")
+            ->selectRaw($tienePagador
+                ? "COALESCE(MAX(NULLIF(TRIM(pagador.identificacion), '')), MAX(NULLIF(TRIM(persona.identificacion), '')), MAX(NULLIF(TRIM(cliente_user.cedula), ''))) as cliente_identificacion"
+                : "COALESCE(MAX(NULLIF(TRIM(persona.identificacion), '')), MAX(NULLIF(TRIM(cliente_user.cedula), ''))) as cliente_identificacion")
+            ->selectRaw('COUNT(DISTINCT p.venta_id) as cuentas_cobradas')
             ->selectRaw("COALESCE(MAX(NULLIF(TRIM(cobrador.name), '')), 'Sin usuario') as cobrado_por_nombre")
             ->selectRaw('MAX(rol_cobrador.role) as cobrado_por_rol')
             ->selectRaw("CASE WHEN MAX(v.generado_por_tipo) = 'SISTEMA' THEN 'Sistema' ELSE COALESCE(MAX(NULLIF(TRIM(creador_venta.name), '')), 'Sin usuario') END as generado_por_nombre")
@@ -390,8 +398,9 @@ class VentaServicio
 
         if (! empty($filtros['busqueda'])) {
             $texto = '%' . mb_strtolower((string) $filtros['busqueda']) . '%';
-            $query->where(function ($q) use ($texto): void {
+            $query->where(function ($q) use ($texto, $tienePagador): void {
                 $q->whereRaw('LOWER(v.numero) LIKE ?', [$texto])
+                    ->when($tienePagador, fn ($w) => $w->orWhereRaw('LOWER(COALESCE(pagador.nombre_completo, \'\')) LIKE ?', [$texto]))
                     ->orWhereRaw('LOWER(COALESCE(persona.nombre_completo, cliente_user.name, \'\')) LIKE ?', [$texto])
                     ->orWhereRaw('LOWER(COALESCE(persona.identificacion, cliente_user.cedula, \'\')) LIKE ?', [$texto])
                     ->orWhereRaw('LOWER(COALESCE(cobrador.name, \'\')) LIKE ?', [$texto])

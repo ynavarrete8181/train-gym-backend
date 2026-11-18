@@ -548,7 +548,7 @@ class VentaPosServicio
                         'cambio_entregado' => $esEfectivo ? ($ultimaParte ? $cambio : 0) : null,
                         'estado' => 'CONFIRMADO',
                         'referencia' => $pagoEntrada['referencia'] ?? null,
-                        'banco' => $metodo === 'EFECTIVO' ? null : (trim((string) ($pagoEntrada['banco'] ?? '')) ?: null),
+                        ...$this->institucionDelPago($metodo, $pagoEntrada),
                         'observaciones' => $observacion,
                     ], $usuarioId);
 
@@ -574,6 +574,24 @@ class VentaPosServicio
                 'ventas' => $resultado,
             ];
         });
+    }
+
+    /**
+     * Institución de una transferencia o depósito: se guarda su id y su nombre, para que el
+     * historial no cambie si luego se renombra. Solo se admiten instituciones activas.
+     */
+    private function institucionDelPago(string $metodo, array $pago): array
+    {
+        if (! in_array($metodo, ['TRANSFERENCIA', 'DEPOSITO', 'TARJETA'], true) || empty($pago['institucion_financiera_id'])) {
+            return ['institucion_financiera_id' => null, 'banco' => null];
+        }
+        $institucion = DB::table('configuracion.instituciones_financieras')
+            ->where('id', (int) $pago['institucion_financiera_id'])->where('activo', true)->first(['id', 'nombre']);
+        if (! $institucion) {
+            throw ValidationException::withMessages(['pagos' => 'El banco o cooperativa elegido no está activo.']);
+        }
+
+        return ['institucion_financiera_id' => (int) $institucion->id, 'banco' => $institucion->nombre];
     }
 
     /** Al quedar pagada una venta de membresía, activa la membresía y su período. */
@@ -940,7 +958,7 @@ class VentaPosServicio
                     'cambio_entregado' => $cambio,
                     'estado' => 'CONFIRMADO',
                     'referencia' => $pagoEntrada['referencia'] ?? null,
-                    'banco' => $metodo === 'EFECTIVO' ? null : (trim((string) ($pagoEntrada['banco'] ?? '')) ?: null),
+                    ...$this->institucionDelPago($metodo, $pagoEntrada),
                     'observaciones' => $pagoEntrada['observaciones'] ?? 'Cobro registrado desde POS.',
                 ], $usuarioId));
             }

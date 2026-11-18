@@ -282,8 +282,9 @@ class ComprobantePdfServicio
         $this->rect($ops, 36, $y - 62, 523, 66, $suave[0], $suave[1], $suave[2]);
         $metodos = $pagos->groupBy('metodo_pago')
             ->map(function ($grupo, $metodo) {
-                $refs = $grupo->pluck('referencia')->filter()->unique()->implode(', ');
-                return strtoupper((string) $metodo) . ' ' . $this->dinero($grupo->sum(fn ($p) => (float) $p->monto)) . ($refs ? " (ref. {$refs})" : '');
+                $refs = $grupo->map(fn ($p) => trim(($p->referencia ?? '') . (! empty($p->banco) ? ' · ' . $p->banco : ''), ' ·'))
+                    ->filter()->unique()->implode(', ');
+                return strtoupper((string) $metodo) . ' ' . $this->dinero($grupo->sum(fn ($p) => (float) $p->monto)) . ($refs ? " (N.º {$refs})" : '');
             })->implode(' · ');
         $recibido = (float) $pagos->where('metodo_pago', 'EFECTIVO')->sum(fn ($p) => (float) ($p->efectivo_recibido ?? $p->monto));
         $cambio = (float) $pagos->where('metodo_pago', 'EFECTIVO')->sum(fn ($p) => (float) ($p->cambio_entregado ?? 0));

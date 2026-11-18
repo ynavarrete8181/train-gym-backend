@@ -548,6 +548,7 @@ class VentaPosServicio
                         'cambio_entregado' => $esEfectivo ? ($ultimaParte ? $cambio : 0) : null,
                         'estado' => 'CONFIRMADO',
                         'referencia' => $pagoEntrada['referencia'] ?? null,
+                        'banco' => $metodo === 'EFECTIVO' ? null : (trim((string) ($pagoEntrada['banco'] ?? '')) ?: null),
                         'observaciones' => $observacion,
                     ], $usuarioId);
 
@@ -939,6 +940,7 @@ class VentaPosServicio
                     'cambio_entregado' => $cambio,
                     'estado' => 'CONFIRMADO',
                     'referencia' => $pagoEntrada['referencia'] ?? null,
+                    'banco' => $metodo === 'EFECTIVO' ? null : (trim((string) ($pagoEntrada['banco'] ?? '')) ?: null),
                     'observaciones' => $pagoEntrada['observaciones'] ?? 'Cobro registrado desde POS.',
                 ], $usuarioId));
             }

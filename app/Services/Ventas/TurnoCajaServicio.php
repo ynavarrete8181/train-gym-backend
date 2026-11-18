@@ -287,10 +287,21 @@ class TurnoCajaServicio
             }
             if ($pago->operacion_cobro_id && DB::table('ventas.pagos')->where('operacion_cobro_id', $pago->operacion_cobro_id)
                 ->where('id', '<>', $pagoId)->where('estado', 'CONFIRMADO')->exists()) {
-                throw ValidationException::withMessages(['pago' => 'Este cobro se pagó con varios métodos: anúlalo y vuelve a cobrarlo.']);
+                throw ValidationException::withMessages(['pago' => 'Este cobro tiene varios pagos (varias cuentas o métodos): para cambiar el método, anúlalo y vuelve a cobrarlo. El número y el banco sí se pueden corregir.']);
             }
             $nuevo = strtoupper((string) $datos['metodo_pago']);
-            if ($nuevo === $pago->metodo_pago && trim((string) ($datos['referencia'] ?? '')) === trim((string) ($pago->referencia ?? ''))) {
+            // Transferencias y depósitos llevan banco del catálogo; los demás métodos no.
+            $conBanco = in_array($nuevo, ['TRANSFERENCIA', 'DEPOSITO'], true);
+            $institucion = null;
+            if ($conBanco) {
+                $institucion = DB::table('configuracion.instituciones_financieras')
+                    ->where('id', (int) ($datos['institucion_financiera_id'] ?? 0))->where('activo', true)->first(['id', 'nombre']);
+                if (! $institucion) {
+                    throw ValidationException::withMessages(['institucion_financiera_id' => 'Elige el banco o cooperativa de la ' . ($nuevo === 'DEPOSITO' ? 'papeleta de depósito.' : 'transferencia.')]);
+                }
+            }
+            if ($nuevo === $pago->metodo_pago && trim((string) ($datos['referencia'] ?? '')) === trim((string) ($pago->referencia ?? ''))
+                && (int) ($institucion->id ?? 0) === (int) ($pago->institucion_financiera_id ?? 0)) {
                 throw ValidationException::withMessages(['metodo_pago' => 'No hay cambios para guardar.']);
             }
             $turno = $pago->turno_caja_id
@@ -300,8 +311,9 @@ class TurnoCajaServicio
             }
 
             $usuario = DB::table('seguridad.users')->where('id', $usuarioId)->value('name') ?: 'Administrador';
-            $nota = sprintf('Corrección de método: %s → %s%s. Motivo: %s (%s, %s).',
+            $nota = sprintf('Corrección de método: %s → %s%s%s. Motivo: %s (%s, %s).',
                 $pago->metodo_pago, $nuevo, ! empty($datos['referencia']) ? ' (ref. ' . trim($datos['referencia']) . ')' : '',
+                $institucion ? ', ' . $institucion->nombre : '',
                 trim($datos['motivo']), $usuario, now()->format('d/m/Y H:i'));
             $esEfectivo = $nuevo === 'EFECTIVO';
             DB::table('ventas.pagos')->where('id', $pagoId)->update([
@@ -309,6 +321,8 @@ class TurnoCajaServicio
                 'referencia' => ! empty($datos['referencia']) ? trim($datos['referencia']) : ($esEfectivo ? null : $pago->referencia),
                 'efectivo_recibido' => $esEfectivo ? $pago->monto : null,
                 'cambio_entregado' => $esEfectivo ? 0 : null,
+                'institucion_financiera_id' => $institucion->id ?? null,
+                'banco' => $institucion->nombre ?? null,
                 'observaciones' => trim(($pago->observaciones ? $pago->observaciones . ' ' : '') . $nota),
                 'updated_at' => now(),
             ]);

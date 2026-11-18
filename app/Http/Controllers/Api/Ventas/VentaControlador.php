@@ -235,6 +235,55 @@ class VentaControlador extends Controller
         return ApiResponse::exito('Cuenta cobrada correctamente.', $respuesta, [], 200);
     }
 
+    /** Un tutor paga en una sola operación las cuentas que tiene a cargo. */
+    public function cobrarGrupoPos(Request $request)
+    {
+        $datos = $request->validate([
+            'responsable_persona_id' => 'required|integer|exists:pgsql.personas.personas,id',
+            'venta_ids' => 'required|array|min:1',
+            'venta_ids.*' => 'required|integer|distinct|exists:pgsql.ventas.ventas,id',
+            'observaciones' => 'nullable|string|max:1000',
+            'pagos' => 'required|array|min:1',
+            'pagos.*.metodo_pago' => 'required|string|in:EFECTIVO,TARJETA,TRANSFERENCIA,DEPOSITO,OTRO',
+            'pagos.*.monto' => 'required|numeric|min:0.01',
+            'pagos.*.efectivo_recibido' => 'nullable|numeric|min:0',
+            'pagos.*.referencia' => 'nullable|string|max:120',
+        ]);
+
+        return ApiResponse::exito(
+            'Cobro del tutor registrado correctamente.',
+            $this->pos->cobrarGrupo($datos, (int) $request->user()->id),
+        );
+    }
+
+    /** Recibo de un cobro: reúne todas las cuentas pagadas con el mismo código. */
+    public function comprobanteCobroPdf(Request $request, string $codigo)
+    {
+        $pagos = \Illuminate\Support\Facades\DB::table('ventas.pagos as p')
+            ->leftJoin('seguridad.users as u', 'u.id', '=', 'p.usuario_id')
+            ->leftJoin('personas.personas as pagador', 'pagador.id', '=', 'p.pagador_persona_id')
+            ->leftJoin('ventas.cajas as c', 'c.id', '=', 'p.caja_id')
+            ->where('p.codigo_cobro', $codigo)
+            ->where('p.estado', 'CONFIRMADO')
+            ->orderBy('p.id')
+            ->get(['p.*', 'u.name as cobrado_por_nombre', 'c.nombre as caja_nombre',
+                \Illuminate\Support\Facades\DB::raw('TRIM(pagador.nombre_completo) as pagador_nombre'),
+                'pagador.identificacion as pagador_identificacion']);
+        if ($pagos->isEmpty()) {
+            throw ValidationException::withMessages(['codigo' => 'El cobro no existe.']);
+        }
+
+        $ventas = $pagos->pluck('venta_id')->unique()->values()
+            ->map(fn ($id) => $this->ventas->detalleVenta((int) $id, $request->user()?->id));
+        $pdf = $this->pdfs->generarCobro($pagos, $ventas);
+
+        return response($pdf, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . $codigo . '.pdf"',
+            'Cache-Control' => 'private, no-store, max-age=0',
+        ]);
+    }
+
     public function detalleVenta(Request $request, int $id)
     {
         return ApiResponse::exito(

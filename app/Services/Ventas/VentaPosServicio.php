@@ -387,13 +387,223 @@ class VentaPosServicio
                 DB::raw("COALESCE(NULLIF(TRIM(persona.identificacion), ''), NULLIF(TRIM(u.cedula), '')) as cliente_identificacion"),
                 DB::raw("CASE WHEN v.generado_por_tipo = 'SISTEMA' THEN 'Sistema' ELSE COALESCE(NULLIF(TRIM(generado_por.name), ''), 'Sistema') END as generado_por_nombre"),
                 'd.codigo_deportista',
+                'd.persona_id as cliente_persona_id',
                 's.nombre as sede_nombre',
                 'p.nombre as plan_nombre',
                 'p.tipo_producto as plan_tipo_producto',
+                'm.codigo_contrato as membresia_codigo',
+                DB::raw('(SELECT mp.fecha_inicio FROM membresias.membresia_periodos mp WHERE mp.venta_id = v.id ORDER BY mp.id DESC LIMIT 1) as periodo_fecha_inicio'),
+                DB::raw('(SELECT mp.fecha_fin FROM membresias.membresia_periodos mp WHERE mp.venta_id = v.id ORDER BY mp.id DESC LIMIT 1) as periodo_fecha_fin'),
                 DB::raw('(v.total - COALESCE((SELECT SUM(pg.monto) FROM ventas.pagos pg WHERE pg.venta_id = v.id AND pg.estado = \'CONFIRMADO\'), 0)) as saldo_pendiente'),
             ])
-            ->map(fn ($venta) => (array) $venta)
+            ->map(fn ($venta) => $this->conResponsablePago((array) $venta))
             ->all();
+    }
+
+    /**
+     * Quién paga cada cuenta. Si el cliente tiene un tutor vigente marcado como
+     * responsable de pago, la cuenta se cobra a ese tutor; si el cliente es él mismo
+     * tutor responsable de otros, su propia cuenta va en el mismo grupo. Sin tutor,
+     * la cuenta se cobra sola, como siempre.
+     */
+    private function conResponsablePago(array $cuenta): array
+    {
+        $cuenta['responsable_persona_id'] = null;
+        $cuenta['responsable_nombre'] = null;
+        $cuenta['responsable_identificacion'] = null;
+        $cuenta['responsable_es_titular'] = false;
+
+        $responsable = $this->responsablePagoDe((int) ($cuenta['cliente_id'] ?? 0), (int) ($cuenta['cliente_persona_id'] ?? 0));
+        if ($responsable) {
+            $cuenta['responsable_persona_id'] = (int) $responsable->persona_id;
+            $cuenta['responsable_nombre'] = $responsable->nombre;
+            $cuenta['responsable_identificacion'] = $responsable->identificacion;
+            $cuenta['responsable_es_titular'] = (int) $responsable->persona_id === (int) ($cuenta['cliente_persona_id'] ?? 0);
+        }
+
+        return $cuenta;
+    }
+
+    /** @var array<string, ?object> */
+    private array $cacheResponsables = [];
+
+    private function responsablePagoDe(int $deportistaId, int $personaId): ?object
+    {
+        $clave = $deportistaId . ':' . $personaId;
+        if (array_key_exists($clave, $this->cacheResponsables)) {
+            return $this->cacheResponsables[$clave];
+        }
+
+        $columnas = ['p.id as persona_id', DB::raw("TRIM(p.nombre_completo) as nombre"), 'p.identificacion'];
+        $tutor = $deportistaId ? DB::table('clientes.deportista_representantes as dr')
+            ->join('personas.personas as p', 'p.id', '=', 'dr.representante_persona_id')
+            ->where('dr.deportista_id', $deportistaId)
+            ->where('dr.activo', true)
+            ->where('dr.responsable_pago', true)
+            ->orderByDesc('dr.es_principal')
+            ->orderBy('dr.id')
+            ->first($columnas) : null;
+
+        if (! $tutor && $personaId) {
+            $pagaPorOtros = DB::table('clientes.deportista_representantes')
+                ->where('representante_persona_id', $personaId)
+                ->where('activo', true)
+                ->where('responsable_pago', true)
+                ->exists();
+            $tutor = $pagaPorOtros
+                ? DB::table('personas.personas as p')->where('p.id', $personaId)->first($columnas)
+                : null;
+        }
+
+        return $this->cacheResponsables[$clave] = $tutor;
+    }
+
+    /**
+     * Cobro de un tutor: un solo pago (con uno o varios métodos) que se reparte entre
+     * las cuentas elegidas, de la más antigua a la más reciente. Cada venta conserva
+     * su pago y su membresía; todas comparten el mismo código de cobro y quedan a
+     * nombre del tutor que entregó el dinero.
+     */
+    public function cobrarGrupo(array $datos, int $usuarioId): array
+    {
+        return DB::transaction(function () use ($datos, $usuarioId): array {
+            $turno = $this->turnos->turnoAbiertoUsuario($usuarioId);
+            if (! $turno) {
+                throw ValidationException::withMessages(['turno_caja_id' => 'Debes abrir un turno de caja antes de cobrar.']);
+            }
+
+            $responsableId = (int) $datos['responsable_persona_id'];
+            $ventas = DB::table('ventas.ventas as v')
+                ->leftJoin('clientes.deportistas as d', 'd.id', '=', 'v.cliente_id')
+                ->leftJoin('personas.personas as persona', 'persona.id', '=', 'd.persona_id')
+                ->whereIn('v.id', array_map('intval', $datos['venta_ids']))
+                ->orderBy('v.fecha_venta')
+                ->orderBy('v.id')
+                ->lock('FOR UPDATE OF v')
+                ->get(['v.*', 'd.persona_id as cliente_persona_id', DB::raw("TRIM(persona.nombre_completo) as cliente_nombre")]);
+
+            if ($ventas->count() !== count(array_unique($datos['venta_ids']))) {
+                throw ValidationException::withMessages(['venta_ids' => 'Alguna de las cuentas ya no existe.']);
+            }
+
+            $responsable = null;
+            foreach ($ventas as $venta) {
+                if (! in_array($venta->estado, ['PENDIENTE', 'PARCIAL'], true)) {
+                    throw ValidationException::withMessages(['venta_ids' => "La cuenta {$venta->numero} ya no está pendiente de pago."]);
+                }
+                $r = $this->responsablePagoDe((int) $venta->cliente_id, (int) $venta->cliente_persona_id);
+                if (! $r || (int) $r->persona_id !== $responsableId) {
+                    throw ValidationException::withMessages(['venta_ids' => "La cuenta {$venta->numero} de {$venta->cliente_nombre} no está a cargo de este tutor."]);
+                }
+                $responsable = $r;
+                $venta->saldo = round((float) $venta->total - (float) DB::table('ventas.pagos')
+                    ->where('venta_id', $venta->id)->where('estado', 'CONFIRMADO')->sum('monto'), 2);
+            }
+
+            $saldoTotal = round($ventas->sum('saldo'), 2);
+            $pagosEntrada = collect($datos['pagos'])->filter(fn ($p) => (float) ($p['monto'] ?? 0) > 0)->values();
+            $montoCobro = round((float) $pagosEntrada->sum(fn ($p) => (float) $p['monto']), 2);
+            if ($montoCobro <= 0) {
+                throw ValidationException::withMessages(['pagos' => 'Registra al menos un pago mayor que cero.']);
+            }
+            if ($montoCobro > $saldoTotal + 0.00001) {
+                throw ValidationException::withMessages(['pagos' => 'La suma de los pagos supera el saldo de las cuentas elegidas.']);
+            }
+
+            $operacionCobroId = 'COBRO-OP-' . now()->format('YmdHis') . '-' . random_int(1000, 9999);
+            $codigoCobro = $this->ventas->siguienteCodigoCobro();
+            $detalleCuentas = $ventas->map(fn ($v) => "{$v->numero} de {$v->cliente_nombre}")->implode(', ');
+            $observacion = mb_substr(trim((string) ($datos['observaciones'] ?? '')) ?: "Cobro agrupado pagado por el tutor {$responsable->nombre}: {$detalleCuentas}.", 0, 1000);
+
+            $pendientes = $ventas->values();
+            $indice = 0;
+            foreach ($pagosEntrada as $pagoEntrada) {
+                $metodo = strtoupper((string) $pagoEntrada['metodo_pago']);
+                $restante = round((float) $pagoEntrada['monto'], 2);
+                $esEfectivo = $metodo === 'EFECTIVO';
+                $recibido = $esEfectivo ? round((float) ($pagoEntrada['efectivo_recibido'] ?? $restante), 2) : null;
+                if ($esEfectivo && $recibido < $restante) {
+                    throw ValidationException::withMessages(['pagos' => 'El efectivo recibido no puede ser menor al importe cobrado.']);
+                }
+                $cambio = $esEfectivo ? round($recibido - $restante, 2) : null;
+
+                while ($restante > 0.00001 && $indice < $pendientes->count()) {
+                    $venta = $pendientes[$indice];
+                    $parte = round(min($restante, $venta->saldo), 2);
+                    $restante = round($restante - $parte, 2);
+                    $venta->saldo = round($venta->saldo - $parte, 2);
+                    // El efectivo entregado y el cambio se anotan una sola vez, en la última parte.
+                    $ultimaParte = $restante <= 0.00001;
+
+                    $this->ventas->guardarPago([
+                        'venta_id' => (int) $venta->id,
+                        'caja_id' => (int) $turno->caja_id,
+                        'turno_caja_id' => (int) $turno->id,
+                        'operacion_cobro_id' => $operacionCobroId,
+                        'codigo_cobro' => $codigoCobro,
+                        'pagador_persona_id' => $responsableId,
+                        'metodo_pago' => $metodo,
+                        'monto' => $parte,
+                        'efectivo_recibido' => $esEfectivo ? ($ultimaParte ? round($parte + $cambio, 2) : $parte) : null,
+                        'cambio_entregado' => $esEfectivo ? ($ultimaParte ? $cambio : 0) : null,
+                        'estado' => 'CONFIRMADO',
+                        'referencia' => $pagoEntrada['referencia'] ?? null,
+                        'observaciones' => $observacion,
+                    ], $usuarioId);
+
+                    if ($venta->saldo <= 0.00001) {
+                        $this->habilitarMembresiaPagada((int) $venta->id);
+                        $indice++;
+                    }
+                }
+            }
+
+            $resultado = DB::table('ventas.ventas as v')
+                ->whereIn('v.id', $ventas->pluck('id'))
+                ->orderBy('v.fecha_venta')->orderBy('v.id')
+                ->get(['v.id', 'v.numero', 'v.estado', 'v.total',
+                    DB::raw('(v.total - COALESCE((SELECT SUM(pg.monto) FROM ventas.pagos pg WHERE pg.venta_id = v.id AND pg.estado = \'CONFIRMADO\'), 0)) as saldo_pendiente')]);
+
+            return [
+                'codigo_cobro' => $codigoCobro,
+                'operacion_cobro_id' => $operacionCobroId,
+                'responsable_nombre' => $responsable->nombre,
+                'total_cobrado' => $montoCobro,
+                'saldo_pendiente' => round((float) $resultado->sum('saldo_pendiente'), 2),
+                'ventas' => $resultado,
+            ];
+        });
+    }
+
+    /** Al quedar pagada una venta de membresía, activa la membresía y su período. */
+    private function habilitarMembresiaPagada(int $ventaId): void
+    {
+        $venta = DB::table('ventas.ventas')->where('id', $ventaId)->first();
+        if (! $venta || empty($venta->membresia_id)) {
+            return;
+        }
+        $pagado = (float) DB::table('ventas.pagos')->where('venta_id', $ventaId)->where('estado', 'CONFIRMADO')->sum('monto');
+        if (round((float) $venta->total - $pagado, 2) > 0) {
+            return;
+        }
+
+        if ($this->ventas->ventaHabilitaMembresia((int) $venta->membresia_id, (int) $venta->id)) {
+            DB::table('membresias.membresias')
+                ->where('id', $venta->membresia_id)
+                ->where('estado', 'PENDIENTE_PAGO')
+                ->update([
+                    'estado' => 'ACTIVA',
+                    'estado_id' => $this->estados->idPorValor('MEMBRESIA', 'ACTIVA'),
+                    'updated_at' => now(),
+                ]);
+        }
+
+        DB::table('membresias.membresia_periodos')
+            ->where('membresia_id', $venta->membresia_id)
+            ->where('venta_id', $venta->id)
+            ->whereExists(fn ($q) => $q->selectRaw('1')->from('membresias.membresias as mc')
+                ->where('mc.id', $venta->membresia_id)->where('mc.estado', '!=', 'CANCELADA'))
+            ->update(['estado' => 'ACTIVA', 'updated_at' => now()]);
     }
 
     public function guardar(array $datos, int $usuarioId, ?int $ventaId = null): object
@@ -747,27 +957,7 @@ class VentaPosServicio
             );
 
             if ($ventaActualizada->saldo_pendiente <= 0 && ! empty($ventaActualizada->membresia_id)) {
-                $estadoActivoId = $this->estados->idPorValor('MEMBRESIA', 'ACTIVA');
-                if ($this->ventas->ventaHabilitaMembresia((int) $ventaActualizada->membresia_id, (int) $ventaActualizada->id)) {
-                    DB::table('membresias.membresias')
-                        ->where('id', $ventaActualizada->membresia_id)
-                        ->where('estado', 'PENDIENTE_PAGO')
-                        ->update([
-                            'estado' => 'ACTIVA',
-                            'estado_id' => $estadoActivoId,
-                            'updated_at' => now(),
-                        ]);
-                }
-
-                DB::table('membresias.membresia_periodos')
-                    ->where('membresia_id', $ventaActualizada->membresia_id)
-                    ->where('venta_id', $ventaActualizada->id)
-                    ->whereExists(fn ($q) => $q->selectRaw('1')->from('membresias.membresias as mc')
-                        ->where('mc.id', $ventaActualizada->membresia_id)->where('mc.estado', '!=', 'CANCELADA'))
-                    ->update([
-                        'estado' => 'ACTIVA',
-                        'updated_at' => now(),
-                    ]);
+                $this->habilitarMembresiaPagada((int) $ventaActualizada->id);
             }
 
             $ventaActualizada->comprobante = DB::table('ventas.comprobantes')->where('venta_id', $venta->id)->first();

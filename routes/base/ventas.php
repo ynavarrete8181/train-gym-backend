@@ -30,6 +30,8 @@ Route::middleware(['base.auth'])->prefix('ventas')->group(function (): void {
         Route::post('pos', [VentaControlador::class, 'guardarVentaPos'])->name('ventas.pos.store');
         Route::put('pos/{id}', [VentaControlador::class, 'actualizarVentaPos'])->name('ventas.pos.update');
         Route::post('pos/cobrar', [VentaControlador::class, 'cobrarVentaPos'])->name('ventas.pos.cobrar');
+        Route::post('pos/cobrar-grupo', [VentaControlador::class, 'cobrarGrupoPos'])->name('ventas.pos.cobrar-grupo');
+        Route::get('pos/cobros/{codigo}/comprobante.pdf', [VentaControlador::class, 'comprobanteCobroPdf'])->name('ventas.pos.cobro-comprobante-pdf');
         Route::post('pos/{id}/cobrar', [VentaControlador::class, 'cobrarVentaPosExistente'])->name('ventas.pos.cobrar-existente');
         Route::post('pos/{id}/anular', [VentaControlador::class, 'anularVentaPos'])->whereNumber('id')->name('ventas.pos.anular');
         Route::post('ventas', [VentaControlador::class, 'guardarVenta'])->name('ventas.ventas.store');

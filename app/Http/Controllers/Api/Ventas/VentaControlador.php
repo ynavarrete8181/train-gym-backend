@@ -166,6 +166,7 @@ class VentaControlador extends Controller
             'pagos.*.efectivo_recibido' => 'nullable|numeric|min:0',
             'pagos.*.cambio_entregado' => 'nullable|numeric|min:0',
             'pagos.*.referencia' => 'nullable|string|max:120',
+            'pagos.*.banco' => 'nullable|string|max:80',
             'pagos.*.observaciones' => 'nullable|string|max:1000',
             'detalles' => 'required|array|min:1',
             'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO,PASE_DIARIO',
@@ -209,6 +210,7 @@ class VentaControlador extends Controller
             'pagos.*.efectivo_recibido' => 'nullable|numeric|min:0',
             'pagos.*.cambio_entregado' => 'nullable|numeric|min:0',
             'pagos.*.referencia' => 'nullable|string|max:120',
+            'pagos.*.banco' => 'nullable|string|max:80',
             'pagos.*.observaciones' => 'nullable|string|max:1000',
             'detalles' => 'required|array|min:1',
             'detalles.*.tipo' => 'required|string|in:PRODUCTO,MEMBRESIA,SERVICIO,OTRO,PASE_DIARIO',
@@ -248,6 +250,7 @@ class VentaControlador extends Controller
             'pagos.*.monto' => 'required|numeric|min:0.01',
             'pagos.*.efectivo_recibido' => 'nullable|numeric|min:0',
             'pagos.*.referencia' => 'nullable|string|max:120',
+            'pagos.*.banco' => 'nullable|string|max:80',
         ]);
 
         return ApiResponse::exito(

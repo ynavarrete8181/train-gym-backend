@@ -419,9 +419,67 @@ class VentaServicio
             $query->whereDate('p.fecha_pago', $filtros['fecha_pago']);
         }
 
-        return $query
+        $pagina = $query
             ->orderByDesc(DB::raw('MAX(p.fecha_pago)'))
             ->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
+
+        return $this->conDetalleCobro($pagina, $esquemaPagos->hasColumn('ventas.pagos', 'banco'));
+    }
+
+    /**
+     * Detalle de cada cobro de la página: qué cuentas pagó (cliente, plan y período) y
+     * cómo se pagó (método, número de comprobante y banco), para leerlo sin abrir el recibo.
+     */
+    private function conDetalleCobro($pagina, bool $tieneBanco)
+    {
+        $operaciones = collect($pagina->items())->pluck('operacion_cobro_id')->filter()->values();
+        if ($operaciones->isEmpty()) {
+            return $pagina;
+        }
+
+        $operacionExpr = "COALESCE(p.operacion_cobro_id, 'PAGO-' || p.id::text)";
+        $pagos = DB::table('ventas.pagos as p')
+            ->join('ventas.ventas as v', 'v.id', '=', 'p.venta_id')
+            ->leftJoin('clientes.deportistas as d', 'd.id', '=', 'v.cliente_id')
+            ->leftJoin('personas.personas as persona', 'persona.id', '=', 'd.persona_id')
+            ->leftJoin('membresias.membresias as m', 'm.id', '=', 'v.membresia_id')
+            ->leftJoin('membresias.planes as pl', 'pl.id', '=', 'm.plan_id')
+            ->whereIn(DB::raw($operacionExpr), $operaciones)
+            ->where('p.estado', 'CONFIRMADO')
+            ->orderBy('p.id')
+            ->get([
+                DB::raw("{$operacionExpr} as operacion"),
+                'p.venta_id', 'p.metodo_pago', 'p.monto', 'p.referencia',
+                DB::raw($tieneBanco ? 'p.banco' : 'NULL as banco'),
+                'v.numero as venta_numero', 'v.concepto', 'm.codigo_contrato', 'pl.nombre as plan_nombre',
+                DB::raw("COALESCE(NULLIF(TRIM(persona.nombre_completo), ''), 'Consumidor final') as cliente_nombre"),
+                DB::raw('(SELECT mp.fecha_inicio FROM membresias.membresia_periodos mp WHERE mp.venta_id = v.id ORDER BY mp.id DESC LIMIT 1) as periodo_inicio'),
+                DB::raw('(SELECT mp.fecha_fin FROM membresias.membresia_periodos mp WHERE mp.venta_id = v.id ORDER BY mp.id DESC LIMIT 1) as periodo_fin'),
+            ])
+            ->groupBy('operacion');
+
+        foreach ($pagina->items() as $item) {
+            $grupo = $pagos->get($item->operacion_cobro_id, collect());
+            $item->detalle_cuentas = $grupo->groupBy('venta_id')->map(fn ($p) => [
+                'cliente' => $p->first()->cliente_nombre,
+                'venta' => $p->first()->venta_numero,
+                'contrato' => $p->first()->codigo_contrato,
+                'concepto' => $p->first()->plan_nombre ?: $p->first()->concepto,
+                'periodo_inicio' => $p->first()->periodo_inicio,
+                'periodo_fin' => $p->first()->periodo_fin,
+                'monto' => round((float) $p->sum('monto'), 2),
+            ])->values();
+            $item->detalle_pagos = $grupo
+                ->groupBy(fn ($p) => $p->metodo_pago . '|' . ($p->referencia ?? '') . '|' . ($p->banco ?? ''))
+                ->map(fn ($p) => [
+                    'metodo' => $p->first()->metodo_pago,
+                    'referencia' => $p->first()->referencia,
+                    'banco' => $p->first()->banco,
+                    'monto' => round((float) $p->sum('monto'), 2),
+                ])->values();
+        }
+
+        return $pagina;
     }
 
     private function validarSedeCobroMembresia(int $membresiaId, int $sedeId): void

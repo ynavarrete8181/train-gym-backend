@@ -451,6 +451,7 @@ class VentaServicio
                 DB::raw("{$operacionExpr} as operacion"),
                 'p.venta_id', 'p.metodo_pago', 'p.monto', 'p.referencia',
                 DB::raw($tieneBanco ? 'p.banco' : 'NULL as banco'),
+                DB::raw(Schema::connection('pgsql')->hasColumn('ventas.pagos', 'institucion_financiera_id') ? 'p.institucion_financiera_id' : 'NULL as institucion_financiera_id'),
                 'v.numero as venta_numero', 'v.concepto', 'm.codigo_contrato', 'pl.nombre as plan_nombre',
                 DB::raw("COALESCE(NULLIF(TRIM(persona.nombre_completo), ''), 'Consumidor final') as cliente_nombre"),
                 DB::raw('(SELECT mp.fecha_inicio FROM membresias.membresia_periodos mp WHERE mp.venta_id = v.id ORDER BY mp.id DESC LIMIT 1) as periodo_inicio'),
@@ -475,6 +476,7 @@ class VentaServicio
                     'metodo' => $p->first()->metodo_pago,
                     'referencia' => $p->first()->referencia,
                     'banco' => $p->first()->banco,
+                    'institucion_financiera_id' => $p->first()->institucion_financiera_id,
                     'monto' => round((float) $p->sum('monto'), 2),
                 ])->values();
         }

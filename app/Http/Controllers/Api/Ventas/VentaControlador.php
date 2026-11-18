@@ -409,6 +409,7 @@ class VentaControlador extends Controller
         $datos = $request->validate([
             'metodo_pago' => 'required|string|in:EFECTIVO,TARJETA,TRANSFERENCIA,DEPOSITO,OTRO',
             'referencia' => 'nullable|string|max:120',
+            'institucion_financiera_id' => 'nullable|integer|exists:pgsql.configuracion.instituciones_financieras,id',
             'motivo' => 'required|string|min:8|max:300',
         ]);
         $pago = app(\App\Services\Ventas\TurnoCajaServicio::class)->corregirMetodoPago($id, $datos, (int) $request->user()->id);

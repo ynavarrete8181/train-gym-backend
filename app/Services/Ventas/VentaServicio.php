@@ -15,6 +15,9 @@ class VentaServicio
 {
     use RegistraAuditoria;
 
+    /** Nombre del cliente de una venta: su ficha, o su usuario si no tiene ficha. */
+    private const NOMBRE_CLIENTE = "COALESCE(NULLIF(TRIM(persona_cliente.nombre_completo), ''), NULLIF(TRIM(cliente_user.name), ''), 'Consumidor final')";
+
     public function __construct(
         private readonly EstadoCatalogoServicio $estados,
         private readonly AlcanceOperativoService $alcance,
@@ -62,7 +65,7 @@ class VentaServicio
                 'generado_por.name as generado_por_nombre',
                 'rol_generador.role as generado_por_rol',
                 'responsable_comercial.name as responsable_comercial_nombre',
-                'cliente_user.name as cliente_nombre',
+                DB::raw(self::NOMBRE_CLIENTE . ' as cliente_nombre'),
                 'clientes.deportistas.codigo_deportista',
                 'ventas.cajas.nombre as caja_nombre',
                 DB::raw('COALESCE(ventas.cajas.sede_id, membresia_sede.sede_id) as sede_id'),
@@ -79,9 +82,10 @@ class VentaServicio
 
         $this->aplicarAlcanceVenta($query, $usuarioId);
         $this->aplicarVisibilidadComercialVenta($query, $usuarioId, 'ventas.ventas');
-        $this->buscar($query, $filtros['busqueda'] ?? null, ['ventas.ventas.numero', 'ventas.ventas.concepto', 'ventas.ventas.tipo_venta', 'cliente_user.name', 'estado_cfg.nombre']);
+        $this->buscar($query, $filtros['busqueda'] ?? null, ['ventas.ventas.numero', 'ventas.ventas.concepto', 'ventas.ventas.tipo_venta', 'cliente_user.name', 'estado_cfg.nombre',
+            'persona_cliente.nombre_completo', 'persona_cliente.identificacion', 'clientes.deportistas.codigo_deportista']);
         $this->filtrarTexto($query, 'ventas.ventas.numero', $filtros['numero'] ?? null);
-        $this->filtrarTexto($query, 'cliente_user.name', $filtros['cliente'] ?? null);
+        $this->filtrarTexto($query, self::NOMBRE_CLIENTE, $filtros['cliente'] ?? null);
         $this->filtrarTexto($query, 'ventas.ventas.tipo_venta', $filtros['tipo'] ?? null);
         $this->filtrarTexto($query, 'ventas.ventas.estado', $filtros['estado'] ?? null);
 
@@ -585,6 +589,7 @@ class VentaServicio
 
     public function listarComprobantes(array $filtros, ?int $usuarioId = null)
     {
+        $tienePagador = Schema::connection('pgsql')->hasColumn('ventas.pagos', 'pagador_persona_id');
         $query = DB::table('ventas.comprobantes')
             ->join('ventas.ventas', 'ventas.comprobantes.venta_id', '=', 'ventas.ventas.id')
             ->leftJoin('ventas.cajas as caja_venta', 'ventas.ventas.caja_id', '=', 'caja_venta.id')
@@ -602,14 +607,24 @@ class VentaServicio
                 DB::raw("COALESCE(NULLIF(TRIM(persona_cliente.identificacion), ''), NULLIF(TRIM(cliente_user.cedula), '')) as cliente_identificacion"),
                 DB::raw("COALESCE(NULLIF(TRIM(persona_cliente.email), ''), NULLIF(TRIM(cliente_user.email), '')) as cliente_email"),
                 DB::raw('COALESCE(caja_venta.sede_id, membresia_sede.sede_id) as sede_id'),
+                DB::raw($tienePagador
+                    ? "(SELECT TRIM(pg.nombre_completo) FROM ventas.pagos px JOIN personas.personas pg ON pg.id = px.pagador_persona_id WHERE px.venta_id = ventas.ventas.id AND px.estado = 'CONFIRMADO' ORDER BY px.id DESC LIMIT 1) as pagador_nombre"
+                    : 'NULL as pagador_nombre'),
+                DB::raw("(SELECT px.codigo_cobro FROM ventas.pagos px WHERE px.venta_id = ventas.ventas.id AND px.estado = 'CONFIRMADO' ORDER BY px.id DESC LIMIT 1) as codigo_cobro"),
                 DB::raw("(ventas.ventas.estado = 'PAGADA' AND NOT EXISTS (SELECT 1 FROM membresias.membresia_cuotas mc WHERE mc.venta_id = ventas.ventas.id) AND (ventas.ventas.membresia_id IS NULL OR EXISTS (SELECT 1 FROM membresias.membresias mm JOIN membresias.planes mp ON mp.id = mm.plan_id WHERE mm.id = ventas.ventas.membresia_id AND mp.tipo_producto = 'PASE_DIARIO'))) as anulable")
             );
 
         $this->aplicarAlcanceVenta($query, $usuarioId, 'caja_venta.sede_id');
         $this->aplicarVisibilidadComercialVenta($query, $usuarioId, 'ventas.ventas');
-        $this->buscar($query, $filtros['busqueda'] ?? null, ['ventas.comprobantes.numero', 'ventas.ventas.numero', 'ventas.ventas.concepto', 'cliente_user.name']);
+        // Se busca por comprobante, venta, cliente (nombre, cédula o código) y por el tutor que pagó.
+        $this->buscar($query, $filtros['busqueda'] ?? null, [
+            'ventas.comprobantes.numero', 'ventas.ventas.numero', 'ventas.ventas.concepto', 'cliente_user.name',
+            'persona_cliente.nombre_completo', 'persona_cliente.identificacion', 'clientes.deportistas.codigo_deportista',
+            ...($tienePagador ? ["COALESCE((SELECT STRING_AGG(pg.nombre_completo, ' ') FROM ventas.pagos px JOIN personas.personas pg ON pg.id = px.pagador_persona_id WHERE px.venta_id = ventas.ventas.id), '')"] : []),
+        ]);
         $this->filtrarTexto($query, 'ventas.comprobantes.numero', $filtros['numero'] ?? null);
         $this->filtrarTexto($query, 'ventas.comprobantes.estado', $filtros['estado'] ?? null);
+        $this->filtrarTexto($query, self::NOMBRE_CLIENTE, $filtros['cliente'] ?? null);
 
         return $query->orderByDesc('ventas.comprobantes.created_at')->paginate($filtros['per_page'] ?? 5, ['*'], 'page', $filtros['page'] ?? 1);
     }
@@ -650,8 +665,13 @@ class VentaServicio
 
         return [
             'caja' => $cajas->distinct()->orderBy('nombre')->pluck('nombre')->values(),
-            'cliente' => DB::table('seguridad.users')->distinct()->orderBy('name')->pluck('name')->values(),
-            'numero' => $ventas->distinct()->orderBy('numero')->pluck('numero')->values(),
+            'cliente' => (clone $ventas)
+                ->leftJoin('clientes.deportistas as dc', 'dc.id', '=', 'v.cliente_id')
+                ->leftJoin('personas.personas as pc', 'pc.id', '=', 'dc.persona_id')
+                ->leftJoin('seguridad.users as uc', 'uc.id', '=', 'dc.usuario_id')
+                ->selectRaw("DISTINCT COALESCE(NULLIF(TRIM(pc.nombre_completo), ''), NULLIF(TRIM(uc.name), ''), 'Consumidor final') as cliente")
+                ->orderBy('cliente')->pluck('cliente')->values(),
+            'numero' => (clone $ventas)->distinct()->orderBy('numero')->pluck('numero')->values(),
             'tipo' => (clone $ventas)->distinct()->orderBy('tipo_venta')->pluck('tipo_venta')->values(),
             'metodo' => $pagos->distinct()->orderBy('metodo_pago')->pluck('metodo_pago')->values(),
             'estado_venta' => $this->estadosEntidad('VENTA')->pluck('valor_interno')->values(),
@@ -1146,16 +1166,17 @@ class VentaServicio
     private function buscar($query, ?string $busqueda, array $columnas): void
     {
         if (empty($busqueda)) return;
-        $texto = mb_strtolower($busqueda);
-        $query->where(function ($q) use ($columnas, $texto): void {
-            foreach ($columnas as $columna) $q->orWhereRaw("LOWER({$columna}) LIKE ?", ["%{$texto}%"]);
+        $sinTildes = fn (string $sql) => "TRANSLATE(LOWER({$sql}), 'áéíóúüñ', 'aeiouun')";
+        $texto = strtr(mb_strtolower(trim($busqueda)), ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ü' => 'u', 'ñ' => 'n']);
+        $query->where(function ($q) use ($columnas, $texto, $sinTildes): void {
+            foreach ($columnas as $columna) $q->orWhereRaw($sinTildes($columna) . ' LIKE ?', ["%{$texto}%"]);
         });
     }
 
     private function filtrarTexto($query, string $columna, mixed $valor): void
     {
         if (empty($valor)) return;
-        is_array($valor) ? $query->whereIn($columna, array_filter($valor)) : $query->whereRaw("LOWER({$columna}) LIKE ?", ['%' . mb_strtolower($valor) . '%']);
+        is_array($valor) ? $query->whereIn(DB::raw($columna), array_filter($valor)) : $query->whereRaw("LOWER({$columna}) LIKE ?", ['%' . mb_strtolower($valor) . '%']);
     }
 
     private function filtrarBooleano($query, string $columna, mixed $valor): void

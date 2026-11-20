@@ -33,10 +33,14 @@ class VentaFiltroServicio
                 ->orderBy('nombre')
                 ->pluck('nombre')
                 ->values(),
-            'cliente' => DB::table('seguridad.users')
-                ->distinct()
-                ->orderBy('name')
-                ->pluck('name')
+            // Nombres de los clientes que tienen ventas en las sedes del usuario.
+            'cliente' => $baseVentas()
+                ->leftJoin('clientes.deportistas as dc', 'dc.id', '=', 'v.cliente_id')
+                ->leftJoin('personas.personas as pc', 'pc.id', '=', 'dc.persona_id')
+                ->leftJoin('seguridad.users as uc', 'uc.id', '=', 'dc.usuario_id')
+                ->selectRaw("DISTINCT COALESCE(NULLIF(TRIM(pc.nombre_completo), ''), NULLIF(TRIM(uc.name), ''), 'Consumidor final') as cliente")
+                ->orderBy('cliente')
+                ->pluck('cliente')
                 ->values(),
             'numero' => $baseVentas()
                 ->select('v.numero')

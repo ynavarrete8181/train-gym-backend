@@ -252,6 +252,8 @@ class VentaServicio
         $venta->pagos = DB::table('ventas.pagos as p')
             ->leftJoin('configuracion.estados_catalogo as e', 'e.id', '=', 'p.estado_id')
             ->leftJoin('seguridad.users as cobrador', 'cobrador.id', '=', 'p.usuario_id')
+            ->when(Schema::connection('pgsql')->hasColumn('ventas.pagos', 'pagador_persona_id'),
+                fn ($q) => $q->leftJoin('personas.personas as pagador', 'pagador.id', '=', 'p.pagador_persona_id'))
             ->where('p.venta_id', $ventaId)
             ->orderBy('p.id')
             ->get([
@@ -259,6 +261,9 @@ class VentaServicio
                 'e.nombre as estado_nombre',
                 'e.color as estado_color',
                 'cobrador.name as cobrado_por_nombre',
+                ...(Schema::connection('pgsql')->hasColumn('ventas.pagos', 'pagador_persona_id')
+                    ? [DB::raw('TRIM(pagador.nombre_completo) as pagador_nombre'), 'pagador.identificacion as pagador_identificacion']
+                    : []),
             ]);
 
         $venta->comprobante = DB::table('ventas.comprobantes')

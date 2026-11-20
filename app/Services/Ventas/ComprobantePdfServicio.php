@@ -27,7 +27,11 @@ class ComprobantePdfServicio
         $pagosConfirmados = $pagos->where('estado', 'CONFIRMADO')->values();
         $metodosResumen = $pagosConfirmados
             ->groupBy('metodo_pago')
-            ->map(fn ($grupo, $metodo) => strtoupper((string) $metodo) . ' ' . $this->dinero($grupo->sum(fn ($p) => (float) $p->monto)))
+            ->map(function ($grupo, $metodo) {
+                $refs = $grupo->map(fn ($p) => trim(($p->referencia ?? '') . (! empty($p->banco) ? ' · ' . $p->banco : ''), ' ·'))
+                    ->filter()->unique()->implode(', ');
+                return strtoupper((string) $metodo) . ' ' . $this->dinero($grupo->sum(fn ($p) => (float) $p->monto)) . ($refs ? " (N.º {$refs})" : '');
+            })
             ->implode(' · ');
 
         // Encabezado de marca
@@ -106,8 +110,11 @@ class ComprobantePdfServicio
                 default => null,
             };
             if ($nota) {
-                $this->text($ops, 48, $y + 1, mb_strimwidth($nota, 0, 80, '…', 'UTF-8'), 7.5, false, $gris);
-                $y -= 11;
+                foreach ($this->wrap($nota, 105) as $linea) {
+                    $this->text($ops, 48, $y + 1, $linea, 7.5, false, $gris);
+                    $y -= 10;
+                }
+                $y -= 1;
             }
 
             // Separador con aire arriba y abajo, sin tocar la línea siguiente.
@@ -126,15 +133,17 @@ class ComprobantePdfServicio
                     ? ' · ' . $this->numero($info->valor) . '% sobre ' . ($info->plan_nombre ?? 'la membresía')
                     : ' · valor fijo sobre ' . ($info->plan_nombre ?? 'la membresía');
             }
-            $this->text($ops, 48, $y, mb_strimwidth($titulo, 0, 62, '…', 'UTF-8'), 9, true, [0.04, 0.45, 0.29]);
             $this->text($ops, 500, $y, '-' . $this->dinero($descuento), 9, true, [0.04, 0.45, 0.29]);
-            $y -= 12;
+            foreach ($this->wrap($titulo, 72) as $linea) {
+                $this->text($ops, 48, $y, $linea, 9, true, [0.04, 0.45, 0.29]);
+                $y -= 12;
+            }
             $porque = $info
                 ? 'Beneficio autorizado para el cliente'
                     . ($info->fecha_fin ? ', vigente hasta el ' . $fechaCorta($info->fecha_fin) : '')
                     . (trim((string) $info->motivo) !== '' ? '. Motivo: ' . trim((string) $info->motivo) : '')
                 : 'Descuento registrado en la venta.';
-            foreach (array_slice($this->wrap($porque, 95), 0, 2) as $linea) {
+            foreach ($this->wrap($porque, 105) as $linea) {
                 $this->text($ops, 48, $y, $linea, 7.5, false, $gris);
                 $y -= 10;
             }
@@ -255,17 +264,27 @@ class ComprobantePdfServicio
         foreach ($ventas as $venta) {
             if ($y < 250) break;
             $pagadoAqui = (float) $pagos->where('venta_id', $venta->id)->sum(fn ($p) => (float) $p->monto);
-            $this->text($ops, 48, $y, mb_strimwidth((string) ($venta->cliente_nombre ?? 'Cliente'), 0, 58, '…', 'UTF-8'), 9, true);
             $this->text($ops, 438, $y, $this->dinero($venta->total ?? 0), 9);
             $this->text($ops, 505, $y, $this->dinero($pagadoAqui), 9, true);
-            $y -= 12;
+            foreach ($this->wrap((string) ($venta->cliente_nombre ?? 'Cliente'), 60) as $linea) {
+                $this->text($ops, 48, $y, $linea, 9, true);
+                $y -= 12;
+            }
             $periodo = $venta->membresia_periodo ?? null;
-            $concepto = ! empty($venta->membresia_codigo)
-                ? sprintf('%s · %s · Período %s: del %s al %s', $venta->membresia_codigo, $venta->membresia_plan_nombre ?? 'Membresía',
-                    $periodo->numero_periodo ?? '-', $fechaCorta($periodo->fecha_inicio ?? null), $fechaCorta($periodo->fecha_fin ?? null))
-                : (string) ($venta->concepto ?? 'Venta');
-            $this->text($ops, 48, $y, mb_strimwidth('Venta ' . ($venta->numero ?? '') . ' · ' . $concepto, 0, 95, '…', 'UTF-8'), 7.5, false, $gris);
-            $y -= 6;
+            $lineas = ! empty($venta->membresia_codigo)
+                ? [
+                    sprintf('Venta %s · %s · %s%s', $venta->numero ?? '', $venta->membresia_codigo, $venta->membresia_plan_nombre ?? 'Membresía',
+                        ! empty($venta->membresia_modalidad_nombre) ? ' · ' . $venta->membresia_modalidad_nombre : ''),
+                    sprintf('Período %s: del %s al %s', $periodo->numero_periodo ?? '-', $fechaCorta($periodo->fecha_inicio ?? null), $fechaCorta($periodo->fecha_fin ?? null)),
+                ]
+                : ['Venta ' . ($venta->numero ?? '') . ' · ' . ($venta->concepto ?? 'Venta')];
+            foreach ($lineas as $texto) {
+                foreach ($this->wrap($texto, 105) as $linea) {
+                    $this->text($ops, 48, $y, $linea, 7.5, false, $gris);
+                    $y -= 10;
+                }
+            }
+            $y += 4;
             $this->line($ops, 48, $y, 548, $y, [0.94, 0.945, 0.95]);
             $y -= 14;
         }
@@ -279,21 +298,27 @@ class ComprobantePdfServicio
         $y -= 66;
         $this->sectionTitle($ops, 36, $y, 'RESUMEN DE PAGO', $dorado);
         $y -= 16;
-        $this->rect($ops, 36, $y - 62, 523, 66, $suave[0], $suave[1], $suave[2]);
-        $metodos = $pagos->groupBy('metodo_pago')
+        $porMetodo = $pagos->groupBy('metodo_pago')
             ->map(function ($grupo, $metodo) {
                 $refs = $grupo->map(fn ($p) => trim(($p->referencia ?? '') . (! empty($p->banco) ? ' · ' . $p->banco : ''), ' ·'))
                     ->filter()->unique()->implode(', ');
                 return strtoupper((string) $metodo) . ' ' . $this->dinero($grupo->sum(fn ($p) => (float) $p->monto)) . ($refs ? " (N.º {$refs})" : '');
-            })->implode(' · ');
+            });
         $recibido = (float) $pagos->where('metodo_pago', 'EFECTIVO')->sum(fn ($p) => (float) ($p->efectivo_recibido ?? $p->monto));
         $cambio = (float) $pagos->where('metodo_pago', 'EFECTIVO')->sum(fn ($p) => (float) ($p->cambio_entregado ?? 0));
-        $this->labelValue($ops, 50, $y - 8, 'Métodos', mb_strimwidth($metodos, 0, 70, '…', 'UTF-8'), 380);
+        // Cada método en su propia línea, completo.
+        $lineasMetodos = $porMetodo->values()->flatMap(fn ($texto) => $this->wrap($texto, 68))->all();
+        $extra = (count($lineasMetodos) - 1) * 12;
+        $this->rect($ops, 36, $y - 62 - $extra, 523, 66 + $extra, $suave[0], $suave[1], $suave[2]);
+        $this->text($ops, 50, $y - 8, 'Métodos', 7, false, [0.45, 0.48, 0.52]);
+        foreach ($lineasMetodos as $i => $linea) {
+            $this->text($ops, 50, $y - 21 - $i * 12, $linea, 9, true);
+        }
         $this->labelValue($ops, 445, $y - 8, 'Saldo', $this->dinero($saldoTotal), 100);
-        $this->labelValue($ops, 50, $y - 38, 'Cobrado por', (string) ($primero->cobrado_por_nombre ?? '-'), 260);
+        $this->labelValue($ops, 50, $y - 38 - $extra, 'Cobrado por', (string) ($primero->cobrado_por_nombre ?? '-'), 260);
         if ($recibido > 0) {
-            $this->labelValue($ops, 330, $y - 38, 'Efectivo recibido', $this->dinero($recibido), 100);
-            $this->labelValue($ops, 445, $y - 38, 'Cambio entregado', $this->dinero($cambio), 100);
+            $this->labelValue($ops, 330, $y - 38 - $extra, 'Efectivo recibido', $this->dinero($recibido), 100);
+            $this->labelValue($ops, 445, $y - 38 - $extra, 'Cambio entregado', $this->dinero($cambio), 100);
         }
 
         $this->line($ops, 36, 74, 559, 74, $borde);
@@ -330,7 +355,16 @@ class ComprobantePdfServicio
     private function labelValue(array &$ops, float $x, float $y, string $label, string $value, int $width): void
     {
         $this->text($ops, $x, $y, $label, 7, false, [0.45, 0.48, 0.52]);
-        $this->text($ops, $x, $y - 13, mb_strimwidth($value, 0, max(12, (int) ($width / 6.2)), '…', 'UTF-8'), 9, true);
+        // Si el dato no cabe, se achica la letra; si aún no cabe, pasa a dos líneas pequeñas.
+        if (mb_strlen($value) <= (int) ($width / 5.0)) {
+            $this->text($ops, $x, $y - 13, $value, 9, true);
+            return;
+        }
+        $lineas = $this->wrap($value, max(14, (int) ($width / 4.1)));
+        $this->text($ops, $x, $y - 13, $lineas[0], 7.5, true);
+        if (isset($lineas[1])) {
+            $this->text($ops, $x, $y - 21.5, implode(' ', array_slice($lineas, 1)), 7.5, true);
+        }
     }
 
     private function text(array &$ops, float $x, float $y, string $text, float $size = 10, bool $bold = false, array $rgb = [0.07, 0.09, 0.13]): void
@@ -354,7 +388,22 @@ class ComprobantePdfServicio
 
     private function wrap(string $text, int $max): array
     {
-        return explode("\n", wordwrap($text, $max, "\n", true));
+        $lineas = [];
+        $actual = '';
+        foreach (preg_split('/\s+/u', trim($text)) ?: [] as $palabra) {
+            $candidata = $actual === '' ? $palabra : $actual . ' ' . $palabra;
+            if ($actual !== '' && mb_strlen($candidata) > $max) {
+                $lineas[] = $actual;
+                $actual = $palabra;
+            } else {
+                $actual = $candidata;
+            }
+        }
+        if ($actual !== '' || ! $lineas) {
+            $lineas[] = $actual;
+        }
+
+        return $lineas;
     }
 
     private function dinero(mixed $valor): string

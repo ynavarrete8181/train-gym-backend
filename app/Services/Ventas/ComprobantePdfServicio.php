@@ -168,8 +168,11 @@ class ComprobantePdfServicio
         $y -= 48;
         $this->sectionTitle($ops, 36, $y, 'RESUMEN DE PAGO', $dorado);
         $y -= 16;
-        $this->rect($ops, 36, $y - 62, 523, 66, $suave[0], $suave[1], $suave[2]);
         $ultimoPago = $pagosConfirmados->last();
+        // Si lo pagó un tutor (en un cobro de varias cuentas), se identifica quién pagó.
+        $pagoTutor = $pagosConfirmados->first(fn ($p) => ! empty($p->pagador_nombre));
+        $extraTutor = $pagoTutor ? 30 : 0;
+        $this->rect($ops, 36, $y - 62 - $extraTutor, 523, 66 + $extraTutor, $suave[0], $suave[1], $suave[2]);
         $recibido = (float) $pagosConfirmados->where('metodo_pago', 'EFECTIVO')->sum(fn ($p) => (float) ($p->efectivo_recibido ?? $p->monto));
         $cambio = (float) $pagosConfirmados->where('metodo_pago', 'EFECTIVO')->sum(fn ($p) => (float) ($p->cambio_entregado ?? 0));
         $this->labelValue($ops, 50, $y - 8, 'Métodos', $metodosResumen ?: 'Pendiente', 260);
@@ -181,7 +184,12 @@ class ComprobantePdfServicio
             $this->labelValue($ops, 330, $y - 38, 'Efectivo recibido', $this->dinero($recibido), 100);
             $this->labelValue($ops, 445, $y - 38, 'Cambio entregado', $this->dinero($cambio), 100);
         }
-        $y -= 82;
+        if ($pagoTutor) {
+            $this->labelValue($ops, 50, $y - 68, 'Pagado por (tutor)', $pagoTutor->pagador_nombre
+                . (! empty($pagoTutor->pagador_identificacion) ? ' · C.I. ' . $pagoTutor->pagador_identificacion : ''), 260);
+            $this->labelValue($ops, 330, $y - 68, 'Comprobante de cobro (todas sus cuentas)', 'N.º ' . ($pagoTutor->codigo_cobro ?? '-'), 215);
+        }
+        $y -= 82 + $extraTutor;
 
         // Membresía/pase
         if (! empty($venta->membresia_codigo) && $y > 150) {

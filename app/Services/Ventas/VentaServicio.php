@@ -508,6 +508,42 @@ class VentaServicio
         }
     }
 
+    /**
+     * Un mismo comprobante de transferencia o depósito no puede registrarse en dos cobros:
+     * evita cobrar dos veces el mismo dinero. Las cuentas de un mismo cobro (por ejemplo, las
+     * de un tutor) sí comparten el comprobante. Si ambos pagos tienen banco y es distinto,
+     * se consideran comprobantes diferentes.
+     *
+     * @param  array<int>  $excluirPagos  pagos que se están corrigiendo
+     */
+    public function validarComprobanteUnico(string $metodo, ?string $referencia, mixed $institucionId = null,
+        ?string $operacion = null, array $excluirPagos = []): void
+    {
+        $referencia = trim((string) $referencia);
+        if ($referencia === '' || ! in_array(strtoupper($metodo), ['TRANSFERENCIA', 'DEPOSITO'], true)) {
+            return;
+        }
+        $previo = DB::table('ventas.pagos as p')
+            ->join('ventas.ventas as v', 'v.id', '=', 'p.venta_id')
+            ->leftJoin('clientes.deportistas as d', 'd.id', '=', 'v.cliente_id')
+            ->leftJoin('personas.personas as persona', 'persona.id', '=', 'd.persona_id')
+            ->where('p.estado', 'CONFIRMADO')
+            ->where('p.metodo_pago', strtoupper($metodo))
+            ->whereRaw('LOWER(TRIM(p.referencia)) = ?', [mb_strtolower($referencia)])
+            ->when($operacion, fn ($q) => $q->where(fn ($w) => $w->whereNull('p.operacion_cobro_id')->orWhere('p.operacion_cobro_id', '<>', $operacion)))
+            ->when($excluirPagos, fn ($q) => $q->whereNotIn('p.id', $excluirPagos))
+            ->when($institucionId && Schema::connection('pgsql')->hasColumn('ventas.pagos', 'institucion_financiera_id'),
+                fn ($q) => $q->where(fn ($w) => $w->whereNull('p.institucion_financiera_id')->orWhere('p.institucion_financiera_id', (int) $institucionId)))
+            ->orderBy('p.id')
+            ->first(['p.codigo_cobro', 'p.fecha_pago', 'p.monto', DB::raw("COALESCE(NULLIF(TRIM(persona.nombre_completo), ''), 'otro cliente') as cliente")]);
+        if ($previo) {
+            throw ValidationException::withMessages(['referencia' => sprintf(
+                'El comprobante N.º %s ya se registró en el cobro %s de %s ($%s, %s). Revisa el número: no se puede usar el mismo pago dos veces.',
+                $referencia, $previo->codigo_cobro ?? 'sin código', $previo->cliente, number_format((float) $previo->monto, 2),
+                date('d/m/Y', strtotime((string) $previo->fecha_pago)))]);
+        }
+    }
+
     public function guardarPago(array $datos, ?int $usuarioId = null): object
     {
         return DB::transaction(function () use ($datos, $usuarioId): object {
@@ -568,6 +604,10 @@ class VentaServicio
 
             $datos['caja_id'] = (int) $turno->caja_id;
             $datos['turno_caja_id'] = (int) $turno->id;
+            if (($datos['estado'] ?? null) === 'CONFIRMADO') {
+                $this->validarComprobanteUnico((string) ($datos['metodo_pago'] ?? ''), $datos['referencia'] ?? null,
+                    $datos['institucion_financiera_id'] ?? null, $datos['operacion_cobro_id'] ?? null);
+            }
 
             $datos = $this->estados->aplicar($datos, 'PAGO');
             $datos['usuario_id'] = $usuarioId;

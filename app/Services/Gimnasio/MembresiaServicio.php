@@ -63,6 +63,9 @@ class MembresiaServicio
         $datos['fecha_fin'] = $this->calcularFechaFin($datos['fecha_inicio'], $tipoDuracion, $duracion);
         if (($plan->tipo_producto ?? null) === 'PASE_DIARIO' || ! ($plan->renovable ?? false)) {
             $datos['renovacion_automatica'] = false;
+        } elseif (! array_key_exists('renovacion_automatica', $datos) || $datos['renovacion_automatica'] === null) {
+            // Un plan renovable se renueva solo hasta que se apague desde la configuración del contrato.
+            $datos['renovacion_automatica'] = true;
         }
         // Solo el pase guarda vigencia propia: sus fechas de contrato son el día de uso.
         if (($plan->tipo_producto ?? null) === 'PASE_DIARIO' && ! empty($datos['vigencia_fin'])) {

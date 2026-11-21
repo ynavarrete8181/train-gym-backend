@@ -147,7 +147,7 @@ class ContratoMembresiaServicio
             return $d;
         });
 
-        return ['contrato' => $this->rangoContrato($m), 'descuentos' => $filas, 'tarifas' => $tarifas->values()];
+        return ['contrato' => $this->rangoContrato($m) + ['permite_sin_fin' => $this->descuentoPuedeSeguir($m)], 'descuentos' => $filas, 'tarifas' => $tarifas->values()];
     }
 
     /** Sedes con tarifa activa para el plan o su modalidad; sin ninguna, todas las sedes con el precio base. */
@@ -218,6 +218,7 @@ class ContratoMembresiaServicio
             $m = $this->membresia($id, true);
             $this->validarRango($m, $datos['fecha_inicio'], $datos['fecha_fin'] ?? null);
             $sedeId = $this->validarSedeDescuento($m, $datos['sede_id'] ?? null);
+            $this->validarValorDescuento($m, $datos['tipo'], (float) $datos['valor'], $sedeId);
             $descuento = $this->descuentos->crear([
                 'sede_id' => $sedeId,
                 'deportista_id' => (int) $m->deportista_id,
@@ -243,10 +244,28 @@ class ContratoMembresiaServicio
             }
             $this->validarRango($m, $datos['fecha_inicio'], $datos['fecha_fin'] ?? null);
             $sedeId = $this->validarSedeDescuento($m, $datos['sede_id'] ?? null);
+            $this->validarValorDescuento($m, $datos['tipo'], (float) $datos['valor'], $sedeId);
             $hoy = now()->toDateString();
             $inicioAnterior = substr((string) $anterior->fecha_inicio, 0, 10);
             $finAnterior = $anterior->fecha_fin ? substr((string) $anterior->fecha_fin, 0, 10) : null;
             $desde = substr((string) $datos['fecha_inicio'], 0, 10);
+
+            // Extender un descuento (fin posterior o sin fin) con el mismo valor, sede e inicio no
+            // cambia nada de lo ya cobrado: se hace en el mismo registro y queda en el historial.
+            $finNuevo = ! empty($datos['fecha_fin']) ? substr((string) $datos['fecha_fin'], 0, 10) : null;
+            $soloExtiende = $desde === $inicioAnterior
+                && $datos['tipo'] === $anterior->tipo && abs((float) $datos['valor'] - (float) $anterior->valor) < 0.00001
+                && (int) ($sedeId ?? 0) === (int) ($anterior->sede_id ?? 0)
+                && $finAnterior !== null && ($finNuevo === null || $finNuevo > $finAnterior);
+            if ($soloExtiende) {
+                DB::table('membresias.descuentos_deportistas')->where('id', $descuentoId)
+                    ->update(['fecha_fin' => $finNuevo, 'autorizado_por' => $usuarioId, 'updated_at' => now()]);
+                $descuento = DB::table('membresias.descuentos_deportistas')->where('id', $descuentoId)->first();
+                $this->movimiento($id, 'DESCUENTO_EDITADO', $datos['motivo'], $usuarioId,
+                    $this->detalle($descuento) + ['anterior' => $this->detalle($anterior), 'extension' => true]);
+                $descuento->ventas_recalculadas = $this->recalcularVentasPendientes($id, $usuarioId, $datos['motivo']);
+                return $descuento;
+            }
 
             // Un descuento que ya empezó y ya se cobró no se reescribe: se cierra el día anterior al
             // cambio y el cambio queda como un registro nuevo. Así el historial conserva lo que rigió.
@@ -575,6 +594,30 @@ class ContratoMembresiaServicio
         return (int) $sedeId;
     }
 
+    /** Un descuento de valor fijo no puede ser mayor que la tarifa de la sede donde se aplica. */
+    private function validarValorDescuento(object $m, string $tipo, float $valor, ?int $sedeId): void
+    {
+        if ($valor <= 0) {
+            throw ValidationException::withMessages(['valor' => 'El descuento debe ser mayor que 0.']);
+        }
+        if ($tipo !== 'FIJO') {
+            return;
+        }
+        $tarifas = $this->tarifasPorSede($m)->when($sedeId, fn ($c) => $c->where('sede_id', $sedeId));
+        $tope = $tarifas->min('precio');
+        if ($tope !== null && $valor > (float) $tope + 0.00001) {
+            throw ValidationException::withMessages(['valor' => 'El descuento ($' . number_format($valor, 2) . ') no puede superar la tarifa ($' . number_format((float) $tope, 2) . ').']);
+        }
+    }
+
+    /** Un descuento puede seguir en las renovaciones solo si el contrato se renueva. */
+    private function descuentoPuedeSeguir(object $m): bool
+    {
+        return ($m->tipo_producto ?? null) !== 'PASE_DIARIO'
+            && (bool) ($m->plan_renovable ?? false)
+            && (bool) ($m->renovacion_automatica ?? false);
+    }
+
     private function validarRango(object $m, string $inicio, ?string $fin): void
     {
         $rango = $this->rangoContrato($m);
@@ -587,7 +630,9 @@ class ContratoMembresiaServicio
         if ($inicio < $rango['inicio']) {
             throw ValidationException::withMessages(['fecha_inicio' => 'El descuento no puede empezar antes del contrato ('.$legible($rango['inicio']).').']);
         }
-        if ($rango['fin'] && (! $fin || $fin > $rango['fin'])) {
+        // En un contrato que se renueva, el descuento puede seguir en las renovaciones (sin fin,
+        // hasta que se desactive, o hasta una fecha posterior). Pases y contratos fijos quedan dentro.
+        if ($rango['fin'] && ! $this->descuentoPuedeSeguir($m) && (! $fin || $fin > $rango['fin'])) {
             throw ValidationException::withMessages(['fecha_fin' => 'El descuento debe terminar a más tardar el '.$legible($rango['fin']).', fin del contrato.']);
         }
         if ($fin && $fin < $inicio) {
@@ -619,7 +664,7 @@ class ContratoMembresiaServicio
     {
         $consulta = DB::table('membresias.membresias as m')->join('membresias.planes as p', 'p.id', '=', 'm.plan_id')
             ->where('m.id', $id);
-        $m = ($bloquear ? $consulta->lockForUpdate() : $consulta)->first(['m.*', 'p.tipo_producto']);
+        $m = ($bloquear ? $consulta->lockForUpdate() : $consulta)->first(['m.*', 'p.tipo_producto', 'p.renovable as plan_renovable']);
         if (! $m) {
             throw ValidationException::withMessages(['membresia_id' => 'Membresía no encontrada.']);
         }

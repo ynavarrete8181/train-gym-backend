@@ -168,6 +168,9 @@ class DeportistaControlador extends Controller
     public function store(Request $request)
     {
         $validados = $this->validarDatosCliente($request);
+        if (! $request->boolean('confirmar_duplicado')) {
+            $this->avisarPosibleDuplicado(trim(($validados['persona']['nombres'] ?? '') . ' ' . ($validados['persona']['apellidos'] ?? '')));
+        }
         $validados['codigo_deportista'] = app(\App\Services\Gimnasio\CodigoClienteServicio::class)->generar();
 
         if (! empty($validados['usuario_id'])) {
@@ -190,6 +193,31 @@ class DeportistaControlador extends Controller
         $deportista = $this->deportistaServicio->crear($validados);
 
         return ApiResponse::exito('Cliente creado correctamente.', (array) $deportista, [], 201);
+    }
+
+    /**
+     * Antes de registrar un cliente se avisa si ya existe otro con el mismo nombre (sin
+     * distinguir tildes, mayúsculas ni espacios). Solo se guarda si se confirma que es otra persona.
+     */
+    private function avisarPosibleDuplicado(string $nombre): void
+    {
+        $normalizar = "regexp_replace(translate(lower(trim(%s)), 'áéíóúüñ', 'aeiouun'), '\\s+', ' ', 'g')";
+        $clave = preg_replace('/\s+/u', ' ', strtr(mb_strtolower(trim($nombre)), ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ü' => 'u', 'ñ' => 'n']));
+        if ($clave === '') {
+            return;
+        }
+        $existentes = DB::table('clientes.deportistas as d')
+            ->join('personas.personas as p', 'p.id', '=', 'd.persona_id')
+            ->whereRaw(sprintf($normalizar, 'p.nombre_completo') . ' = ?', [$clave])
+            ->orderBy('d.id')
+            ->get(['d.codigo_deportista', 'd.estado', 'p.nombre_completo', 'p.identificacion']);
+        if ($existentes->isNotEmpty()) {
+            $lista = $existentes->map(fn ($e) => "{$e->nombre_completo} (código {$e->codigo_deportista}, "
+                . mb_strtolower((string) $e->estado) . ($e->identificacion ? ", cédula {$e->identificacion}" : ', sin cédula') . ')')->implode('; ');
+            throw ValidationException::withMessages([
+                'posible_duplicado' => "Ya existe un cliente con ese nombre: {$lista}. Si es la misma persona, búscala y usa su ficha; si es otra persona, confirma para registrarla.",
+            ]);
+        }
     }
 
     public function show($id)

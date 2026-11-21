@@ -309,6 +309,8 @@ class TurnoCajaServicio
             if ($turno) {
                 $this->alcance->validarSede($usuarioId, (int) $turno->sede_id, 'maneja_caja');
             }
+            app(VentaServicio::class)->validarComprobanteUnico($nuevo, $datos['referencia'] ?? $pago->referencia,
+                $institucion->id ?? null, $pago->operacion_cobro_id, [(int) $pago->id]);
 
             $usuario = DB::table('seguridad.users')->where('id', $usuarioId)->value('name') ?: 'Administrador';
             $nota = sprintf('Corrección de método: %s → %s%s%s. Motivo: %s (%s, %s).',
@@ -394,6 +396,8 @@ class TurnoCajaServicio
             if ($referencia === '' && $pagos->contains(fn ($p) => trim((string) $p->referencia) === '')) {
                 throw ValidationException::withMessages(['referencia' => 'Escribe el número de comprobante.']);
             }
+            app(VentaServicio::class)->validarComprobanteUnico($metodo, $referencia !== '' ? $referencia : $pagos->first()->referencia,
+                $institucion->id, $pagos->first()->operacion_cobro_id, $pagos->pluck('id')->map(fn ($id) => (int) $id)->all());
 
             $usuario = DB::table('seguridad.users')->where('id', $usuarioId)->value('name') ?: 'Administrador';
             foreach ($pagos as $pago) {

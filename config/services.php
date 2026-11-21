@@ -52,6 +52,9 @@ return [
 
     'revive_mail' => [
         'transport' => env('REVIVE_CORREO_TRANSPORT', 'GRAPH'),
+        // Solo en el .env local: activa el desvío y fija la dirección que recibe todos los correos.
+        'modo_desarrollo' => (bool) env('REVIVE_CORREO_MODO_DESARROLLO', false),
+        'redirigir_a' => env('REVIVE_CORREO_REDIRIGIR_A'),
     ],
 
     'notificaciones' => [

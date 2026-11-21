@@ -151,6 +151,7 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::get('membresias/{id}/historial-integral', [MembresiaControlador::class, 'historialIntegral'])->whereNumber('id')->name('gimnasio.membresias.historial-integral');
         Route::get('membresias/{id}/renovacion-programada/preview', [MembresiaControlador::class, 'previsualizarRenovacionProgramada'])->whereNumber('id')->name('gimnasio.membresias.renovacion-programada.preview');
         Route::post('membresias/{id}/renovacion-programada', [MembresiaControlador::class, 'registrarRenovacionProgramada'])->whereNumber('id')->name('gimnasio.membresias.renovacion-programada.store');
+        Route::post('membresias/{id}/renovaciones/{periodoId}/anular', [MembresiaControlador::class, 'anularRenovacion'])->whereNumber('id')->whereNumber('periodoId')->name('gimnasio.membresias.renovaciones.anular');
         Route::post('membresias/{id}/renovar', [MembresiaControlador::class, 'renovar'])->name('gimnasio.membresias.renovar');
     });
 

@@ -305,6 +305,18 @@ class MembresiaControlador extends Controller
         );
     }
 
+    /** Anula una renovación programada (sin venta), con motivo; queda en el historial. */
+    public function anularRenovacion(Request $request, int $id, int $periodoId)
+    {
+        $datos = $request->validate([
+            'motivo' => 'required|string|min:8|max:500',
+            'apagar_renovacion' => 'boolean',
+        ]);
+
+        return ApiResponse::exito('Renovación anulada.', app(\App\Services\Gimnasio\RenovacionContratoProgramadoServicio::class)
+            ->anular($id, $periodoId, $datos['motivo'], (bool) ($datos['apagar_renovacion'] ?? true), $request->user()?->id));
+    }
+
     public function historialIntegral(Request $request, int $id)
     {
         // Historial de solo lectura: permiso de membresías validado por la ruta.

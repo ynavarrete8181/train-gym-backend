@@ -230,4 +230,104 @@ final class RenovacionContratoProgramadoServicio
             return $p + ['periodo_id' => $periodoId, 'cuota_id' => $cuotaId];
         });
     }
+
+    /**
+     * Anula una renovación que todavía no empieza ni tiene venta. Ese período programado es un
+     * borrador del sistema: se retira con su cuota y los descuentos que se le copiaron, para que
+     * el contrato vuelva a su fin anterior y pueda renovarse de nuevo. Lo anulado queda completo
+     * en el historial del contrato (movimiento "Renovación anulada" con su motivo) y en auditoría.
+     * Opcionalmente apaga la renovación automática para que el sistema no la vuelva a programar.
+     */
+    public function anular(int $id, int $periodoId, string $motivo, bool $apagarRenovacion, ?int $usuarioId): array
+    {
+        return DB::transaction(function () use ($id, $periodoId, $motivo, $apagarRenovacion, $usuarioId): array {
+            $m = DB::table('membresias.membresias')->where('id', $id)->lockForUpdate()->first();
+            $periodo = DB::table('membresias.membresia_periodos')->where('id', $periodoId)->where('membresia_id', $id)->lockForUpdate()->first();
+            if (! $m || ! $periodo) {
+                $yaAnulada = DB::table('membresias.membresia_movimientos')->where('membresia_id', $id)->where('tipo', 'RENOVACION_ANULADA')
+                    ->whereRaw("(detalle->>'periodo_id')::bigint = ?", [$periodoId])->exists();
+                throw ValidationException::withMessages(['periodo' => $yaAnulada ? 'Esta renovación ya fue anulada.' : 'La renovación no pertenece a esta membresía.']);
+            }
+            $ultimo = (int) DB::table('membresias.membresia_periodos')->where('membresia_id', $id)->max('numero_periodo');
+            if ($periodo->estado !== 'PROGRAMADO' || $periodo->venta_id || (int) $periodo->numero_periodo !== $ultimo) {
+                throw ValidationException::withMessages(['periodo' => $periodo->venta_id
+                    ? 'Esta renovación ya tiene venta emitida: anula primero la venta en Ventas.'
+                    : 'Solo se puede anular la última renovación, mientras está programada y sin venta.']);
+            }
+            $anterior = DB::table('membresias.membresia_periodos')->where('membresia_id', $id)
+                ->where('numero_periodo', '<', $periodo->numero_periodo)->orderByDesc('numero_periodo')->first();
+            if (DB::table('membresias.membresia_reprogramaciones')->where('periodo_id', $periodo->id)->exists()) {
+                throw ValidationException::withMessages(['periodo' => 'Esta renovación tiene reprogramaciones registradas; requiere revisión.']);
+            }
+            if (! $anterior) {
+                throw ValidationException::withMessages(['periodo' => 'El primer período del contrato no es una renovación.']);
+            }
+            $ahora = now();
+            $nota = trim($motivo);
+
+            $cuota = DB::table('membresias.membresia_cuotas')->where('periodo_id', $periodo->id)->first();
+            if ($cuota && ($cuota->estado !== 'PROGRAMADA' || $cuota->venta_id)) {
+                throw ValidationException::withMessages(['periodo' => 'La cuota de esta renovación ya se emitió: anula primero la venta en Ventas.']);
+            }
+            $copias = DB::table('membresias.descuentos_deportistas')->where('membresia_periodo_id', $periodo->id)->get();
+            // Los descuentos copiados a este período se retiran; el original vuelve a cubrir sin fin
+            // si la renovación lo había cerrado al fin del período anterior.
+            foreach ($copias as $copia) {
+                if ($copia->descuento_origen_id) {
+                    DB::table('membresias.descuentos_deportistas')->where('id', $copia->descuento_origen_id)
+                        ->whereDate('fecha_fin', substr((string) $anterior->fecha_fin, 0, 10))
+                        ->update(['fecha_fin' => null, 'updated_at' => $ahora]);
+                }
+            }
+            DB::table('membresias.descuentos_deportistas')->where('membresia_periodo_id', $periodo->id)->delete();
+            DB::table('membresias.membresia_cuotas')->where('periodo_id', $periodo->id)->delete();
+            DB::table('membresias.membresia_periodos')->where('id', $periodo->id)->delete();
+            $descuentosAnulados = $copias->pluck('id')->all();
+
+            $cambios = [
+                'fecha_fin' => $anterior->fecha_fin,
+                'cantidad_periodos_contratados' => max(1, (int) $m->cantidad_periodos_contratados - 1),
+                'updated_at' => $ahora,
+            ];
+            if ($apagarRenovacion && $m->renovacion_automatica) {
+                $cambios['renovacion_automatica'] = false;
+            }
+            DB::table('membresias.membresias')->where('id', $id)->update($cambios);
+
+            $detalle = [
+                'periodo_id' => (int) $periodo->id, 'numero_periodo' => (int) $periodo->numero_periodo,
+                'fecha_inicio' => substr((string) $periodo->fecha_inicio, 0, 10), 'fecha_fin' => substr((string) $periodo->fecha_fin, 0, 10),
+                'precio' => (float) $periodo->precio, 'fecha_fin_restaurada' => substr((string) $anterior->fecha_fin, 0, 10),
+                'descuentos_retirados' => $descuentosAnulados, 'cuota' => $cuota,
+                'renovacion_automatica_apagada' => isset($cambios['renovacion_automatica']),
+            ];
+            DB::table('membresias.membresia_movimientos')->insert([
+                'membresia_id' => $id, 'tipo' => 'RENOVACION_ANULADA', 'estado' => 'CONFIRMADO',
+                'fecha_efectiva' => now('America/Guayaquil')->toDateString(), 'motivo' => $nota,
+                'usuario_id' => $usuarioId, 'autorizado_por' => $usuarioId,
+                'detalle' => json_encode($detalle, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
+                'created_at' => $ahora, 'updated_at' => $ahora,
+            ]);
+            if (isset($cambios['renovacion_automatica'])) {
+                DB::table('membresias.membresia_movimientos')->insert([
+                    'membresia_id' => $id, 'tipo' => 'CONFIGURAR_CONTRATO', 'estado' => 'CONFIRMADO',
+                    'fecha_efectiva' => now('America/Guayaquil')->toDateString(),
+                    'motivo' => 'Configuración del contrato: renovación automática activada → desactivada, al anular la renovación del período ' . $periodo->numero_periodo . '.',
+                    'usuario_id' => $usuarioId, 'autorizado_por' => $usuarioId,
+                    'detalle' => json_encode(['dias_gracia_anterior' => (int) $m->dias_gracia, 'dias_gracia_nuevo' => (int) $m->dias_gracia,
+                        'renovacion_automatica_anterior' => true, 'renovacion_automatica_nueva' => false], JSON_THROW_ON_ERROR),
+                    'created_at' => $ahora, 'updated_at' => $ahora,
+                ]);
+            }
+            app(\App\Services\Auditoria\AuditoriaServicio::class)->registrar([
+                'modulo' => 'gimnasio', 'tabla' => 'membresias.membresia_periodos', 'registro_id' => $periodo->id,
+                'accion' => 'ANULAR_RENOVACION',
+                'descripcion' => mb_substr("{$m->codigo_contrato}: renovación del período {$periodo->numero_periodo} anulada. {$nota}", 0, 255),
+                'datos_antes' => ['periodo' => $periodo, 'cuota' => $cuota, 'descuentos' => $copias, 'fecha_fin' => $m->fecha_fin, 'renovacion_automatica' => (bool) $m->renovacion_automatica],
+                'datos_despues' => $detalle,
+            ]);
+
+            return $detalle;
+        });
+    }
 }

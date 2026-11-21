@@ -695,10 +695,9 @@ class MembresiaControlador extends Controller
             ]);
         }
 
-        $this->descuentos->crear([
-            'deportista_id' => (int) $membresia->deportista_id,
-            'plan_id' => (int) $membresia->plan_id,
-            'modalidad_id' => $membresia->modalidad_id ? (int) $membresia->modalidad_id : null,
+        // Se registra como cualquier descuento del contrato: valida fechas (puede seguir en las
+        // renovaciones si el contrato se renueva) y queda en el historial desde la contratación.
+        app(\App\Services\Gimnasio\ContratoMembresiaServicio::class)->registrarDescuento((int) $membresia->id, [
             'tipo' => $datos['tipo'],
             'valor' => (float) $datos['valor'],
             'motivo' => trim($datos['motivo']),

@@ -311,7 +311,7 @@ class DeportistaControlador extends Controller
             ->whereIn('plan_id', $membresias->pluck('plan_id')->unique()->all())
             ->where('activo', true)
             ->orderByDesc('fecha_inicio')->orderByDesc('id')
-            ->get(['id', 'plan_id', 'modalidad_id', 'tipo', 'valor', 'motivo',
+            ->get(['id', 'plan_id', 'modalidad_id', 'sede_id', 'tipo', 'valor', 'motivo',
                 'fecha_inicio', 'fecha_fin']);
 
         foreach ($membresias as $membresia) {

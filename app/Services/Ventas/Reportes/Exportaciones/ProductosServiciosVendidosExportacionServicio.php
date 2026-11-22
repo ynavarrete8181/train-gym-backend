@@ -18,36 +18,28 @@ class ProductosServiciosVendidosExportacionServicio
     public function excel(array $filtros, int $usuarioId): StreamedResponse
     {
         $items = $this->recopila->todos(fn ($params, $uid) => $this->reporte->consultar($params, $uid), $filtros, $usuarioId);
+        $tipos = ['MEMBRESIA' => 'Membresía', 'PRODUCTO' => 'Producto', 'SERVICIO' => 'Servicio'];
         $filas = collect($items)->map(fn ($i) => [
-            $i->sede ?? '',
-            $i->tipo_item ?? '',
             $i->item ?? '',
+            $tipos[$i->tipo_item] ?? ($i->tipo_item ?? ''),
             (int) ($i->ventas ?? 0),
-            (float) ($i->cantidad ?? 0),
+            (int) ($i->clientes ?? 0),
             (float) ($i->precio_promedio ?? 0),
+            (float) ($i->descuentos ?? 0),
             (float) ($i->total_vendido ?? 0),
+            ((float) ($i->porcentaje ?? 0)) . ' %',
         ])->all();
+        $suma = fn (int $col) => fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[$col] ?? 0));
 
         return $this->documento->descargar(
             'productos-servicios-vendidos',
             'Productos y servicios vendidos',
-            'Ítems vendidos por tipo, sede, cantidad e ingresos.',
-            ['Sede', 'Tipo', 'Producto / servicio', 'Ventas', 'Cantidad', 'Precio promedio', 'Total vendido'],
+            'Qué se vende más: planes y productos con ventas, clientes, descuentos y total neto.',
+            ['Plan o producto', 'Tipo', 'Ventas', 'Clientes', 'Precio', 'Descuentos', 'Total neto', '% del total'],
             $filas,
-            array_merge(
-                $this->recopila->metadataPeriodo($filtros),
-                ['Sedes' => $this->recopila->sedesTexto($items)]
-            ),
+            $this->recopila->metadataPeriodo($filtros),
             $usuarioId,
-            [
-                'TOTAL',
-                '',
-                '',
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (int) ($row[3] ?? 0)),
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[4] ?? 0)),
-                '',
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[6] ?? 0)),
-            ],
+            ['TOTAL', '', $suma(2), '', '', $suma(5), $suma(6), '100 %'],
         );
     }
 }

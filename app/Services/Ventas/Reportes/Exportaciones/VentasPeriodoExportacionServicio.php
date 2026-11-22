@@ -18,15 +18,16 @@ class VentasPeriodoExportacionServicio
     public function excel(array $filtros, int $usuarioId): StreamedResponse
     {
         $items = $this->recopila->todos(fn ($params, $uid) => $this->reporte->consultar($params, $uid), $filtros, $usuarioId);
+        $estado = ['PAGADA' => 'Pagada', 'PARCIAL' => 'Parcial', 'PENDIENTE' => 'Pendiente'];
         $filas = collect($items)->map(fn ($i) => [
-            $i->fecha ?? '',
-            $i->sede ?? '',
-            $i->venta_numero ?? '',
+            $i->fecha ? implode('/', array_reverse(explode('-', (string) $i->fecha))) : '',
             $i->cliente ?? '',
-            $i->identificacion ?? '',
-            $i->tipo_venta ?? '',
-            $i->estado ?? '',
-            $i->responsable_comercial ?? '',
+            $i->tutor ?? '',
+            $i->que_se_vendio ?? '',
+            $estado[$i->estado] ?? ($i->estado ?? ''),
+            $i->registro ?? '',
+            (float) ($i->subtotal ?? 0),
+            (float) ($i->descuento ?? 0),
             (float) ($i->total_venta ?? 0),
             (float) ($i->total_cobrado ?? 0),
             (float) ($i->saldo_pendiente ?? 0),
@@ -35,8 +36,8 @@ class VentasPeriodoExportacionServicio
         return $this->documento->descargar(
             'ventas-periodo',
             'Ventas por período',
-            'Detalle transaccional de ventas por rango de fechas.',
-            ['Fecha', 'Sede', 'N.º venta', 'Cliente', 'Identificación', 'Tipo', 'Estado', 'Responsable', 'Total', 'Cobrado', 'Saldo'],
+            'Cada venta con qué se vendió, descuento, lo cobrado y lo que falta.',
+            ['Fecha', 'Cliente', 'Tutor', 'Qué se vendió', 'Estado', 'Registró', 'Precio', 'Descuento', 'Total', 'Cobrado', 'Saldo'],
             $filas,
             array_merge(
                 $this->recopila->metadataPeriodo($filtros),
@@ -44,14 +45,9 @@ class VentasPeriodoExportacionServicio
             ),
             $usuarioId,
             [
-                'TOTAL',
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
+                'TOTAL', '', '', '', '', '',
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[6] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[7] ?? 0)),
                 fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[8] ?? 0)),
                 fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[9] ?? 0)),
                 fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[10] ?? 0)),

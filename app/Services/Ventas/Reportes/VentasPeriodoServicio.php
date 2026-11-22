@@ -9,7 +9,7 @@ class VentasPeriodoServicio
 {
     use FiltraColumnasReporte;
 
-    private const COLUMNAS = ['fecha', 'venta_numero', 'cliente', 'responsable_comercial', 'total_venta', 'total_cobrado', 'saldo_pendiente'];
+    private const COLUMNAS = ['fecha', 'venta_numero', 'cliente', 'que_se_vendio', 'registro', 'subtotal', 'descuento', 'total_venta', 'total_cobrado', 'saldo_pendiente'];
 
     public function __construct(private readonly AlcanceOperativoService $alcance)
     {
@@ -40,6 +40,9 @@ class VentasPeriodoServicio
             ->leftJoin('personas.personas as persona', 'persona.id', '=', 'd.persona_id')
             ->leftJoin('seguridad.users as cliente_user', 'cliente_user.id', '=', 'd.usuario_id')
             ->leftJoin('seguridad.users as responsable', 'responsable.id', '=', 'v.responsable_comercial_id')
+            ->leftJoin('seguridad.users as creador', 'creador.id', '=', 'v.usuario_id')
+            ->leftJoin('personas.personas as tutor', 'tutor.id', '=', DB::raw('(SELECT r.representante_persona_id FROM clientes.deportista_representantes r
+                WHERE r.deportista_id = d.id AND r.activo AND r.responsable_pago ORDER BY r.es_principal DESC, r.id LIMIT 1)'))
             ->whereBetween(DB::raw('DATE(v.fecha_venta)'), [$desde, $hasta])
             ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes)
             ->where('v.estado', '<>', 'ANULADA')
@@ -48,7 +51,15 @@ class VentasPeriodoServicio
             ->selectRaw("COALESCE(NULLIF(TRIM(persona.nombre_completo), ''), NULLIF(TRIM(cliente_user.name), ''), 'Consumidor final') as cliente")
             ->selectRaw("COALESCE(NULLIF(TRIM(persona.identificacion), ''), NULLIF(TRIM(cliente_user.cedula), '')) as identificacion")
             ->selectRaw("COALESCE(responsable.name, 'Sin responsable') as responsable_comercial")
-            ->selectRaw("v.total as total_venta, {$pagadoSql} as total_cobrado, {$saldoSql} as saldo_pendiente");
+            ->selectRaw("v.total as total_venta, {$pagadoSql} as total_cobrado, {$saldoSql} as saldo_pendiente")
+            ->selectRaw('v.subtotal, v.descuento')
+            ->selectRaw("NULLIF(TRIM(tutor.nombre_completo), '') as tutor")
+            // Qué se vendió: contrato y período de la membresía, o el detalle de productos y servicios.
+            ->selectRaw("COALESCE(m.codigo_contrato || COALESCE(' · ' || (SELECT TO_CHAR(mp.fecha_inicio, 'DD/MM/YYYY') || ' al ' || TO_CHAR(mp.fecha_fin, 'DD/MM/YYYY')
+                FROM membresias.membresia_periodos mp WHERE mp.venta_id = v.id ORDER BY mp.id DESC LIMIT 1), ''),
+                (SELECT STRING_AGG(vd.descripcion, ', ') FROM ventas.venta_detalles vd WHERE vd.venta_id = v.id), v.concepto) as que_se_vendio")
+            // Quién la registró: el usuario que la creó, o el sistema en renovaciones y cuotas automáticas.
+            ->selectRaw("CASE WHEN v.generado_por_tipo = 'SISTEMA' OR v.usuario_id IS NULL THEN 'Sistema' ELSE COALESCE(NULLIF(TRIM(creador.name), ''), 'Sin usuario') END as registro");
 
         if (! empty($filtros['busqueda'])) {
             $texto = '%' . mb_strtolower((string) $filtros['busqueda']) . '%';
@@ -66,18 +77,25 @@ class VentasPeriodoServicio
             $query->whereIn('v.tipo_venta', array_filter($valores));
         }
 
+        [$reporte, $opcionesFiltro] = $this->filtrarColumnas($query, $filtros, self::COLUMNAS);
+
+        // Cuántas ventas hay por estado, antes de filtrar por estado (las tarjetas filtran al tocarlas).
+        $porEstado = (clone $reporte)->groupBy('estado')
+            ->selectRaw('estado, COUNT(*) as ventas, COALESCE(SUM(total_venta), 0) as total, COALESCE(SUM(saldo_pendiente), 0) as saldo')
+            ->get()->keyBy('estado')
+            ->map(fn ($f) => ['ventas' => (int) $f->ventas, 'total' => round((float) $f->total, 2), 'saldo' => round((float) $f->saldo, 2)]);
+
         if (! empty($filtros['estado'])) {
             $valores = is_array($filtros['estado']) ? $filtros['estado'] : [$filtros['estado']];
-            $query->whereIn('v.estado', array_filter($valores));
+            $reporte->whereIn('estado', array_filter($valores));
         }
-
-        [$reporte, $opcionesFiltro] = $this->filtrarColumnas($query, $filtros, self::COLUMNAS);
 
         $resumen = (clone $reporte)
             ->selectRaw('COUNT(*) as transacciones')
             ->selectRaw('COALESCE(SUM(total_venta), 0) as total_ventas')
             ->selectRaw('COALESCE(SUM(total_cobrado), 0) as total_cobrado')
             ->selectRaw('COALESCE(SUM(saldo_pendiente), 0) as saldo_pendiente')
+            ->selectRaw('COALESCE(SUM(descuento), 0) as descuentos')
             ->first();
 
         $paginador = $reporte
@@ -98,6 +116,8 @@ class VentasPeriodoServicio
                     'total_ventas' => round((float) ($resumen->total_ventas ?? 0), 2),
                     'total_cobrado' => round((float) ($resumen->total_cobrado ?? 0), 2),
                     'saldo_pendiente' => round((float) ($resumen->saldo_pendiente ?? 0), 2),
+                    'descuentos' => round((float) ($resumen->descuentos ?? 0), 2),
+                    'por_estado' => $porEstado,
                 ],
                 'opciones_filtro' => $opcionesFiltro,
                 'catalogos' => [

@@ -401,8 +401,14 @@ class VentaServicio
 
         $this->aplicarAlcanceVenta($query, $usuarioId, 'caja_venta.sede_id');
 
-        if ($this->alcance->esCajero($usuarioId)) {
+        // El cajero ve solo lo que cobró en su turno de caja abierto (o, sin turno abierto, hoy).
+        $soloTurno = $this->alcance->esCajero($usuarioId);
+        if ($soloTurno) {
             $query->where('p.usuario_id', $usuarioId);
+            $turno = $this->turnoCobrosCajero((int) $usuarioId);
+            $turno
+                ? $query->where('p.turno_caja_id', $turno->id)
+                : $query->whereDate('p.fecha_pago', now('America/Guayaquil')->toDateString());
         }
 
         if (! empty($filtros['busqueda'])) {
@@ -424,7 +430,7 @@ class VentaServicio
 
         // Un cobro se filtra por su fecha real, no por la fecha de creación
         // de la venta ni la vigencia contractual de la membresía.
-        if (! empty($filtros['fecha_pago'])) {
+        if (! $soloTurno && ! empty($filtros['fecha_pago'])) {
             $query->whereDate('p.fecha_pago', $filtros['fecha_pago']);
         }
 
@@ -439,6 +445,13 @@ class VentaServicio
      * Detalle de cada cobro de la página: qué cuentas pagó (cliente, plan y período) y
      * cómo se pagó (método, número de comprobante y banco), para leerlo sin abrir el recibo.
      */
+    /** Turno de caja abierto del cajero, el que delimita los cobros que puede ver. */
+    public function turnoCobrosCajero(int $usuarioId): ?object
+    {
+        return DB::table('ventas.turnos_caja')->where('usuario_id', $usuarioId)->where('estado', 'ABIERTA')
+            ->orderByDesc('fecha_apertura')->first(['id', 'fecha_apertura']);
+    }
+
     private function conDetalleCobro($pagina, bool $tieneBanco)
     {
         $operaciones = collect($pagina->items())->pluck('operacion_cobro_id')->filter()->values();

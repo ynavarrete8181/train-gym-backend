@@ -19,39 +19,27 @@ class VentasResponsableExportacionServicio
     {
         $items = $this->recopila->todos(fn ($params, $uid) => $this->reporte->consultar($params, $uid), $filtros, $usuarioId);
         $filas = collect($items)->map(fn ($i) => [
-            $i->responsable ?? '',
-            $i->sede ?? '',
+            $i->usuario ?? '',
+            $i->rol ?? '',
             (int) ($i->ventas ?? 0),
-            (int) ($i->clientes ?? 0),
             (float) ($i->total_ventas ?? 0),
+            (int) ($i->cobros ?? 0),
             (float) ($i->total_cobrado ?? 0),
-            (float) ($i->saldo_pendiente ?? 0),
-            (float) ($i->ticket_promedio ?? 0),
-            round((float) ($i->porcentaje_cobrado ?? 0), 2),
+            (float) ($i->efectivo ?? 0),
+            (float) ($i->transferencia ?? 0),
+            (float) ($i->otros ?? 0),
         ])->all();
+        $suma = fn (int $col) => fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[$col] ?? 0));
 
         return $this->documento->descargar(
-            'ventas-responsable',
-            'Ventas por responsable',
-            'Desempeño comercial por responsable y sede.',
-            ['Responsable', 'Sede', 'Ventas', 'Clientes', 'Total vendido', 'Cobrado', 'Saldo', 'Ticket promedio', '% cobrado'],
+            'ventas-cobros-usuario',
+            'Ventas y cobros por usuario',
+            'Ventas registradas y dinero cobrado por cada usuario, en efectivo y transferencia.',
+            ['Usuario', 'Rol', 'Ventas', 'Vendido', 'Cobros', 'Cobrado', 'Efectivo', 'Transferencia', 'Otros'],
             $filas,
-            array_merge(
-                $this->recopila->metadataPeriodo($filtros),
-                ['Sedes' => $this->recopila->sedesTexto($items)]
-            ),
+            $this->recopila->metadataPeriodo($filtros),
             $usuarioId,
-            [
-                'TOTAL',
-                '',
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (int) ($row[2] ?? 0)),
-                '',
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[4] ?? 0)),
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[5] ?? 0)),
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[6] ?? 0)),
-                '',
-                '',
-            ],
+            ['TOTAL', '', $suma(2), $suma(3), $suma(4), $suma(5), $suma(6), $suma(7), $suma(8)],
         );
     }
 }

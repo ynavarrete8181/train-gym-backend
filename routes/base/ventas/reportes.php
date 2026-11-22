@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Ventas\Reportes\MembresiasNuevasRenovacionesControl
 use App\Http\Controllers\Api\Ventas\Reportes\MembresiasPorVencerControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\ProductosServiciosVendidosControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\CobrosMetodoPagoControlador;
+use App\Http\Controllers\Api\Ventas\Reportes\CobrosPeriodoControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\ResumenComercialControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\VentasPeriodoControlador;
 use App\Http\Controllers\Api\Ventas\Reportes\VentasResponsableControlador;
@@ -35,6 +36,14 @@ Route::prefix('reportes')->group(function (): void {
     Route::get('cobros-metodo-pago/excel', [CobrosMetodoPagoControlador::class, 'excel'])
         ->middleware('base.permiso:REPORTES-COBROS-METODOS')
         ->name('ventas.reportes.cobros-metodo-pago.excel');
+
+    Route::get('cobros-periodo', [CobrosPeriodoControlador::class, 'index'])
+        ->middleware('base.permiso:REPORTES-COBROS-PERIODO')
+        ->name('ventas.reportes.cobros-periodo');
+
+    Route::get('cobros-periodo/excel', [CobrosPeriodoControlador::class, 'excel'])
+        ->middleware('base.permiso:REPORTES-COBROS-PERIODO')
+        ->name('ventas.reportes.cobros-periodo.excel');
 
     Route::get('ventas-periodo', [VentasPeriodoControlador::class, 'index'])
         ->middleware('base.permiso:REPORTES-VENTAS-PERIODO')

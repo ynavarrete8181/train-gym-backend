@@ -38,6 +38,7 @@ class CobrosPeriodoControlador extends Controller
             'hasta' => 'nullable|date|after_or_equal:desde',
             'sede_id' => 'nullable',
             'metodo_pago' => 'nullable',
+            'por_completar' => 'nullable|boolean',
         ] + ($paginado ? [
             'page' => 'nullable|integer|min:1',
             'per_page' => 'nullable|integer|in:5,10,25,50',

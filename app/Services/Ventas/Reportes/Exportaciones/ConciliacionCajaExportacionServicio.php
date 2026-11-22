@@ -18,58 +18,35 @@ class ConciliacionCajaExportacionServicio
     public function excel(array $filtros, int $usuarioId): StreamedResponse
     {
         $items = $this->recopila->todos(fn ($params, $uid) => $this->reporte->consultar($params, $uid), $filtros, $usuarioId);
+        $dia = fn ($f) => $f ? implode('/', array_reverse(explode('-', substr((string) $f, 0, 10)))) : '';
+        $num = fn ($v) => $v === null ? null : (float) $v;
+        $estado = fn ($i) => $i->pendiente_arqueo ? 'Pendiente de arqueo'
+            : ($i->conciliado_at ? 'Conciliado por ' . ($i->conciliado_por_nombre ?? '') . ' el ' . $dia($i->conciliado_at) : 'Cerrado');
         $filas = collect($items)->map(fn ($i) => [
-            $i->fecha ?? '',
-            $i->sede ?? '',
-            $i->caja_nombre ?? '',
-            $i->caja_codigo ?? '',
+            $dia($i->fecha ?? null),
+            ($i->hora_apertura ?? '') . ' – ' . ($i->hora_cierre ?? ''),
             $i->cajero ?? '',
-            $i->hora_apertura ?? '',
-            $i->hora_cierre ?? '',
+            $num($i->fondo_anterior),
             (float) ($i->saldo_inicial ?? 0),
+            $num($i->diferencia_fondo),
             (float) ($i->efectivo_cobrado ?? 0),
             (float) ($i->efectivo_esperado ?? 0),
-            (float) ($i->efectivo_contado ?? 0),
-            (float) ($i->diferencia ?? 0),
-            (float) ($i->transferencia_cobrada ?? 0),
-            (float) ($i->tarjeta_cobrada ?? 0),
-            (float) ($i->deposito_cobrado ?? 0),
-            (float) ($i->otros_cobrado ?? 0),
-            $i->tipo_cierre ?? '',
-            (bool) ($i->requiere_arqueo ?? false) ? 'Pendiente' : 'Conciliado',
+            $num($i->efectivo_contado),
+            $num($i->diferencia),
+            (float) (($i->transferencia_cobrada ?? 0) + ($i->deposito_cobrado ?? 0)),
+            $estado($i),
         ])->all();
+        $suma = fn (int $col) => fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[$col] ?? 0));
 
         return $this->documento->descargar(
             'conciliacion-caja',
             'Conciliación de caja',
-            'Cierres de caja, efectivo esperado, efectivo contado y diferencias.',
-            ['Fecha', 'Sede', 'Caja', 'Código caja', 'Cajero', 'Apertura', 'Cierre', 'Saldo inicial', 'Efectivo cobrado', 'Esperado', 'Contado', 'Diferencia', 'Transferencias', 'Tarjetas', 'Depósitos', 'Otros', 'Tipo cierre', 'Conciliación'],
+            'Cada turno con su fondo, efectivo esperado y contado, diferencias y estado del arqueo.',
+            ['Fecha', 'Horario', 'Cajero', 'Cierre anterior', 'Fondo inicial', 'Fondo vs cierre anterior', 'Efectivo cobrado', 'Esperado', 'Contado', 'Diferencia', 'Transferencias', 'Estado'],
             $filas,
-            array_merge(
-                $this->recopila->metadataPeriodo($filtros),
-                ['Sedes' => $this->recopila->sedesTexto($items)]
-            ),
+            $this->recopila->metadataPeriodo($filtros),
             $usuarioId,
-            [
-                'TOTAL',
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[7] ?? 0)),
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[8] ?? 0)),
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[9] ?? 0)),
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[10] ?? 0)),
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[11] ?? 0)),
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[12] ?? 0)),
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[13] ?? 0)),
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[14] ?? 0)),
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[15] ?? 0)),
-                '',
-                '',
-            ],
+            ['TOTAL', '', '', '', '', '', $suma(6), $suma(7), $suma(8), $suma(9), $suma(10), ''],
         );
     }
 }

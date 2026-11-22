@@ -9,7 +9,7 @@ class ConciliacionCajaServicio
 {
     use FiltraColumnasReporte;
 
-    private const COLUMNAS = ['fecha', 'caja_nombre', 'cajero', 'hora_apertura', 'hora_cierre', 'saldo_inicial', 'efectivo_cobrado', 'efectivo_esperado', 'efectivo_contado', 'diferencia', 'transferencia_cobrada', 'tarjeta_cobrada', 'deposito_cobrado', 'otros_cobrado'];
+    private const COLUMNAS = ['fecha', 'caja_nombre', 'cajero', 'hora_apertura', 'hora_cierre', 'saldo_inicial', 'efectivo_cobrado', 'efectivo_esperado', 'efectivo_contado', 'diferencia', 'transferencia_cobrada', 'tarjeta_cobrada', 'deposito_cobrado', 'otros_cobrado', 'diferencia_fondo'];
 
     public function __construct(private readonly AlcanceOperativoService $alcance)
     {
@@ -62,7 +62,16 @@ class ConciliacionCajaServicio
                 'cajero.name as cajero',
                 'conciliador.name as conciliado_por_nombre',
             ])
-            ->selectRaw("DATE(t.fecha_cierre) as fecha, TO_CHAR(t.fecha_apertura, 'HH24:MI') as hora_apertura, TO_CHAR(t.fecha_cierre, 'HH24:MI') as hora_cierre");
+            ->selectRaw("DATE(t.fecha_cierre) as fecha, TO_CHAR(t.fecha_apertura, 'HH24:MI') as hora_apertura, TO_CHAR(t.fecha_cierre, 'HH24:MI') as hora_cierre")
+            // El fondo con que abre un turno debería ser el efectivo con que cerró el turno anterior de la
+            // misma caja. Si no coincide, salió o entró dinero sin registrarse.
+            ->selectRaw("(SELECT COALESCE(a.efectivo_contado, a.efectivo_esperado) FROM ventas.turnos_caja a
+                WHERE a.caja_id = t.caja_id AND a.fecha_apertura < t.fecha_apertura AND a.estado = 'CERRADA'
+                ORDER BY a.fecha_apertura DESC LIMIT 1) as fondo_anterior")
+            ->selectRaw("t.saldo_inicial - (SELECT COALESCE(a.efectivo_contado, a.efectivo_esperado) FROM ventas.turnos_caja a
+                WHERE a.caja_id = t.caja_id AND a.fecha_apertura < t.fecha_apertura AND a.estado = 'CERRADA'
+                ORDER BY a.fecha_apertura DESC LIMIT 1) as diferencia_fondo")
+            ->selectRaw("CASE WHEN t.requiere_arqueo AND t.conciliado_at IS NULL THEN true ELSE false END as pendiente_arqueo");
 
         if (! empty($filtros['busqueda'])) {
             $texto = '%' . mb_strtolower((string) $filtros['busqueda']) . '%';
@@ -93,6 +102,23 @@ class ConciliacionCajaServicio
 
         [$reporte, $opcionesFiltro] = $this->filtrarColumnas($query, $filtros, self::COLUMNAS);
 
+        // Alertas (se cuentan antes de filtrar por alerta; al tocar una tarjeta se filtra).
+        $alertas = (clone $reporte)
+            ->selectRaw('SUM(CASE WHEN pendiente_arqueo THEN 1 ELSE 0 END) as pendientes')
+            ->selectRaw('SUM(CASE WHEN ABS(COALESCE(diferencia, 0)) > 0.009 THEN 1 ELSE 0 END) as con_diferencia')
+            ->selectRaw('COALESCE(SUM(CASE WHEN diferencia > 0 THEN diferencia ELSE 0 END), 0) as sobrantes')
+            ->selectRaw('COALESCE(SUM(CASE WHEN diferencia < 0 THEN -diferencia ELSE 0 END), 0) as faltantes')
+            ->selectRaw('SUM(CASE WHEN ABS(COALESCE(diferencia_fondo, 0)) > 0.009 THEN 1 ELSE 0 END) as fondo_no_cuadra')
+            ->first();
+        $pendientesTotales = DB::table('ventas.turnos_caja')->whereIn('sede_id', $sedes)->where('estado', 'CERRADA')
+            ->where('requiere_arqueo', true)->whereNull('conciliado_at')->count();
+        match ($filtros['alerta'] ?? null) {
+            'PENDIENTE' => $reporte->where('pendiente_arqueo', true),
+            'DIFERENCIA' => $reporte->whereRaw('ABS(COALESCE(diferencia, 0)) > 0.009'),
+            'FONDO' => $reporte->whereRaw('ABS(COALESCE(diferencia_fondo, 0)) > 0.009'),
+            default => null,
+        };
+
         $resumen = (clone $reporte)
             ->selectRaw('COUNT(*) as turnos_cerrados')
             ->selectRaw('COALESCE(SUM(efectivo_esperado), 0) as efectivo_esperado')
@@ -100,6 +126,8 @@ class ConciliacionCajaServicio
             ->selectRaw('COALESCE(SUM(diferencia), 0) as diferencia_total')
             ->selectRaw('COALESCE(SUM(transferencia_cobrada + tarjeta_cobrada + deposito_cobrado + otros_cobrado), 0) as no_efectivo')
             ->selectRaw('SUM(CASE WHEN requiere_arqueo = true THEN 1 ELSE 0 END) as pendientes_conciliacion')
+            ->selectRaw('COALESCE(SUM(efectivo_cobrado), 0) as efectivo_cobrado')
+            ->selectRaw('COALESCE(SUM(transferencia_cobrada + deposito_cobrado), 0) as transferencias')
             ->first();
 
         $paginador = $reporte
@@ -122,6 +150,16 @@ class ConciliacionCajaServicio
                     'diferencia_total' => round((float) ($resumen->diferencia_total ?? 0), 2),
                     'no_efectivo' => round((float) ($resumen->no_efectivo ?? 0), 2),
                     'pendientes_conciliacion' => (int) ($resumen->pendientes_conciliacion ?? 0),
+                    'efectivo_cobrado' => round((float) ($resumen->efectivo_cobrado ?? 0), 2),
+                    'transferencias' => round((float) ($resumen->transferencias ?? 0), 2),
+                    'alertas' => [
+                        'pendientes' => (int) ($alertas->pendientes ?? 0),
+                        'pendientes_totales' => $pendientesTotales,
+                        'con_diferencia' => (int) ($alertas->con_diferencia ?? 0),
+                        'sobrantes' => round((float) ($alertas->sobrantes ?? 0), 2),
+                        'faltantes' => round((float) ($alertas->faltantes ?? 0), 2),
+                        'fondo_no_cuadra' => (int) ($alertas->fondo_no_cuadra ?? 0),
+                    ],
                 ],
                 'opciones_filtro' => $opcionesFiltro,
                 'catalogos' => [

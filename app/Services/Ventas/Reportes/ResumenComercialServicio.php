@@ -10,7 +10,7 @@ class ResumenComercialServicio
 {
     use FiltraColumnasReporte;
 
-    private const COLUMNAS = ['transacciones', 'total_ventas'];
+    private const COLUMNAS = ['transacciones', 'total_ventas', 'descuentos', 'por_cobrar'];
 
     public function __construct(private readonly AlcanceOperativoService $alcance)
     {
@@ -24,36 +24,64 @@ class ResumenComercialServicio
         $dias = $desde->copy()->startOfDay()->diffInDays($hasta->copy()->startOfDay()) + 1;
         $hastaAnterior = $desde->copy()->subDay()->endOfDay();
         $desdeAnterior = $hastaAnterior->copy()->subDays($dias - 1)->startOfDay();
+        $pagado = "(SELECT COALESCE(SUM(pg.monto), 0) FROM ventas.pagos pg WHERE pg.venta_id = v.id AND pg.estado = 'CONFIRMADO')";
+        $sedeExpr = 'COALESCE(c.sede_id, m.sede_id)';
 
-        $ventasActuales = $this->ventasBase($sedes, $desde, $hasta);
-        $ventasAnteriores = $this->ventasBase($sedes, $desdeAnterior, $hastaAnterior);
-        $pagosActuales = $this->pagosBase($sedes, $desde, $hasta);
-        $pagosAnteriores = $this->pagosBase($sedes, $desdeAnterior, $hastaAnterior);
+        // Ventas = lo facturado en el período (pagado o no). Cobrado = el dinero que entró en el
+        // período, sea de ventas de estas fechas o anteriores. Por cobrar = lo que aún se debe de
+        // las ventas del período.
+        $ventas = $this->ventasBase($sedes, $desde, $hasta)
+            ->selectRaw('COUNT(v.id) as transacciones, COALESCE(SUM(v.total), 0) as total_ventas')
+            ->selectRaw('COALESCE(SUM(v.descuento), 0) as descuentos')
+            ->selectRaw("COALESCE(SUM(GREATEST(v.total - {$pagado}, 0)), 0) as por_cobrar")
+            ->selectRaw("COALESCE(SUM(v.total) FILTER (WHERE v.tipo_venta = 'MEMBRESIA'), 0) as membresias")
+            ->selectRaw("COALESCE(SUM(v.total) FILTER (WHERE v.tipo_venta <> 'MEMBRESIA'), 0) as productos_servicios")
+            ->first();
+        $totalCobrado = (float) $this->pagosBase($sedes, $desde, $hasta)->sum('p.monto');
+        $ventasAnterior = (float) $this->ventasBase($sedes, $desdeAnterior, $hastaAnterior)->sum('v.total');
+        $cobradoAnterior = (float) $this->pagosBase($sedes, $desdeAnterior, $hastaAnterior)->sum('p.monto');
 
-        $totalVentas = (float) (clone $ventasActuales)->sum('v.total');
-        $transacciones = (clone $ventasActuales)->count('v.id');
-        $totalCobrado = (float) (clone $pagosActuales)->sum('p.monto');
-        $ventasAnterior = (float) (clone $ventasAnteriores)->sum('v.total');
-        $cobradoAnterior = (float) (clone $pagosAnteriores)->sum('p.monto');
+        // Solo se compara si el sistema ya registraba ventas durante todo el período anterior
+        // (se usa la fecha de registro, no la de la venta: hubo ventas cargadas con fecha atrasada).
+        // Si no, el porcentaje no dice nada (por ejemplo, +14.900 % frente a $15).
+        $primeraVenta = DB::table('ventas.ventas')->min('created_at');
+        $comparable = $primeraVenta && Carbon::parse($primeraVenta)->startOfDay()->lte($desdeAnterior);
 
         $porSedeQuery = $this->ventasBase($sedes, $desde, $hasta)
-            ->leftJoin('institucional.sedes as s', 's.id_sede', '=', DB::raw('COALESCE(c.sede_id, m.sede_id)'))
+            ->leftJoin('institucional.sedes as s', 's.id_sede', '=', DB::raw($sedeExpr))
             ->selectRaw("COALESCE(s.nombre, 'Sin sede') as sede")
             ->selectRaw('COUNT(v.id) as transacciones')
             ->selectRaw('SUM(v.total) as total_ventas')
+            ->selectRaw('SUM(v.descuento) as descuentos')
+            ->selectRaw("SUM(GREATEST(v.total - {$pagado}, 0)) as por_cobrar")
             ->groupByRaw("COALESCE(s.nombre, 'Sin sede')");
 
         [$reporte, $opcionesFiltro] = $this->filtrarColumnas($porSedeQuery, $filtros, self::COLUMNAS);
 
-        $porSede = $reporte
-            ->orderByDesc('total_ventas')
-            ->get()
+        $cobradoPorSede = $this->pagosBase($sedes, $desde, $hasta)
+            ->leftJoin('institucional.sedes as s', 's.id_sede', '=', DB::raw($sedeExpr))
+            ->groupByRaw("COALESCE(s.nombre, 'Sin sede')")
+            ->selectRaw("COALESCE(s.nombre, 'Sin sede') as sede, SUM(p.monto) as cobrado")
+            ->pluck('cobrado', 'sede');
+
+        $porSede = $reporte->orderByDesc('total_ventas')->get()
             ->map(fn ($fila) => [
                 'sede' => $fila->sede,
                 'transacciones' => (int) $fila->transacciones,
                 'total_ventas' => round((float) $fila->total_ventas, 2),
-            ])
-            ->values();
+                'descuentos' => round((float) $fila->descuentos, 2),
+                'total_cobrado' => round((float) ($cobradoPorSede[$fila->sede] ?? 0), 2),
+                'por_cobrar' => round((float) $fila->por_cobrar, 2),
+            ]);
+        // Una sede que solo cobró deudas anteriores también aparece (si no se filtra por columnas).
+        if (empty(array_filter($filtros['columnas'] ?? []))) {
+            foreach ($cobradoPorSede as $sede => $cobrado) {
+                if (! $porSede->contains('sede', $sede)) {
+                    $porSede->push(['sede' => $sede, 'transacciones' => 0, 'total_ventas' => 0.0, 'descuentos' => 0.0,
+                        'total_cobrado' => round((float) $cobrado, 2), 'por_cobrar' => 0.0]);
+                }
+            }
+        }
 
         return [
             'periodo' => [
@@ -63,15 +91,22 @@ class ResumenComercialServicio
             'comparativo' => [
                 'desde' => $desdeAnterior->toDateString(),
                 'hasta' => $hastaAnterior->toDateString(),
+                'disponible' => $comparable,
+                'total_ventas' => round($ventasAnterior, 2),
+                'total_cobrado' => round($cobradoAnterior, 2),
             ],
             'indicadores' => [
-                'total_ventas' => round($totalVentas, 2),
-                'transacciones' => $transacciones,
+                'total_ventas' => round((float) $ventas->total_ventas, 2),
+                'transacciones' => (int) $ventas->transacciones,
                 'total_cobrado' => round($totalCobrado, 2),
-                'variacion_ventas' => $this->variacion($totalVentas, $ventasAnterior),
-                'variacion_cobros' => $this->variacion($totalCobrado, $cobradoAnterior),
+                'por_cobrar' => round((float) $ventas->por_cobrar, 2),
+                'descuentos' => round((float) $ventas->descuentos, 2),
+                'membresias' => round((float) $ventas->membresias, 2),
+                'productos_servicios' => round((float) $ventas->productos_servicios, 2),
+                'variacion_ventas' => $comparable ? $this->variacion((float) $ventas->total_ventas, $ventasAnterior) : null,
+                'variacion_cobros' => $comparable ? $this->variacion($totalCobrado, $cobradoAnterior) : null,
             ],
-            'por_sede' => $porSede,
+            'por_sede' => $porSede->values(),
             'opciones_filtro' => $opcionesFiltro,
             'catalogos' => [
                 'sedes' => DB::table('institucional.sedes')

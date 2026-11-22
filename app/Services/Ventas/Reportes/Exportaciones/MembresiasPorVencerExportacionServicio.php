@@ -18,46 +18,35 @@ class MembresiasPorVencerExportacionServicio
     public function excel(array $filtros, int $usuarioId): StreamedResponse
     {
         $items = $this->recopila->todos(fn ($params, $uid) => $this->reporte->consultar($params, $uid), $filtros, $usuarioId);
+        $dia = fn ($f) => $f ? implode('/', array_reverse(explode('-', substr((string) $f, 0, 10)))) : '';
+        $situacion = fn ($i) => match ($i->situacion ?? '') {
+            'AUTOMATICA' => 'Se renueva sola el ' . $dia($i->fecha_programacion),
+            'DEUDA' => 'No se renueva: debe $' . number_format((float) $i->deuda, 2),
+            default => 'Renovar a mano',
+        };
         $filas = collect($items)->map(fn ($i) => [
-            $i->sede ?? '',
-            $i->codigo_contrato ?? '',
             $i->cliente ?? '',
-            $i->identificacion ?? '',
-            $i->plan ?? '',
-            $i->modalidad ?? '',
-            (int) ($i->numero_periodo ?? 0),
-            $i->fecha_fin ?? '',
+            $i->paga ?? '',
+            $i->telefono ?? '',
+            trim(($i->codigo_contrato ?? '') . ' · ' . ($i->plan ?? ''), ' ·'),
+            $dia($i->fecha_fin ?? null),
             (int) ($i->dias_restantes ?? 0),
-            (bool) ($i->renovable ?? false) ? 'Sí' : 'No',
-            $i->estado_periodo ?? '',
-            (float) ($i->saldo_pendiente ?? 0),
+            $situacion($i),
+            (float) ($i->deuda ?? 0),
+            (float) ($i->monto_renovacion ?? 0),
         ])->all();
 
         return $this->documento->descargar(
             'membresias-por-vencer',
             'Membresías por vencer',
-            'Períodos vigentes próximos a finalizar para gestión de renovación.',
-            ['Sede', 'Contrato', 'Cliente', 'Identificación', 'Plan', 'Modalidad', 'Período', 'Vence', 'Días restantes', 'Renovable', 'Estado', 'Saldo'],
+            'Qué pasa con cada contrato al vencer, a quién llamar y cuánto pagará al renovar.',
+            ['Cliente', 'Paga', 'Teléfono', 'Contrato', 'Vence', 'Días', 'Al vencer', 'Deuda', 'Pagará al renovar'],
             $filas,
-            array_merge(
-                $this->recopila->metadataPeriodo($filtros, 'vence_desde', 'vence_hasta'),
-                ['Sedes' => $this->recopila->sedesTexto($items)]
-            ),
+            $this->recopila->metadataPeriodo($filtros, 'vence_desde', 'vence_hasta'),
             $usuarioId,
-            [
-                'TOTAL',
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
-                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[11] ?? 0)),
-            ],
+            ['TOTAL', '', '', '', '', '', '',
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[7] ?? 0)),
+                fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[8] ?? 0))],
         );
     }
 }

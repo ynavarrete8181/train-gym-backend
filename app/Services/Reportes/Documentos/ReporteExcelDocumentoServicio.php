@@ -68,15 +68,15 @@ class ReporteExcelDocumentoServicio
         $hoja->getColumnDimension('A')->setWidth(18);
 
         $hoja->getRowDimension(1)->setRowHeight(26);
-        $hoja->getRowDimension(2)->setRowHeight(28);
-        $hoja->getRowDimension(3)->setRowHeight(22);
+        $hoja->getRowDimension(2)->setRowHeight(20);
+        $hoja->getRowDimension(3)->setRowHeight(18);
 
         $hoja->getStyle("B1:{$ultimaColumna}1")
             ->getFont()->setBold(true)->setSize(12)->getColor()->setARGB('FF171717');
         $hoja->getStyle("B2:{$ultimaColumna}2")
-            ->getFont()->setBold(true)->setSize(15)->getColor()->setARGB('FF5B4700');
+            ->getFont()->setBold(true)->setSize(10)->getColor()->setARGB('FF5B4700');
         $hoja->getStyle("B3:{$ultimaColumna}3")
-            ->getFont()->setSize(9)->getColor()->setARGB('FF5F6368');
+            ->getFont()->setSize(8)->getColor()->setARGB('FF5F6368');
 
         $hoja->getStyle("B1:{$ultimaColumna}3")
             ->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);

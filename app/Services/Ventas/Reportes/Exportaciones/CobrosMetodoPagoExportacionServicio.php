@@ -28,8 +28,8 @@ class CobrosMetodoPagoExportacionServicio
 
         return $this->documento->descargar(
             'cobros-metodo-pago',
-            'Cobros por método de pago',
-            'Cobros confirmados consolidados por fecha, sede y método.',
+            'Cobros por día y método',
+            'Subtotal de cada día por método de pago, para cuadrar con la caja y el banco.',
             ['Fecha', 'Sede', 'Método', 'Operaciones', 'Total'],
             $filas,
             array_merge(

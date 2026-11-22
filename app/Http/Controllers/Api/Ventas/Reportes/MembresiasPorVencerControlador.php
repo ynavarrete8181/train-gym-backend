@@ -27,6 +27,8 @@ class MembresiasPorVencerControlador extends Controller
             'vence_hasta' => 'nullable|date|after_or_equal:vence_desde',
             'sede_id' => 'nullable',
             'renovable' => 'nullable',
+            'situacion' => 'nullable|in:AUTOMATICA,DEUDA,MANUAL',
+            'proximos_7' => 'nullable|boolean',
             'estado_periodo' => 'nullable',
             'page' => 'nullable|integer|min:1',
             'per_page' => 'nullable|integer|in:5,10,25,50',
@@ -52,6 +54,8 @@ class MembresiasPorVencerControlador extends Controller
             'vence_hasta' => 'nullable|date|after_or_equal:vence_desde',
             'sede_id' => 'nullable',
             'renovable' => 'nullable',
+            'situacion' => 'nullable|in:AUTOMATICA,DEUDA,MANUAL',
+            'proximos_7' => 'nullable|boolean',
             'estado_periodo' => 'nullable',
         ]);
 

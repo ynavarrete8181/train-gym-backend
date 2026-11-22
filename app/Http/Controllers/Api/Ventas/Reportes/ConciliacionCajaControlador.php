@@ -28,6 +28,7 @@ class ConciliacionCajaControlador extends Controller
             'sede_id' => 'nullable',
             'tipo_cierre' => 'nullable',
             'estado_conciliacion' => 'nullable',
+            'alerta' => 'nullable|in:PENDIENTE,DIFERENCIA,FONDO',
             'page' => 'nullable|integer|min:1',
             'per_page' => 'nullable|integer|in:5,10,25,50',
         ]);
@@ -52,7 +53,8 @@ class ConciliacionCajaControlador extends Controller
             'hasta' => 'nullable|date|after_or_equal:desde',
             'sede_id' => 'nullable',
             'tipo_cierre' => 'nullable',
-            'estado_conciliacion' => 'nullable'
+            'estado_conciliacion' => 'nullable',
+            'alerta' => 'nullable|in:PENDIENTE,DIFERENCIA,FONDO',
         ]);
 
         return $this->exportacion->excel($filtros, (int) $request->user()->id);

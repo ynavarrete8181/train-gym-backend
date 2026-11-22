@@ -57,7 +57,8 @@ class ReporteExcelDocumentoServicio
 
         $detalle = collect([
             'Generado por: ' . $membrete['generado_por'],
-            'Rol: ' . $membrete['rol'],
+            // El rol se escribe como frase: «SUPERVISOR DE VENTAS» → «Supervisor de ventas».
+            'Rol: ' . mb_strtoupper(mb_substr(mb_strtolower((string) $membrete['rol']), 0, 1)) . mb_substr(mb_strtolower((string) $membrete['rol']), 1),
             $periodo ? 'Período: ' . $periodo : null,
             'Sedes: ' . $sedes,
         ])->filter()->implode('   ·   ');

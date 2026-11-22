@@ -10,7 +10,7 @@ class MembresiasNuevasRenovacionesServicio
 {
     use FiltraColumnasReporte;
 
-    private const COLUMNAS = ['fecha_movimiento', 'codigo_contrato', 'cliente', 'plan', 'modalidad', 'numero_periodo', 'precio', 'total_cobrado', 'saldo_pendiente'];
+    private const COLUMNAS = ['fecha_movimiento', 'codigo_contrato', 'cliente', 'plan', 'modalidad', 'numero_periodo', 'precio', 'descuento', 'total', 'total_cobrado', 'saldo_pendiente'];
 
     public function __construct(private readonly AlcanceOperativoService $alcance)
     {
@@ -32,8 +32,15 @@ class MembresiasNuevasRenovacionesServicio
 
         $fechaMovimientoSql = 'COALESCE('.FechaNegocio::diaSql('mp.generado_at').', '.FechaNegocio::diaSql('mp.created_at').', mp.fecha_inicio)';
         $pagadoSql = "(SELECT COALESCE(SUM(pg.monto), 0) FROM ventas.pagos pg WHERE pg.venta_id = mp.venta_id AND pg.estado = 'CONFIRMADO')";
-        $saldoSql = "GREATEST(COALESCE(v.total, mp.precio, 0) - {$pagadoSql}, 0)";
-        $tipoMovimientoSql = "CASE WHEN mp.numero_periodo = 1 THEN 'NUEVA' ELSE 'RENOVACION' END";
+        $totalSql = 'COALESCE(v.total, mp.precio - COALESCE(mp.descuento_importe, 0), 0)';
+        $saldoSql = "GREATEST({$totalSql} - {$pagadoSql}, 0)";
+        // Renovación: un período más del mismo contrato. Recontratación: un contrato nuevo de un
+        // cliente que ya había tenido otro (no se cuentan pases ni contratos cancelados). Nueva: el resto.
+        $tipoMovimientoSql = "CASE WHEN mp.numero_periodo > 1 THEN 'RENOVACION'
+            WHEN EXISTS (SELECT 1 FROM membresias.membresias m2 JOIN membresias.planes p2 ON p2.id = m2.plan_id
+                WHERE m2.deportista_id = m.deportista_id AND m2.id < m.id AND m2.estado <> 'CANCELADA'
+                AND COALESCE(p2.tipo_producto, 'MEMBRESIA') <> 'PASE_DIARIO') THEN 'RECONTRATACION'
+            ELSE 'NUEVA' END";
 
         $query = DB::table('membresias.membresia_periodos as mp')
             ->join('membresias.membresias as m', 'm.id', '=', 'mp.membresia_id')
@@ -48,6 +55,11 @@ class MembresiasNuevasRenovacionesServicio
             ->whereIn('m.sede_id', $sedes)
             // El pase se vende cada día: no es una renovación ni un contrato por vencer.
             ->whereRaw("COALESCE(plan.tipo_producto, 'MEMBRESIA') <> 'PASE_DIARIO'")
+            // Un período cancelado o con su venta anulada no es una venta: no cuenta ni se debe.
+            ->where('mp.estado', '<>', 'CANCELADA')
+            ->where(fn ($q) => $q->whereNull('v.id')->orWhere('v.estado', '<>', 'ANULADA'))
+            ->leftJoin('personas.personas as tutor', 'tutor.id', '=', DB::raw('(SELECT r.representante_persona_id FROM clientes.deportista_representantes r
+                WHERE r.deportista_id = d.id AND r.activo AND r.responsable_pago ORDER BY r.es_principal DESC, r.id LIMIT 1)'))
             ->selectRaw("mp.id, {$fechaMovimientoSql} as fecha_movimiento")
             ->selectRaw("{$tipoMovimientoSql} as tipo_movimiento")
             ->addSelect(
@@ -68,7 +80,9 @@ class MembresiasNuevasRenovacionesServicio
             ->selectRaw('plan.nombre as plan')
             ->selectRaw("COALESCE(modalidad.nombre, 'Sin modalidad') as modalidad")
             ->selectRaw("{$pagadoSql} as total_cobrado")
-            ->selectRaw("{$saldoSql} as saldo_pendiente");
+            ->selectRaw("{$saldoSql} as saldo_pendiente")
+            ->selectRaw("COALESCE(v.descuento, mp.descuento_importe, 0) as descuento, {$totalSql} as total")
+            ->selectRaw("NULLIF(TRIM(tutor.nombre_completo), '') as tutor");
 
         if (! empty($filtros['busqueda'])) {
             $texto = '%' . mb_strtolower((string) $filtros['busqueda']) . '%';
@@ -81,10 +95,6 @@ class MembresiasNuevasRenovacionesServicio
             });
         }
 
-        if (! empty($filtros['tipo_movimiento'])) {
-            $valores = is_array($filtros['tipo_movimiento']) ? $filtros['tipo_movimiento'] : [$filtros['tipo_movimiento']];
-            $query->whereIn(DB::raw($tipoMovimientoSql), array_filter($valores));
-        }
 
         if (! empty($filtros['estado_periodo'])) {
             $valores = is_array($filtros['estado_periodo']) ? $filtros['estado_periodo'] : [$filtros['estado_periodo']];
@@ -93,11 +103,19 @@ class MembresiasNuevasRenovacionesServicio
 
         [$reporte, $opcionesFiltro] = $this->filtrarColumnas($query, $filtros, self::COLUMNAS);
 
+        // Las tarjetas cuentan cada tipo antes de filtrar por tipo (al tocarlas se filtra).
+        $porTipo = (clone $reporte)->selectRaw("SUM(CASE WHEN tipo_movimiento = 'NUEVA' THEN 1 ELSE 0 END) as nuevas")
+            ->selectRaw("SUM(CASE WHEN tipo_movimiento = 'RECONTRATACION' THEN 1 ELSE 0 END) as recontrataciones")
+            ->selectRaw("SUM(CASE WHEN tipo_movimiento = 'RENOVACION' THEN 1 ELSE 0 END) as renovaciones")->first();
+        if (! empty($filtros['tipo_movimiento'])) {
+            $valores = is_array($filtros['tipo_movimiento']) ? $filtros['tipo_movimiento'] : [$filtros['tipo_movimiento']];
+            $reporte->whereIn('tipo_movimiento', array_filter($valores));
+        }
+
         $resumen = (clone $reporte)
-            ->selectRaw("SUM(CASE WHEN tipo_movimiento = 'NUEVA' THEN 1 ELSE 0 END) as nuevas")
-            ->selectRaw("SUM(CASE WHEN tipo_movimiento = 'RENOVACION' THEN 1 ELSE 0 END) as renovaciones")
             ->selectRaw('COUNT(*) as total_periodos')
-            ->selectRaw('COALESCE(SUM(precio), 0) as total_facturado')
+            ->selectRaw('COALESCE(SUM(total), 0) as total_facturado')
+            ->selectRaw('COALESCE(SUM(descuento), 0) as descuentos')
             ->selectRaw('COALESCE(SUM(total_cobrado), 0) as total_cobrado')
             ->selectRaw('COALESCE(SUM(saldo_pendiente), 0) as saldo_pendiente')
             ->first();
@@ -116,8 +134,10 @@ class MembresiasNuevasRenovacionesServicio
                 'ultima_pagina' => $paginador->lastPage(),
                 'periodo' => ['desde' => $desde, 'hasta' => $hasta],
                 'resumen' => [
-                    'nuevas' => (int) ($resumen->nuevas ?? 0),
-                    'renovaciones' => (int) ($resumen->renovaciones ?? 0),
+                    'nuevas' => (int) ($porTipo->nuevas ?? 0),
+                    'recontrataciones' => (int) ($porTipo->recontrataciones ?? 0),
+                    'renovaciones' => (int) ($porTipo->renovaciones ?? 0),
+                    'descuentos' => round((float) ($resumen->descuentos ?? 0), 2),
                     'total_periodos' => (int) ($resumen->total_periodos ?? 0),
                     'total_facturado' => round((float) ($resumen->total_facturado ?? 0), 2),
                     'total_cobrado' => round((float) ($resumen->total_cobrado ?? 0), 2),
@@ -132,6 +152,7 @@ class MembresiasNuevasRenovacionesServicio
                         ->get(['id_sede as id', 'nombre']),
                     'tipos_movimiento' => [
                         ['value' => 'NUEVA', 'label' => 'Nueva'],
+                        ['value' => 'RECONTRATACION', 'label' => 'Recontratación'],
                         ['value' => 'RENOVACION', 'label' => 'Renovación'],
                     ],
                     'estados_periodo' => DB::table('membresias.membresia_periodos')

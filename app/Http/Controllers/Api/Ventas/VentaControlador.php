@@ -310,11 +310,23 @@ class VentaControlador extends Controller
 
     public function pagos(Request $request)
     {
-        return $this->respuesta(
-            'Cobros consultados.',
-            $this->ventas->listarPagos($request->all(), $request->user()?->id),
-            $request->user()?->id,
-        );
+        $usuarioId = $request->user()?->id;
+        $paginador = $this->ventas->listarPagos($request->all(), $usuarioId);
+        $alcance = ['solo_turno' => false];
+        if (app(\App\Services\Seguridad\AlcanceOperativoService::class)->esCajero($usuarioId)) {
+            $turno = $this->ventas->turnoCobrosCajero((int) $usuarioId);
+            $alcance = ['solo_turno' => true, 'turno_abierto' => (bool) $turno, 'desde' => $turno?->fecha_apertura];
+        }
+
+        return ApiResponse::exito('Cobros consultados.', $paginador->items(), [
+            'pagina_actual' => $paginador->currentPage(),
+            'por_pagina' => $paginador->perPage(),
+            'total' => $paginador->total(),
+            'ultima_pagina' => $paginador->lastPage(),
+            'opciones_filtro' => $this->filtros->opciones($usuarioId),
+            'catalogos' => $this->ventas->catalogos($usuarioId),
+            'alcance_cobros' => $alcance,
+        ]);
     }
 
     public function reenviarComprobante(Request $request, int $id)

@@ -73,6 +73,13 @@ class CobrosPeriodoServicio
 
         [$reporte, $opcionesFiltro] = $this->filtrarColumnas($query, $filtros, self::COLUMNAS);
 
+        // Transferencias o depósitos sin número de comprobante o sin banco: hay que completarlos.
+        $incompleto = fn ($q) => $q->where(fn ($w) => $w->where('banco', 'like', '%Sin banco%')->orWhere('referencia', 'like', '%Sin número%'));
+        $porCompletar = $incompleto(clone $reporte)->selectRaw('COUNT(*) as cobros, COALESCE(SUM(total), 0) as total')->first();
+        if (! empty($filtros['por_completar'])) {
+            $reporte = $incompleto($reporte);
+        }
+
         // Totales sobre los cobros que quedan después de todos los filtros.
         $totales = (clone $reporte)->selectRaw('COUNT(*) as cobros, COALESCE(SUM(total), 0) as total, COALESCE(SUM(numero_cuentas), 0) as cuentas')->first();
         $porMetodo = DB::table('ventas.pagos as p')
@@ -98,6 +105,7 @@ class CobrosPeriodoServicio
                     'cuentas' => (int) $totales->cuentas,
                     'total_cobrado' => round((float) $totales->total, 2),
                     'por_metodo' => $porMetodo,
+                    'por_completar' => ['cobros' => (int) $porCompletar->cobros, 'total' => round((float) $porCompletar->total, 2)],
                 ],
                 'periodo' => ['desde' => $desde, 'hasta' => $hasta],
                 'opciones_filtro' => $opcionesFiltro,

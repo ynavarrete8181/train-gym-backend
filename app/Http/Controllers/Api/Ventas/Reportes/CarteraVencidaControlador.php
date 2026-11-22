@@ -25,6 +25,7 @@ class CarteraVencidaControlador extends Controller
             'busqueda' => 'nullable|string|max:120',
             'sede_id' => 'nullable',
             'prioridad' => 'nullable',
+            'tramo' => 'nullable|in:1-7,8-30,31+',
             'page' => 'nullable|integer|min:1',
             'per_page' => 'nullable|integer|in:5,10,25,50',
         ]);
@@ -46,7 +47,8 @@ class CarteraVencidaControlador extends Controller
             'columnas.*.*' => 'nullable|string|max:255',
             'busqueda' => 'nullable|string|max:120',
             'sede_id' => 'nullable',
-            'prioridad' => 'nullable'
+            'prioridad' => 'nullable',
+            'tramo' => 'nullable|in:1-7,8-30,31+',
         ]);
 
         return $this->exportacion->excel($filtros, (int) $request->user()->id);

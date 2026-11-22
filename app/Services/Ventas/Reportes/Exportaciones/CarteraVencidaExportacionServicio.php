@@ -20,24 +20,23 @@ class CarteraVencidaExportacionServicio
         $items = $this->recopila->todos(fn ($params, $uid) => $this->reporte->consultar($params, $uid), $filtros, $usuarioId);
 
         $filas = collect($items)->map(fn ($i) => [
-            $i->sede ?? '',
-            $i->venta_numero ?? '',
             $i->cliente ?? '',
-            $i->identificacion ?? '',
-            $i->fecha_vencimiento ?? '',
+            $i->paga ?? '',
+            $i->telefono ?? '',
+            trim(($i->contrato ?? '') . ($i->periodo ? ' · ' . $i->periodo : '')),
+            $i->fecha_vencimiento ? implode('/', array_reverse(explode('-', substr((string) $i->fecha_vencimiento, 0, 10)))) : '',
             (int) ($i->dias_vencidos ?? 0),
             (float) ($i->total_venta ?? 0),
             (float) ($i->total_pagado ?? 0),
             (float) ($i->saldo_pendiente ?? 0),
-            $i->responsable ?? '',
-            $i->prioridad ?? '',
+            $i->sede ?? '',
         ])->all();
 
         return $this->documento->descargar(
             'cartera-vencida',
             'Cartera vencida',
-            'Cuentas vencidas y saldos pendientes por sede.',
-            ['Sede', 'N.º venta', 'Cliente', 'Identificación', 'Vencimiento', 'Días vencidos', 'Total', 'Pagado', 'Saldo', 'Responsable', 'Prioridad'],
+            'Quién debe, cuánto, desde cuándo y cómo contactarlo.',
+            ['Cliente', 'Paga', 'Teléfono', 'Qué debe', 'Vencimiento', 'Días de atraso', 'Total', 'Pagado', 'Saldo', 'Sede'],
             $filas,
             [
                 'Sedes' => $this->recopila->sedesTexto($items),
@@ -45,16 +44,10 @@ class CarteraVencidaExportacionServicio
             ],
             $usuarioId,
             [
-                'TOTAL',
-                '',
-                '',
-                '',
-                '',
-                '',
+                'TOTAL', '', '', '', '', '',
                 fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[6] ?? 0)),
                 fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[7] ?? 0)),
                 fn (array $rows) => collect($rows)->sum(fn ($row) => (float) ($row[8] ?? 0)),
-                '',
                 '',
             ],
         );

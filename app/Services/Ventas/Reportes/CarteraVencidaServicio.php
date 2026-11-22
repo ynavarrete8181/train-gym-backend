@@ -9,7 +9,10 @@ class CarteraVencidaServicio
 {
     use FiltraColumnasReporte;
 
-    private const COLUMNAS = ['venta_numero', 'cliente', 'fecha_vencimiento', 'dias_vencidos', 'saldo_pendiente', 'responsable'];
+    private const COLUMNAS = ['venta_numero', 'cliente', 'paga', 'telefono', 'contrato', 'fecha_vencimiento', 'dias_vencidos', 'saldo_pendiente', 'sede'];
+
+    /** Tramos de atraso: se cobran primero las deudas más viejas. */
+    private const TRAMOS = ['1-7' => [1, 7], '8-30' => [8, 30], '31+' => [31, 100000]];
 
     public function __construct(private readonly AlcanceOperativoService $alcance)
     {
@@ -38,6 +41,9 @@ class CarteraVencidaServicio
             ->leftJoin('personas.personas as persona', 'persona.id', '=', 'd.persona_id')
             ->leftJoin('seguridad.users as cliente_user', 'cliente_user.id', '=', 'd.usuario_id')
             ->leftJoin('seguridad.users as responsable', 'responsable.id', '=', 'cc.responsable_id')
+            // Quien paga: el tutor responsable de pago activo, si el cliente tiene uno.
+            ->leftJoin('personas.personas as tutor', 'tutor.id', '=', DB::raw('(SELECT r.representante_persona_id FROM clientes.deportista_representantes r
+                WHERE r.deportista_id = d.id AND r.activo AND r.responsable_pago ORDER BY r.es_principal DESC, r.id LIMIT 1)'))
             ->whereIn(DB::raw('COALESCE(c.sede_id, m.sede_id)'), $sedes)
             ->whereDate('cc.fecha_vencimiento', '<', now('America/Guayaquil')->toDateString())
             ->where('v.estado', '<>', 'ANULADA')
@@ -48,6 +54,12 @@ class CarteraVencidaServicio
             ->selectRaw("cc.fecha_vencimiento, CURRENT_DATE - cc.fecha_vencimiento as dias_vencidos")
             ->selectRaw("v.total as total_venta, {$pagadoSql} as total_pagado, {$saldoSql} as saldo_pendiente")
             ->selectRaw("COALESCE(responsable.name, 'Sin asignar') as responsable")
+            ->selectRaw("COALESCE(NULLIF(TRIM(tutor.nombre_completo), '') || ' (tutor)', COALESCE(NULLIF(TRIM(persona.nombre_completo), ''), NULLIF(TRIM(cliente_user.name), ''), 'Consumidor final')) as paga")
+            ->selectRaw("COALESCE(NULLIF(TRIM(tutor.telefono), ''), NULLIF(TRIM(persona.telefono), ''), NULLIF(TRIM(d.telefono), '')) as telefono")
+            ->selectRaw("COALESCE(tutor.id, persona.id) as deudor_id")
+            ->selectRaw("COALESCE(m.codigo_contrato, v.numero) as contrato")
+            ->selectRaw("(SELECT TO_CHAR(mp.fecha_inicio, 'DD/MM/YYYY') || ' al ' || TO_CHAR(mp.fecha_fin, 'DD/MM/YYYY') FROM membresias.membresia_periodos mp WHERE mp.venta_id = v.id ORDER BY mp.id DESC LIMIT 1) as periodo")
+            ->selectRaw('v.concepto')
             ->addSelect('cc.prioridad');
 
         if (! empty($filtros['busqueda'])) {
@@ -67,7 +79,19 @@ class CarteraVencidaServicio
 
         [$reporte, $opcionesFiltro] = $this->filtrarColumnas($query, $filtros, self::COLUMNAS);
 
+        // Cuentas y saldo por tramo de atraso, antes de filtrar por tramo (las tarjetas los muestran todos).
+        $tramos = [];
+        foreach (self::TRAMOS as $clave => [$desde, $hasta]) {
+            $fila = (clone $reporte)->whereBetween('dias_vencidos', [$desde, $hasta])
+                ->selectRaw('COUNT(*) as cuentas, COALESCE(SUM(saldo_pendiente), 0) as saldo')->first();
+            $tramos[$clave] = ['cuentas' => (int) $fila->cuentas, 'saldo' => round((float) $fila->saldo, 2)];
+        }
+        if (! empty($filtros['tramo']) && isset(self::TRAMOS[$filtros['tramo']])) {
+            $reporte->whereBetween('dias_vencidos', self::TRAMOS[$filtros['tramo']]);
+        }
+
         $resumen = (clone $reporte)
+            ->selectRaw('COUNT(DISTINCT deudor_id) as deudores')
             ->selectRaw('COUNT(*) as cuentas_vencidas')
             ->selectRaw('COALESCE(SUM(saldo_pendiente), 0) as saldo_vencido')
             ->selectRaw('COALESCE(AVG(dias_vencidos), 0) as promedio_dias_vencidos')
@@ -75,6 +99,7 @@ class CarteraVencidaServicio
 
         $paginador = $reporte
             ->orderBy('fecha_vencimiento')
+            ->orderBy('paga')
             ->orderByDesc('saldo_pendiente')
             ->paginate($filtros['per_page'] ?? 10, ['*'], 'page', $filtros['page'] ?? 1);
 
@@ -89,6 +114,8 @@ class CarteraVencidaServicio
                     'cuentas_vencidas' => (int) ($resumen->cuentas_vencidas ?? 0),
                     'saldo_vencido' => round((float) ($resumen->saldo_vencido ?? 0), 2),
                     'promedio_dias_vencidos' => round((float) ($resumen->promedio_dias_vencidos ?? 0), 1),
+                    'deudores' => (int) ($resumen->deudores ?? 0),
+                    'tramos' => $tramos,
                 ],
                 'opciones_filtro' => $opcionesFiltro,
                 'catalogos' => [

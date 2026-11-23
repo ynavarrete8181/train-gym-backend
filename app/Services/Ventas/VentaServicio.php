@@ -266,6 +266,13 @@ class VentaServicio
                     : []),
             ]);
 
+        // Lo ya cobrado y lo que falta: al abrir una cuenta con pago parcial el POS
+        // propone solo el saldo, no el total de la venta.
+        $venta->total_pagado = round((float) $venta->pagos
+            ->filter(fn ($pago) => strtoupper((string) $pago->estado) === 'CONFIRMADO')
+            ->sum('monto'), 2);
+        $venta->saldo_pendiente = max(0, round((float) $venta->total - $venta->total_pagado, 2));
+
         $venta->comprobante = DB::table('ventas.comprobantes')
             ->where('venta_id', $ventaId)
             ->first();

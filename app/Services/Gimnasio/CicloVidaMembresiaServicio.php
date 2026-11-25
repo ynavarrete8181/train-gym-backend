@@ -18,6 +18,7 @@ final class CicloVidaMembresiaServicio
         private readonly PoliticaCicloVidaMembresia $politica,
         private readonly EstadoCatalogoServicio $estados,
         private readonly ImpactoFinancieroCongelacionServicio $impactoFinanciero,
+        private readonly CongelacionSinUsoServicio $sinUso,
     ) {}
 
     public function resumen(int $id): array
@@ -63,6 +64,7 @@ final class CicloVidaMembresiaServicio
                 && $this->motivoBloqueoFinanciero($id, $m) === null
                 && ! $suspensiones->contains(fn ($s) => in_array($s->estado, ['PROGRAMADA', 'VIGENTE'], true)),
             'permite_congelar_facturacion' => false,
+            'congelacion_sin_uso' => $this->sinUso->evaluar($id),
             'vigencia_inicio' => $m->vigencia_inicio ?? null,
             'vigencia_fin' => $m->vigencia_fin ?? null,
             'vigencia_inicio_sugerida' => substr((string) ($m->vigencia_inicio ?? $m->created_at), 0, 10),
@@ -902,6 +904,9 @@ final class CicloVidaMembresiaServicio
             ->where('membresia_id', $id)->where('estado', 'VIGENTE')
             ->orderByDesc('id')->first();
         $this->politica->validarReactivacion((string) ($m->estado ?? ''), $s !== null);
+        if ($s->tipo === CongelacionSinUsoServicio::TIPO) {
+            return $this->sinUso->previsualizarReactivacion($id, $s);
+        }
         $regreso = CarbonImmutable::today('America/Guayaquil');
         $calculoRegreso = $this->politica->calcularRegreso(
             (string) $s->fecha_inicio, (string) $s->fecha_fin_prevista,
@@ -941,6 +946,13 @@ final class CicloVidaMembresiaServicio
             $s = DB::table('membresias.membresia_suspensiones')
                 ->where('membresia_id', $id)->where('estado', 'VIGENTE')->lockForUpdate()->first();
             $this->politica->validarReactivacion((string) $m->estado, $s !== null);
+            if ($s->tipo === CongelacionSinUsoServicio::TIPO) {
+                if ($fechaEfectiva !== null) {
+                    throw ValidationException::withMessages(['fecha' => 'La congelación sin uso se reactiva solo de forma manual.']);
+                }
+                return $this->sinUso->reactivar($id, $m, $s, $motivo, $usuarioId,
+                    $this->validarMotivoCatalogado($motivoCodigo, 'REACTIVAR'));
+            }
             // El scheduler puede reconciliar una finalización previamente
             // autorizada; la llamada humana siempre usa la fecha efectiva real.
             $hoy = $fechaEfectiva

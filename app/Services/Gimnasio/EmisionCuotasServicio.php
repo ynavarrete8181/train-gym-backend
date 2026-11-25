@@ -106,7 +106,14 @@ class EmisionCuotasServicio
                 );
                 $importeDescuento = round((float) $beneficio['importe_descuento'], 2);
                 $totalCuota = round((float) $cuota->monto - $importeDescuento, 2);
-                $numeroVenta = 'VENTA-CUOTA-' . $cuota->id;
+                // Una cuota anulada y vuelta a programar (congelación sin uso) conserva su
+                // venta anterior: la nueva lleva sufijo para no repetir el número.
+                $sufijo = '';
+                for ($n = 2; DB::table('ventas.ventas')->where('numero', 'VENTA-CUOTA-' . $cuota->id . $sufijo)->exists()
+                    || DB::table('ventas.comprobantes')->where('numero', 'COMP-CUOTA-' . $cuota->id . $sufijo)->exists(); $n++) {
+                    $sufijo = '-' . $n;
+                }
+                $numeroVenta = 'VENTA-CUOTA-' . $cuota->id . $sufijo;
                 $ventaId = DB::table('ventas.ventas')->insertGetId([
                     'cliente_id' => $membresia->deportista_id,
                     'membresia_id' => $membresia->id,
@@ -149,7 +156,7 @@ class EmisionCuotasServicio
                     'venta_id' => $ventaId,
                     'pago_id' => null,
                     'tipo_comprobante' => 'RECIBO',
-                    'numero' => 'COMP-CUOTA-' . $cuota->id,
+                    'numero' => 'COMP-CUOTA-' . $cuota->id . $sufijo,
                     'estado' => 'BORRADOR',
                     'subtotal' => $cuota->monto,
                     'impuesto' => 0,

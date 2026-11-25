@@ -231,6 +231,21 @@ final class CicloVidaMembresiaControlador extends Controller
         return ApiResponse::exito('Congelación registrada.', $this->servicio->congelar($id, $datos, (int) $request->user()->id));
     }
 
+    /** Congelar sin uso: anula la cuota impaga de un período no usado y congela desde su inicio. */
+    public function congelarSinUso(Request $request, int $id)
+    {
+        $this->validarAlcance($request, $id);
+        abort_unless($this->alcance->puedeGestionarCartera((int) $request->user()->id), 403,
+            'Solo administración puede anular una cuota al congelar.');
+        $datos = $request->validate([
+            'fecha_regreso' => 'required|date_format:Y-m-d',
+            'motivo' => 'required|string|min:8|max:1000',
+            'motivo_codigo' => 'required|string|max:60',
+        ]);
+        return ApiResponse::exito('Contrato congelado sin uso: la cuota quedó anulada y se volverá a emitir al regresar.',
+            app(\App\Services\Gimnasio\CongelacionSinUsoServicio::class)->congelar($id, $datos, (int) $request->user()->id));
+    }
+
     public function previsualizarReactivacion(Request $request, int $id)
     {
         $this->validarAlcance($request, $id);

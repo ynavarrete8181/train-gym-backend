@@ -261,4 +261,5 @@ Route::middleware(['base.auth'])->prefix('gimnasio')->group(function (): void {
         Route::put('reservas-dia/{id}', [ServicioAgendaControlador::class, 'guardarReservaDia'])->name('gimnasio.reservas-dia.update');
     });
 
+    require __DIR__.'/gimnasio/reportes.php';
 });

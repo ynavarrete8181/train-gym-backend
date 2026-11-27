@@ -92,8 +92,17 @@ final class CicloVidaMembresiaServicio
         if (! $inicio || ! $finActual || ! $finNuevo || $finNuevo->format('Y-m-d') !== $nuevaFechaFin) {
             throw ValidationException::withMessages(['fecha_fin' => 'La nueva fecha final no es válida.']);
         }
-        if (! $finNuevo->greaterThan($finActual)) {
-            throw ValidationException::withMessages(['fecha_fin' => 'La prórroga debe ampliar la fecha autorizada actual.']);
+        if ($finNuevo->equalTo($finActual)) {
+            throw ValidationException::withMessages(['fecha_fin' => 'Elige una fecha distinta a la autorizada actual.']);
+        }
+        // Acortar: el cliente vuelve antes de lo previsto. No puede quedar antes de hoy
+        // (para eso está "Reactivar membresía", que reconoce solo los días efectivos).
+        $hoy = CarbonImmutable::today('America/Guayaquil');
+        if ($finNuevo->lessThan($finActual) && $finNuevo->lessThan($hoy)) {
+            throw ValidationException::withMessages(['fecha_fin' => 'La nueva fecha no puede ser anterior a hoy; si ya regresó, usa "Reactivar membresía".']);
+        }
+        if ($finNuevo->lessThan($inicio)) {
+            throw ValidationException::withMessages(['fecha_fin' => 'La fecha final no puede ser anterior al inicio de la congelación.']);
         }
         $diasTotales = (int) $inicio->diffInDays($finNuevo) + 1;
         if ($diasTotales > 90) {

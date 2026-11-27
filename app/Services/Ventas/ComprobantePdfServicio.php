@@ -109,6 +109,21 @@ class ComprobantePdfServicio
                 ! empty($detalle->producto_id) => 'Producto · precio de venta en ' . ($venta->sede_nombre ?? 'la sede'),
                 default => null,
             };
+            // Congelación de tiempo dentro del período: explica por qué el mes termina después.
+            if ($nota && ($detalle->tipo_item ?? null) === 'MEMBRESIA' && ! $esPase && $periodo && ! empty($venta->membresia_id)) {
+                $congelacion = \Illuminate\Support\Facades\DB::table('membresias.membresia_suspensiones')
+                    ->where('membresia_id', $venta->membresia_id)->where('tipo', 'TIEMPO')
+                    ->whereIn('estado', ['VIGENTE', 'FINALIZADA'])
+                    ->where('fecha_inicio', '<=', $periodo->fecha_fin)
+                    ->whereRaw('COALESCE(fecha_fin_real, fecha_fin_prevista) >= ?', [$periodo->fecha_inicio])
+                    ->orderByDesc('id')->first();
+                if ($congelacion) {
+                    $finCongelacion = $congelacion->fecha_fin_real ?? $congelacion->fecha_fin_prevista;
+                    $diasCongelados = (int) round((strtotime((string) $finCongelacion) - strtotime((string) $congelacion->fecha_inicio)) / 86400) + 1;
+                    $nota .= sprintf(' · Incluye %d días de congelación (%s al %s)', $diasCongelados,
+                        $fechaCorta($congelacion->fecha_inicio), $fechaCorta($finCongelacion));
+                }
+            }
             if ($nota) {
                 foreach ($this->wrap($nota, 105) as $linea) {
                     $this->text($ops, 48, $y + 1, $linea, 7.5, false, $gris);

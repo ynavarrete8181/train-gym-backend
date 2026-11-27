@@ -69,7 +69,10 @@ final class RenovacionContratoProgramadoServicio
         $ultimo = DB::table('membresias.membresia_periodos')
             ->where('membresia_id', $id)->orderByDesc('numero_periodo');
         $ultimo = $bloquear ? $ultimo->lockForUpdate()->first() : $ultimo->first();
-        if (! $ultimo || (int) $ultimo->numero_periodo !== (int) $m->cantidad_periodos_contratados) {
+        // Los períodos cancelados (meses anulados con historial) conservan su número pero ya no
+        // cuentan como contratados.
+        $cancelados = DB::table('membresias.membresia_periodos')->where('membresia_id', $id)->where('estado', 'CANCELADA')->count();
+        if (! $ultimo || (int) $ultimo->numero_periodo !== (int) $m->cantidad_periodos_contratados + $cancelados) {
             throw ValidationException::withMessages([
                 'membresia_id' => 'El calendario de períodos no coincide con el contrato. Revisa el historial antes de renovar.',
             ]);
@@ -101,6 +104,11 @@ final class RenovacionContratoProgramadoServicio
         $cuotas = DB::table('membresias.membresia_cuotas')
             ->where('membresia_id', $id)->orderBy('numero_cuota');
         $cuotas = $bloquear ? $cuotas->lockForUpdate()->get() : $cuotas->get();
+        // Una cuota anulada cuyo período se canceló (p. ej. un mes cobrado por error y anulado
+        // con historial) ya no forma parte del contrato: no cuenta ni bloquea la renovación.
+        $periodosCancelados = DB::table('membresias.membresia_periodos')
+            ->where('membresia_id', $id)->where('estado', 'CANCELADA')->pluck('id')->all();
+        $cuotas = $cuotas->reject(fn ($c) => $c->estado === 'ANULADA' && in_array($c->periodo_id, $periodosCancelados))->values();
         if ($cuotas->count() !== (int) $m->cantidad_periodos_contratados
             || $cuotas->pluck('periodo_id')->unique()->count() !== $cuotas->count()) {
             throw ValidationException::withMessages([
@@ -211,7 +219,8 @@ final class RenovacionContratoProgramadoServicio
                 'updated_at' => $ahora,
             ]);
             DB::table('membresias.membresias')->where('id', $id)->update([
-                'cantidad_periodos_contratados' => $p['numero_periodo_nuevo'],
+                'cantidad_periodos_contratados' => $p['numero_periodo_nuevo'] - DB::table('membresias.membresia_periodos')
+                    ->where('membresia_id', $id)->where('estado', 'CANCELADA')->count(),
                 'fecha_fin' => $p['fecha_fin'],
                 'updated_at' => $ahora,
             ]);

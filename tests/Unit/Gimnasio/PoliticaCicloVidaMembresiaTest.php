@@ -130,4 +130,24 @@ class PoliticaCicloVidaMembresiaTest extends TestCase
         $this->politica->validarCierre('CONGELADA', 'Retiro voluntario');
         $this->assertTrue(true);
     }
+
+    public function test_administracion_reconoce_hasta_siete_dias_atras(): void
+    {
+        $intervalo = $this->politica->validarIntervalo('2026-11-24', '2026-11-29', '2026-11-26', 7);
+        $this->assertSame(6, $intervalo['dias']);
+        $this->assertSame('2026-12-06', $this->politica->calcularFinAjustado('2026-11-30', $intervalo['dias']));
+    }
+
+    public function test_administracion_no_supera_siete_dias_atras(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->politica->validarIntervalo('2026-11-18', '2026-11-29', '2026-11-26', 7);
+    }
+
+    public function test_pendiente_de_pago_solo_se_congela_con_excepcion_y_por_tiempo(): void
+    {
+        $this->politica->validarCongelacion('PENDIENTE_PAGO', 'TIEMPO', false, false, true);
+        $this->expectException(ValidationException::class);
+        $this->politica->validarCongelacion('PENDIENTE_PAGO', 'TIEMPO', false, false, false);
+    }
 }

@@ -1078,12 +1078,26 @@ final class CicloVidaMembresiaServicio
             $sigueDebiendo = ($inicioDetalle['estado_anterior'] ?? null) === 'PENDIENTE_PAGO'
                 && DB::table('ventas.ventas')->where('membresia_id', $id)->whereNotIn('estado', ['ANULADA', 'PAGADA'])->exists();
             $estadoRegreso = $sigueDebiendo ? 'PENDIENTE_PAGO' : 'ACTIVA';
+            // El día de pago se corre con los días congelados: el próximo mes empieza el día
+            // siguiente al nuevo vencimiento y se paga ese día (p. ej. día 1 → día 6). Solo si
+            // ya no quedan cuotas programadas: esas conservan su calendario.
+            $diaPagoNuevo = null;
+            if ($s->tipo === PoliticaCicloVidaMembresia::TIEMPO && (int) ($m->dia_pago ?? 0) > 0
+                && ! DB::table('membresias.membresia_cuotas')->where('membresia_id', $id)->where('estado', 'PROGRAMADA')->exists()) {
+                $diaPagoNuevo = (int) CarbonImmutable::parse($finNuevo)->addDay()->day;
+            }
             DB::table('membresias.membresias')->where('id', $id)->update([
                 'estado' => $estadoRegreso,
                 'estado_id' => $this->estados->idPorValor('MEMBRESIA', $estadoRegreso),
                 'fecha_fin' => $finNuevo,
                 'updated_at' => now(),
-            ]);
+            ] + ($diaPagoNuevo ? ['dia_pago' => $diaPagoNuevo] : []));
+            if ($diaPagoNuevo && $diaPagoNuevo !== (int) $m->dia_pago) {
+                $detalleFin = json_decode((string) DB::table('membresias.membresia_movimientos')->where('id', $movimientoId)->value('detalle'), true) ?: [];
+                DB::table('membresias.membresia_movimientos')->where('id', $movimientoId)->update([
+                    'detalle' => json_encode($detalleFin + ['dia_pago_anterior' => (int) $m->dia_pago, 'dia_pago_nuevo' => $diaPagoNuevo], JSON_THROW_ON_ERROR),
+                ]);
+            }
             // Desplazar cada tramo pendiente de servicio, sin sobreescribir
             // todas las fechas finales con una misma fecha.
             $periodos = DB::table('membresias.membresia_periodos')

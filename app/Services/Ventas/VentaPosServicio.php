@@ -394,6 +394,13 @@ class VentaPosServicio
                 'm.codigo_contrato as membresia_codigo',
                 DB::raw('(SELECT mp.fecha_inicio FROM membresias.membresia_periodos mp WHERE mp.venta_id = v.id ORDER BY mp.id DESC LIMIT 1) as periodo_fecha_inicio'),
                 DB::raw('(SELECT mp.fecha_fin FROM membresias.membresia_periodos mp WHERE mp.venta_id = v.id ORDER BY mp.id DESC LIMIT 1) as periodo_fecha_fin'),
+                // Congelación de tiempo dentro del período cobrado: la deuda no cambia, pero el mes se corre.
+                DB::raw("(SELECT json_build_object('inicio', s.fecha_inicio, 'fin', COALESCE(s.fecha_fin_real, s.fecha_fin_prevista),
+                    'estado', s.estado, 'vence', s.fecha_fin_ajustada)::text
+                    FROM membresias.membresia_suspensiones s JOIN membresias.membresia_periodos mp ON mp.venta_id = v.id
+                    WHERE s.membresia_id = v.membresia_id AND s.tipo = 'TIEMPO' AND s.estado IN ('PROGRAMADA','VIGENTE','FINALIZADA')
+                      AND s.fecha_inicio <= mp.fecha_fin AND COALESCE(s.fecha_fin_real, s.fecha_fin_prevista) >= mp.fecha_inicio
+                    ORDER BY s.id DESC LIMIT 1) as congelacion"),
                 DB::raw('(v.total - COALESCE((SELECT SUM(pg.monto) FROM ventas.pagos pg WHERE pg.venta_id = v.id AND pg.estado = \'CONFIRMADO\'), 0)) as saldo_pendiente'),
             ])
             ->map(fn ($venta) => $this->conResponsablePago((array) $venta))

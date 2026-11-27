@@ -394,7 +394,10 @@ final class CicloVidaMembresiaServicio
         return DB::table('membresias.planes')->where('id', $m->plan_id)->value('tipo_producto') === 'PASE_DIARIO';
     }
 
-    private function motivoBloqueoFinanciero(int $id, object $m): ?string
+    /** Días hacia atrás que administración puede reconocer al congelar por tiempo. */
+    public const DIAS_RETROACTIVOS = 7;
+
+    private function motivoBloqueoFinanciero(int $id, object $m, bool $excepcional = false, ?string $inicio = null): ?string
     {
         if ((bool) ($m->generar_venta_automatica ?? false)) {
             return 'Desactiva los cobros recurrentes mediante el proceso financiero de Fase 3.';
@@ -403,6 +406,22 @@ final class CicloVidaMembresiaServicio
         $periodos = DB::table('membresias.membresia_periodos')->where('membresia_id', $id)->get();
         if ($periodos->isEmpty()) {
             return 'El contrato no tiene períodos registrados para compensar días.';
+        }
+
+        // Excepción de administración: se puede congelar con la cuota del mes en curso por cobrar.
+        // La deuda no cambia; solo se corre el vencimiento. Cuotas de meses anteriores sí bloquean.
+        if ($excepcional && $inicio !== null) {
+            $pendientes = DB::table('ventas.ventas as v')
+                ->leftJoin('membresias.membresia_periodos as mp', 'mp.venta_id', '=', 'v.id')
+                ->where('v.membresia_id', $id)->whereNotIn('v.estado', ['ANULADA', 'PAGADA'])
+                ->get(['v.id', 'mp.fecha_fin']);
+            if ($pendientes->contains(fn ($v) => ! $v->fecha_fin || substr((string) $v->fecha_fin, 0, 10) < $inicio)) {
+                return 'Tiene cuotas de meses anteriores sin pagar; cóbralas o regularízalas antes de congelar.';
+            }
+            if ($pendientes->isEmpty() && ! DB::table('ventas.ventas')->where('membresia_id', $id)->where('estado', 'PAGADA')->exists()) {
+                return 'La congelación de tiempo requiere un contrato con su cuota emitida.';
+            }
+            return null;
         }
 
         // En TIEMPO las cuotas todavía PROGRAMADA conservan su día de pago.
@@ -429,6 +448,11 @@ final class CicloVidaMembresiaServicio
         if (! in_array($tipo, [PoliticaCicloVidaMembresia::TIEMPO, PoliticaCicloVidaMembresia::FACTURACION], true)) {
             throw ValidationException::withMessages(['tipo' => 'Tipo de congelación no reconocido.']);
         }
+        // La excepción la concede el controlador (administración), nunca el cliente de la API.
+        $excepcional = (bool) ($datos['excepcional'] ?? false) && $tipo === PoliticaCicloVidaMembresia::TIEMPO
+            && $ignorarSuspensionId === null
+            // Solo para congelaciones que empiezan hoy o antes: las programadas se revalidan sin excepción.
+            && (string) ($datos['fecha_inicio'] ?? '') <= now('America/Guayaquil')->toDateString();
         // La edición solo puede excluir su propia programación validada.
         // Nunca se permite omitir otras suspensiones del contrato.
         if ($ignorarSuspensionId !== null) {
@@ -451,9 +475,27 @@ final class CicloVidaMembresiaServicio
         $existe = $consultaSuspensiones->exists();
         $hayCuotas = DB::table('membresias.membresia_cuotas')
             ->where('membresia_id', $id)->where('estado', 'PROGRAMADA')->exists();
-        $this->politica->validarCongelacion((string) $m->estado, $tipo, $existe, $hayCuotas);
-        $intervalo = $this->politica->validarIntervalo($datos['fecha_inicio'], $datos['fecha_fin'], now('America/Guayaquil')->toDateString());
+        $this->politica->validarCongelacion((string) $m->estado, $tipo, $existe, $hayCuotas, $excepcional);
+        $intervalo = $this->politica->validarIntervalo($datos['fecha_inicio'], $datos['fecha_fin'],
+            now('America/Guayaquil')->toDateString(), $excepcional ? self::DIAS_RETROACTIVOS : 0);
         $hoy = now('America/Guayaquil')->toDateString();
+        $retroactiva = $intervalo['fecha_inicio'] < $hoy;
+        if ($retroactiva) {
+            if ($intervalo['fecha_inicio'] < substr((string) $m->fecha_inicio, 0, 10)) {
+                throw ValidationException::withMessages(['fecha_inicio' => 'La congelación no puede empezar antes del inicio del contrato.']);
+            }
+            $asistio = DB::table('acceso.asistencias')->where('cliente_id', $m->deportista_id)
+                ->whereRaw('fecha_hora::date BETWEEN ? AND ?', [$intervalo['fecha_inicio'], min($hoy, $intervalo['fecha_fin'])])
+                ->min(DB::raw('fecha_hora::date'));
+            if ($asistio) {
+                throw ValidationException::withMessages(['fecha_inicio' => 'Registra asistencia el '
+                    .CarbonImmutable::parse($asistio)->format('d/m/Y').'; la congelación debe empezar después de ese día.']);
+            }
+            if (DB::table('membresias.membresia_suspensiones')->where('membresia_id', $id)->where('estado', 'FINALIZADA')
+                ->whereRaw('COALESCE(fecha_fin_real, fecha_fin_prevista) >= ?', [$intervalo['fecha_inicio']])->exists()) {
+                throw ValidationException::withMessages(['fecha_inicio' => 'Se cruza con una congelación anterior.']);
+            }
+        }
         // Una vista previa puede planificarse a futuro, sin registrar operaciones.
         // Solo la ejecución real exige inicio hoy y ausencia de bloqueos financieros.
         if ($intervalo['fecha_fin'] > substr((string) $m->fecha_fin, 0, 10)) {
@@ -462,7 +504,8 @@ final class CicloVidaMembresiaServicio
         $financiero = $this->impactoFinanciero->previsualizar(
             $id, $intervalo['fecha_inicio'], $intervalo['fecha_fin'], $tipo
         );
-        $bloqueo = $this->motivoBloqueoFinanciero($id, $m);
+        $bloqueo = $this->motivoBloqueoFinanciero($id, $m, $excepcional, $intervalo['fecha_inicio']);
+        $conDeuda = DB::table('ventas.ventas')->where('membresia_id', $id)->whereNotIn('estado', ['ANULADA', 'PAGADA'])->exists();
         // En FACTURACION se acepta un contrato a cuotas solo si no hay deudas
         // emitidas, ni ventas periódicas recurrentes, ni cuotas vencidas sin emitir.
         // TIEMPO conserva la política conservadora de la Fase 2.
@@ -509,6 +552,10 @@ final class CicloVidaMembresiaServicio
             'modifica_pagos' => false,
             'requiere_reprogramacion_financiera' => $tipo === PoliticaCicloVidaMembresia::FACTURACION,
             'impacto_financiero' => $financiero,
+            'retroactiva' => $retroactiva,
+            'termina_antes_de_hoy' => $intervalo['fecha_fin'] < $hoy,
+            'con_deuda' => $conDeuda,
+            'estado_anterior' => strtoupper((string) $m->estado),
         ];
     }
 
@@ -848,7 +895,8 @@ final class CicloVidaMembresiaServicio
             $previa = $this->previsualizar($id, $datos);
             // Revalidación obligatoria bajo bloqueo: no puede programarse una
             // congelación futura ni sortearse la prohibición financiera por API.
-            if ($previa['inicio'] !== now('America/Guayaquil')->toDateString()) {
+            $hoy = now('America/Guayaquil')->toDateString();
+            if ($previa['inicio'] !== $hoy && ! ($previa['retroactiva'] && ($datos['excepcional'] ?? false))) {
                 throw ValidationException::withMessages([
                     'fecha_inicio' => 'Solo es posible confirmar una congelación que inicia hoy.',
                 ]);
@@ -863,11 +911,11 @@ final class CicloVidaMembresiaServicio
                 'membresia_id' => $id,
                 'tipo' => PoliticaCicloVidaMembresia::CONGELAR,
                 'estado' => 'CONFIRMADO',
-                'fecha_efectiva' => now('America/Guayaquil')->toDateString(),
+                'fecha_efectiva' => $previa['inicio'],
                 'motivo' => trim($datos['motivo']),
                 'usuario_id' => $usuarioId,
                 'autorizado_por' => $usuarioId,
-                'detalle' => json_encode($previa + ['motivo_codigo' => $codigoMotivo], JSON_THROW_ON_ERROR),
+                'detalle' => json_encode($previa + ['motivo_codigo' => $codigoMotivo, 'registrado_el' => $hoy], JSON_THROW_ON_ERROR),
                 'created_at' => now(), 'updated_at' => now(),
             ]);
             $suspensionId = DB::table('membresias.membresia_suspensiones')->insertGetId([
@@ -889,7 +937,16 @@ final class CicloVidaMembresiaServicio
                 'updated_at' => now(),
             ]);
 
-            return ['suspension_id' => $suspensionId, 'movimiento_id' => $movimientoId] + $previa;
+            // Congelación ya cumplida (empezó y terminó antes de hoy): se cierra en el acto
+            // y los días se suman al vencimiento.
+            if ($previa['termina_antes_de_hoy']) {
+                $this->reactivar($id, 'Fin de la congelación retroactiva registrada el '
+                    .CarbonImmutable::parse($hoy)->format('d/m/Y').': '.trim($datos['motivo']), null,
+                    CarbonImmutable::parse($previa['fin_previsto'])->addDay()->toDateString());
+            }
+
+            return ['suspension_id' => $suspensionId, 'movimiento_id' => $movimientoId,
+                'estado' => DB::table('membresias.membresia_suspensiones')->where('id', $suspensionId)->value('estado')] + $previa;
         });
     }
 
@@ -1006,9 +1063,15 @@ final class CicloVidaMembresiaServicio
                 'dias_reconocidos' => $dias, 'fecha_fin_ajustada' => $finNuevo,
                 'movimiento_fin_id' => $movimientoId, 'updated_at' => now(),
             ]);
+            // Si se congeló con la cuota por cobrar y sigue sin pagarse, vuelve a "Pendiente de pago".
+            $inicioDetalle = json_decode((string) DB::table('membresias.membresia_movimientos')
+                ->where('id', $s->movimiento_inicio_id)->value('detalle'), true) ?: [];
+            $sigueDebiendo = ($inicioDetalle['estado_anterior'] ?? null) === 'PENDIENTE_PAGO'
+                && DB::table('ventas.ventas')->where('membresia_id', $id)->whereNotIn('estado', ['ANULADA', 'PAGADA'])->exists();
+            $estadoRegreso = $sigueDebiendo ? 'PENDIENTE_PAGO' : 'ACTIVA';
             DB::table('membresias.membresias')->where('id', $id)->update([
-                'estado' => 'ACTIVA',
-                'estado_id' => $this->estados->idPorValor('MEMBRESIA', 'ACTIVA'),
+                'estado' => $estadoRegreso,
+                'estado_id' => $this->estados->idPorValor('MEMBRESIA', $estadoRegreso),
                 'fecha_fin' => $finNuevo,
                 'updated_at' => now(),
             ]);

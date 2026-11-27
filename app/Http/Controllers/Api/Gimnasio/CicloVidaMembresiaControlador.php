@@ -130,6 +130,12 @@ final class CicloVidaMembresiaControlador extends Controller
         // autenticación y GIMNASIO-MEMBRESIAS; las operaciones que modifican el contrato
         // siguen validando la sede.
         $resumen = $this->servicio->resumen($id);
+        // Congelación excepcional (administración): hasta N días atrás y con la cuota del mes por cobrar.
+        $admin = $this->alcance->puedeGestionarCartera((int) $request->user()->id);
+        $resumen['congelacion_excepcional'] = $admin ? [
+            'dias_retroactivos' => \App\Services\Gimnasio\CicloVidaMembresiaServicio::DIAS_RETROACTIVOS,
+            'permite_pendiente_pago' => strtoupper((string) $resumen['estado']) === 'PENDIENTE_PAGO',
+        ] : null;
         $resumen['puede_reabrir'] = strtoupper((string) $resumen['estado']) === 'CANCELADA'
             && $this->alcance->esGlobal((int) $request->user()->id);
         // Cambiar el precio pactado: solo administradores, contratos (no pases) no cancelados.
@@ -167,6 +173,7 @@ final class CicloVidaMembresiaControlador extends Controller
             'fecha_inicio' => 'required|date_format:Y-m-d',
             'fecha_fin' => 'required|date_format:Y-m-d|after_or_equal:fecha_inicio',
         ]);
+        $datos['excepcional'] = $this->alcance->puedeGestionarCartera((int) $request->user()->id);
         return ApiResponse::exito('Vista previa sin efectos sobre el contrato.', $this->servicio->previsualizar($id, $datos));
     }
 
@@ -228,6 +235,8 @@ final class CicloVidaMembresiaControlador extends Controller
             'motivo' => 'required|string|min:8|max:1000',
             'motivo_codigo' => 'nullable|string|max:60',
         ]);
+        // Administración puede reconocer días pasados y congelar con la cuota del mes por cobrar.
+        $datos['excepcional'] = $this->alcance->puedeGestionarCartera((int) $request->user()->id);
         return ApiResponse::exito('Congelación registrada.', $this->servicio->congelar($id, $datos, (int) $request->user()->id));
     }
 

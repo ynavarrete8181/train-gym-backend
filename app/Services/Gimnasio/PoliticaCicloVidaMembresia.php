@@ -32,7 +32,7 @@ final class PoliticaCicloVidaMembresia
      *
      * @return array{fecha_inicio:string, fecha_fin:string, dias:int}
      */
-    public function validarIntervalo(string $inicio, string $fin, ?string $hoy = null): array
+    public function validarIntervalo(string $inicio, string $fin, ?string $hoy = null, int $diasRetroactivos = 0): array
     {
         try {
             $desde = CarbonImmutable::createFromFormat('!Y-m-d', $inicio);
@@ -49,8 +49,14 @@ final class PoliticaCicloVidaMembresia
         if ($hasta->lessThan($desde)) {
             throw ValidationException::withMessages(['fecha_fin' => 'La fecha final no puede ser anterior al inicio.']);
         }
-        if ($desde->lessThan($fechaHoy)) {
+        if ($desde->lessThan($fechaHoy) && $diasRetroactivos <= 0) {
             throw ValidationException::withMessages(['fecha_inicio' => 'La congelación retroactiva requiere autorización excepcional.']);
+        }
+        // Excepción de administración: el cliente avisó tarde (p. ej. estuvo enfermo).
+        if ($desde->lessThan($fechaHoy->subDays($diasRetroactivos))) {
+            throw ValidationException::withMessages([
+                'fecha_inicio' => "La congelación solo puede empezar hasta {$diasRetroactivos} días antes de hoy.",
+            ]);
         }
 
         return [
@@ -64,9 +70,12 @@ final class PoliticaCicloVidaMembresia
         string $estado,
         string $tipo,
         bool $existeSuspensionNoTerminada,
-        bool $hayCuotasProgramadas
+        bool $hayCuotasProgramadas,
+        bool $excepcional = false
     ): void {
-        if (strtoupper($estado) !== 'ACTIVA') {
+        // Administración puede congelar por tiempo un contrato con la cuota del mes por cobrar.
+        $pendienteAutorizado = $excepcional && strtoupper($estado) === 'PENDIENTE_PAGO' && strtoupper($tipo) === self::TIEMPO;
+        if (strtoupper($estado) !== 'ACTIVA' && ! $pendienteAutorizado) {
             throw ValidationException::withMessages([
                 'estado' => 'Solo se puede congelar una membresía activa. Otros casos requieren revisión administrativa.',
             ]);
